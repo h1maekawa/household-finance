@@ -63,12 +63,12 @@ export async function parseChatInput(text: string): Promise<ParsedTransaction> {
   const validCategories = CATEGORIES.map((c) => c.name)
   const validPayments = PAYMENT_METHODS.map((p) => p.name)
 
-  if (!validCategories.includes(parsed.category)) {
+  if (!(validCategories as string[]).includes(parsed.category)) {
     parsed.category = 'その他'
     parsed.confidence = 'low'
   }
 
-  if (!validPayments.includes(parsed.payment_method)) {
+  if (!(validPayments as string[]).includes(parsed.payment_method)) {
     parsed.payment_method = '現金'
     parsed.confidence = 'low'
   }
