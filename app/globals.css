@@ -1,0 +1,123 @@
+@import "tailwindcss";
+
+:root {
+  --background: #F9FAFB;
+  --foreground: #111827;
+  --card: #FFFFFF;
+  --primary: #3B82F6;
+  --primary-dark: #2563EB;
+  --danger: #EF4444;
+  --success: #10B981;
+  --warning: #F59E0B;
+  --surface: #F9FAFB;
+  --border: #E5E7EB;
+  --muted: #6B7280;
+  --bottom-nav-height: 64px;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-primary: var(--primary);
+  --color-primary-dark: var(--primary-dark);
+  --color-danger: var(--danger);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-surface: var(--surface);
+  --color-border: var(--border);
+  --color-muted: var(--muted);
+}
+
+/* ===== Base ===== */
+* {
+  box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Hiragino Kino Gothic ProN",
+    "Noto Sans JP", "Yu Gothic", Meiryo, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  min-height: 100svh;
+}
+
+/* ===== Shimmer Skeleton ===== */
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    #e5e7eb 25%,
+    #f3f4f6 50%,
+    #e5e7eb 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.4s infinite linear;
+  border-radius: 0.5rem;
+}
+
+/* ===== Toast Animation ===== */
+@keyframes slideInDown {
+  from { transform: translateY(-100%); opacity: 0; }
+  to   { transform: translateY(0);     opacity: 1; }
+}
+
+@keyframes slideOutUp {
+  from { transform: translateY(0);     opacity: 1; }
+  to   { transform: translateY(-100%); opacity: 0; }
+}
+
+.toast-enter {
+  animation: slideInDown 0.3s ease forwards;
+}
+
+.toast-exit {
+  animation: slideOutUp 0.3s ease forwards;
+}
+
+/* ===== Swipe Delete ===== */
+@keyframes swipeReveal {
+  from { transform: translateX(0); }
+  to   { transform: translateX(-80px); }
+}
+
+/* ===== Card ===== */
+.card {
+  background: var(--card);
+  border-radius: 1rem;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
+  border: 1px solid var(--border);
+}
+
+/* ===== Amount Colors ===== */
+.amount-expense { color: var(--danger); }
+.amount-income  { color: var(--success); }
+
+/* ===== Scrollbar ===== */
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 2px; }
+
+/* ===== Safe Area (iPhone) ===== */
+.safe-bottom {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+.pb-nav {
+  padding-bottom: calc(var(--bottom-nav-height) + env(safe-area-inset-bottom, 0px) + 16px);
+}
+
+/* ===== Transitions ===== */
+.transition-base {
+  transition: all 0.2s ease;
+}
