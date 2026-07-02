@@ -1,7 +1,9 @@
 'use client'
 
 import Link from 'next/link'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import { isSupabaseConfigured, supabase } from '@/lib/supabase'
+import { useToast } from '@/components/Toast'
 
 const fixedCosts = [
   { name: '家賃', amount: '80,000', day: '毎月25日' },
@@ -16,6 +18,33 @@ const cards = [
 
 export default function FlowSetupWizard() {
   const [step, setStep] = useState(0)
+  const { showToast } = useToast()
+
+  useEffect(() => {
+    if (!isSupabaseConfigured) return
+
+    supabase.auth.getSession().then(({ data }) => {
+      if (data.session) setStep(1)
+    })
+  }, [])
+
+  async function handleGoogleLogin() {
+    if (!isSupabaseConfigured) {
+      showToast('Supabase環境変数を設定するとGoogleログインに接続できます', 'warning')
+      setStep(1)
+      return
+    }
+
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: {
+        redirectTo: `${window.location.origin}/flow/setup`,
+        scopes: 'https://www.googleapis.com/auth/gmail.readonly',
+      },
+    })
+
+    if (error) showToast('Googleログインを開始できませんでした', 'error')
+  }
 
   return (
     <div className="min-h-svh bg-[#F4F6F9] px-5 py-10 text-[#1E2933] flex items-center justify-center">
@@ -25,7 +54,7 @@ export default function FlowSetupWizard() {
         </Link>
 
         <div className="rounded-2xl border border-[#E6EAEF] bg-white px-6 py-8 shadow-[0_20px_40px_-28px_rgba(30,41,51,.16)] sm:px-[30px]">
-          {step === 0 && <LoginScreen onNext={() => setStep(1)} />}
+          {step === 0 && <LoginScreen onNext={handleGoogleLogin} />}
           {step === 1 && <BalanceScreen onNext={() => setStep(2)} />}
           {step === 2 && <IncomeScreen onBack={() => setStep(1)} onNext={() => setStep(3)} />}
           {step === 3 && <FixedCostsScreen onBack={() => setStep(2)} onNext={() => setStep(4)} />}
