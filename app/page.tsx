@@ -93,6 +93,16 @@ export default function DashboardPage() {
           </div>
         </Link>
 
+        <Link href="/flow/setup" className="card p-4 block active:opacity-80">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-sm font-bold">Flow+ 初期設定</p>
+              <p className="text-xs text-muted mt-1">ログインから残高・収入・固定費・カード締め日まで</p>
+            </div>
+            <span className="text-primary text-sm font-bold shrink-0">開く →</span>
+          </div>
+        </Link>
+
         {/* Investment Assets */}
         {investments?.summary && (
           <Link href="/investments" className="card p-4 block active:opacity-80">

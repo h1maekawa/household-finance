@@ -35,7 +35,8 @@ export default function FlowMockupPage() {
         <SidebarItem label="ホーム" active />
         <SidebarItem label="家計簿" />
         <SidebarItem label="資産運用" />
-        <Link href="/" className="mt-5 block px-3 py-2 text-xs text-[#8891A0]">通常版へ戻る</Link>
+        <Link href="/flow/setup" className="mt-5 block px-3 py-2 text-xs text-[#1476B3]">初期設定</Link>
+        <Link href="/" className="block px-3 py-2 text-xs text-[#8891A0]">通常版へ戻る</Link>
       </aside>
 
       <main className="mx-auto w-full max-w-[1080px] px-4 py-6 pb-24 lg:px-10 lg:py-8">
@@ -44,7 +45,10 @@ export default function FlowMockupPage() {
             <p className="text-xs text-[#8891A0] lg:hidden">Flow+</p>
             <h1 className="text-xl font-bold">ホーム</h1>
           </div>
-          <span className="font-mono text-xs text-[#8891A0]">2026.07.03 (金)</span>
+          <div className="flex items-center gap-3">
+            <Link href="/flow/setup" className="rounded-full border border-[#E6EAEF] bg-white px-3 py-1.5 text-xs font-medium text-[#1476B3]">初期設定</Link>
+            <span className="font-mono text-xs text-[#8891A0]">2026.07.03 (金)</span>
+          </div>
         </div>
 
         <section className="rounded-[14px] border border-[#E6EAEF] bg-white px-5 py-5 lg:px-6">
