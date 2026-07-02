@@ -26,6 +26,7 @@ export default function DashboardPage() {
     `/api/analysis/fixed-variable?year=${year}&month=${mo}`,
     fetcher
   )
+  const { data: investments } = useSWR('/api/investments', fetcher)
 
   const transactions = data?.transactions ?? []
   const summary      = data?.summary ?? { total: 0, by_category: {} }
@@ -80,6 +81,40 @@ export default function DashboardPage() {
         {/* Alerts */}
         {analysis?.alerts?.length > 0 && (
           <AlertBanner alerts={analysis.alerts} />
+        )}
+
+        <Link href="/flow" className="card p-4 block active:opacity-80">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-sm font-bold">Flow+ デザインを見る</p>
+              <p className="text-xs text-muted mt-1">家計簿と資産運用をまとめた新しいモックアップ</p>
+            </div>
+            <span className="text-primary text-sm font-bold shrink-0">開く →</span>
+          </div>
+        </Link>
+
+        {/* Investment Assets */}
+        {investments?.summary && (
+          <Link href="/investments" className="card p-4 block active:opacity-80">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-xs text-muted mb-1">資産合計</p>
+                <p className="text-2xl font-bold">
+                  {investments.summary.investmentValue.toLocaleString()}
+                  <span className="text-sm font-normal text-muted ml-1">円</span>
+                </p>
+                <p className="text-xs text-muted mt-1">現金 + 投資評価額のうち、投資評価額を連携中</p>
+              </div>
+              <div className="text-right shrink-0">
+                <p className={`text-sm font-bold ${investments.summary.dayPnl >= 0 ? 'text-success' : 'text-danger'}`}>
+                  {investments.summary.dayPnl >= 0 ? '+' : ''}
+                  {investments.summary.dayPnl.toLocaleString()}円
+                </p>
+                <p className="text-xs text-muted mt-1">本日の投資損益</p>
+                <p className="text-xs text-warning mt-2">重要 {investments.summary.unreadHighImportanceNews}件</p>
+              </div>
+            </div>
+          </Link>
         )}
 
         {/* Category Chart */}

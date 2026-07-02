@@ -90,8 +90,8 @@ function SwipeableRow({
   onEdit: () => void
 }) {
   const [offsetX, setOffsetX] = useState(0)
+  const [isDragging, setIsDragging] = useState(false)
   const startX  = useRef(0)
-  const isDragging = useRef(false)
 
   const catIcon = CATEGORIES.find(c => c.name === tx.category)?.icon ?? '📦'
 
@@ -104,11 +104,11 @@ function SwipeableRow({
 
       {/* Row */}
       <div
-        style={{ transform: `translateX(-${offsetX}px)`, transition: isDragging.current ? 'none' : 'transform 0.2s ease' }}
+        style={{ transform: `translateX(-${offsetX}px)`, transition: isDragging ? 'none' : 'transform 0.2s ease' }}
         className="relative bg-card flex items-center gap-3 px-4 py-3"
         onTouchStart={e => {
           startX.current = e.touches[0].clientX
-          isDragging.current = true
+          setIsDragging(true)
         }}
         onTouchMove={e => {
           const diff = startX.current - e.touches[0].clientX
@@ -116,7 +116,7 @@ function SwipeableRow({
           else if (offsetX > 0) setOffsetX(Math.max(0, 80 + diff))
         }}
         onTouchEnd={() => {
-          isDragging.current = false
+          setIsDragging(false)
           setOffsetX(prev => prev > 40 ? 80 : 0)
         }}
         onClick={() => { if (offsetX === 0) onEdit() }}

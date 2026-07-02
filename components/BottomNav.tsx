@@ -7,7 +7,7 @@ const tabs = [
   { href: '/input',        label: '入力',   icon: '📝' },
   { href: '/transactions', label: '履歴',   icon: '📊' },
   { href: '/cashflow',     label: '予測',   icon: '💰' },
-  { href: '/assets',       label: '資産',   icon: '💹' },
+  { href: '/investments',  label: '投資',   icon: '💹' },
 ]
 
 export default function BottomNav() {
