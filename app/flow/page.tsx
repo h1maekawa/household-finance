@@ -36,7 +36,7 @@ export default function FlowMockupPage() {
         <SidebarItem label="家計簿" />
         <SidebarItem label="資産運用" />
         <Link href="/flow/setup" className="mt-5 block px-3 py-2 text-xs text-[#1476B3]">初期設定</Link>
-        <Link href="/" className="block px-3 py-2 text-xs text-[#8891A0]">通常版へ戻る</Link>
+        <Link href="/dashboard" className="block px-3 py-2 text-xs text-[#8891A0]">通常版へ戻る</Link>
       </aside>
 
       <main className="mx-auto w-full max-w-[1080px] px-4 py-6 pb-24 lg:px-10 lg:py-8">

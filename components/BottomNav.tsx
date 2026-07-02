@@ -3,7 +3,7 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 
 const tabs = [
-  { href: '/',             label: 'ホーム', icon: '🏠' },
+  { href: '/dashboard',    label: 'ホーム', icon: '🏠' },
   { href: '/input',        label: '入力',   icon: '📝' },
   { href: '/transactions', label: '履歴',   icon: '📊' },
   { href: '/cashflow',     label: '予測',   icon: '💰' },

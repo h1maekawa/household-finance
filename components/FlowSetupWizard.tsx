@@ -49,7 +49,7 @@ export default function FlowSetupWizard() {
   return (
     <div className="min-h-svh bg-[#F4F6F9] px-5 py-10 text-[#1E2933] flex items-center justify-center">
       <div className="w-full max-w-[440px]">
-        <Link href="/flow" className="mb-7 block text-center text-lg font-bold">
+        <Link href="/" className="mb-7 block text-center text-lg font-bold">
           Flow<span className="text-[#1476B3]">+</span>
         </Link>
 
@@ -166,7 +166,7 @@ function DoneScreen() {
       <SummaryRow label="固定費 3件" value="¥90,980 / 月" />
       <SummaryRow label="登録カード" value="2枚" />
       <div className="mt-5">
-        <Link href="/flow" className="block w-full rounded-full bg-[#1476B3] px-5 py-3 text-center text-[13px] font-medium text-white">
+        <Link href="/dashboard" className="block w-full rounded-full bg-[#1476B3] px-5 py-3 text-center text-[13px] font-medium text-white">
           ホームへ進む
         </Link>
       </div>
