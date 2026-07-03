@@ -46,6 +46,11 @@ export default function FlowSetupWizard() {
     if (error) showToast('Googleログインを開始できませんでした', 'error')
   }
 
+  function handleSkipLogin() {
+    showToast('ログイン設定はあとから接続できます', 'info')
+    setStep(1)
+  }
+
   return (
     <div className="min-h-svh bg-[#F4F6F9] px-5 py-10 text-[#1E2933] flex items-center justify-center">
       <div className="w-full max-w-[440px]">
@@ -54,7 +59,7 @@ export default function FlowSetupWizard() {
         </Link>
 
         <div className="rounded-2xl border border-[#E6EAEF] bg-white px-6 py-8 shadow-[0_20px_40px_-28px_rgba(30,41,51,.16)] sm:px-[30px]">
-          {step === 0 && <LoginScreen onNext={handleGoogleLogin} />}
+          {step === 0 && <LoginScreen onNext={handleGoogleLogin} onSkip={handleSkipLogin} />}
           {step === 1 && <BalanceScreen onNext={() => setStep(2)} />}
           {step === 2 && <IncomeScreen onBack={() => setStep(1)} onNext={() => setStep(3)} />}
           {step === 3 && <FixedCostsScreen onBack={() => setStep(2)} onNext={() => setStep(4)} />}
@@ -66,7 +71,7 @@ export default function FlowSetupWizard() {
   )
 }
 
-function LoginScreen({ onNext }: { onNext: () => void }) {
+function LoginScreen({ onNext, onSkip }: { onNext: () => void; onSkip: () => void }) {
   return (
     <div>
       <div className="mb-6 text-center">
@@ -83,6 +88,13 @@ function LoginScreen({ onNext }: { onNext: () => void }) {
       >
         <span className="h-4 w-4 rounded-full bg-[conic-gradient(#1476B3_0%_25%,#1FAE8C_25%_50%,#E2544B_50%_75%,#F0B429_75%_100%)]" />
         Googleでログイン
+      </button>
+      <button
+        type="button"
+        onClick={onSkip}
+        className="mt-3 w-full rounded-[10px] bg-[#E8F2FA] p-3 text-[13px] font-medium text-[#1476B3]"
+      >
+        今はログインせずに初期設定へ進む
       </button>
       <p className="mt-4 text-center text-[11px] leading-6 text-[#8891A0]">
         Gmail・カレンダーへの読み取り権限を使い、<br />
