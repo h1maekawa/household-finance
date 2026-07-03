@@ -16,6 +16,8 @@ const cards = [
   { name: '三井住友カード', closing: '月末', payment: '翌月26日' },
 ]
 
+const isGoogleAuthEnabled = process.env.NEXT_PUBLIC_ENABLE_GOOGLE_AUTH === 'true'
+
 export default function FlowSetupWizard() {
   const [step, setStep] = useState(0)
   const { showToast } = useToast()
@@ -29,8 +31,8 @@ export default function FlowSetupWizard() {
   }, [])
 
   async function handleGoogleLogin() {
-    if (!isSupabaseConfigured) {
-      showToast('Supabase環境変数を設定するとGoogleログインに接続できます', 'warning')
+    if (!isSupabaseConfigured || !isGoogleAuthEnabled) {
+      showToast('Googleログインは準備中です。初期設定へ進みます', 'warning')
       setStep(1)
       return
     }
@@ -59,7 +61,7 @@ export default function FlowSetupWizard() {
         </Link>
 
         <div className="rounded-2xl border border-[#E6EAEF] bg-white px-6 py-8 shadow-[0_20px_40px_-28px_rgba(30,41,51,.16)] sm:px-[30px]">
-          {step === 0 && <LoginScreen onNext={handleGoogleLogin} onSkip={handleSkipLogin} />}
+          {step === 0 && <LoginScreen onNext={handleGoogleLogin} onSkip={handleSkipLogin} googleEnabled={isGoogleAuthEnabled} />}
           {step === 1 && <BalanceScreen onNext={() => setStep(2)} />}
           {step === 2 && <IncomeScreen onBack={() => setStep(1)} onNext={() => setStep(3)} />}
           {step === 3 && <FixedCostsScreen onBack={() => setStep(2)} onNext={() => setStep(4)} />}
@@ -71,7 +73,7 @@ export default function FlowSetupWizard() {
   )
 }
 
-function LoginScreen({ onNext, onSkip }: { onNext: () => void; onSkip: () => void }) {
+function LoginScreen({ onNext, onSkip, googleEnabled }: { onNext: () => void; onSkip: () => void; googleEnabled: boolean }) {
   return (
     <div>
       <div className="mb-6 text-center">
@@ -87,7 +89,7 @@ function LoginScreen({ onNext, onSkip }: { onNext: () => void; onSkip: () => voi
         className="flex w-full items-center justify-center gap-2.5 rounded-[10px] border border-[#E6EAEF] bg-white p-3 text-[13px] font-medium text-[#1E2933]"
       >
         <span className="h-4 w-4 rounded-full bg-[conic-gradient(#1476B3_0%_25%,#1FAE8C_25%_50%,#E2544B_50%_75%,#F0B429_75%_100%)]" />
-        Googleでログイン
+        {googleEnabled ? 'Googleでログイン' : 'Googleログインは準備中'}
       </button>
       <button
         type="button"
