@@ -1,8 +1,12 @@
 // app/api/parse-chat/route.ts
 import { NextRequest } from 'next/server'
 import { parseChatInput } from '@/lib/gemini'
+import { getAuthenticatedUser, unauthorized } from '@/lib/auth'
 
 export async function POST(request: NextRequest) {
+  const user = await getAuthenticatedUser(request)
+  if (!user) return unauthorized()
+
   const { text } = await request.json()
 
   if (!text || typeof text !== 'string') {

@@ -1,9 +1,13 @@
 // app/api/transactions/route.ts
 import { NextRequest } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
+import { getAuthenticatedUser, unauthorized } from '@/lib/auth'
 import { TransactionInput } from '@/types/transaction'
 
 export async function GET(request: NextRequest) {
+  const user = await getAuthenticatedUser(request)
+  if (!user) return unauthorized()
+
   const { searchParams } = request.nextUrl
   const year = searchParams.get('year') ?? new Date().getFullYear().toString()
   const month = searchParams.get('month') ?? (new Date().getMonth() + 1).toString()
@@ -16,6 +20,7 @@ export async function GET(request: NextRequest) {
   const { data, error } = await supabaseAdmin
     .from('transactions')
     .select('*')
+    .eq('user_id', user.id)
     .gte('date', startDate)
     .lt('date', endMonth)
     .order('date', { ascending: false })
@@ -39,11 +44,14 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
+  const user = await getAuthenticatedUser(request)
+  if (!user) return unauthorized()
+
   const body: TransactionInput = await request.json()
 
   const { data, error } = await supabaseAdmin
     .from('transactions')
-    .insert([body])
+    .insert([{ ...body, user_id: user.id }])
     .select()
     .single()
 

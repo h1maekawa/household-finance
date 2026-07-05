@@ -1,17 +1,22 @@
 // app/api/transactions/[id]/route.ts
 import { NextRequest } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
+import { getAuthenticatedUser, unauthorized } from '@/lib/auth'
 import { TransactionInput } from '@/types/transaction'
 
 type Context = { params: Promise<{ id: string }> }
 
-export async function DELETE(_request: NextRequest, { params }: Context) {
+export async function DELETE(request: NextRequest, { params }: Context) {
+  const user = await getAuthenticatedUser(request)
+  if (!user) return unauthorized()
+
   const { id } = await params
 
   const { error } = await supabaseAdmin
     .from('transactions')
     .delete()
     .eq('id', id)
+    .eq('user_id', user.id)
 
   if (error) {
     return Response.json({ error: error.message }, { status: 500 })
@@ -21,6 +26,9 @@ export async function DELETE(_request: NextRequest, { params }: Context) {
 }
 
 export async function PATCH(request: NextRequest, { params }: Context) {
+  const user = await getAuthenticatedUser(request)
+  if (!user) return unauthorized()
+
   const { id } = await params
   const body: Partial<TransactionInput> = await request.json()
 
@@ -28,6 +36,7 @@ export async function PATCH(request: NextRequest, { params }: Context) {
     .from('transactions')
     .update({ ...body, updated_at: new Date().toISOString() })
     .eq('id', id)
+    .eq('user_id', user.id)
     .select()
     .single()
 

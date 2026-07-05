@@ -1,12 +1,17 @@
 import { NextRequest } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
+import { getAuthenticatedUser, unauthorized } from '@/lib/auth'
 import { getStockPrice, getUsdToJpy } from '@/lib/stock'
 import { StockHoldingInput, StockWithQuote } from '@/types/stock'
 
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const user = await getAuthenticatedUser(request)
+  if (!user) return unauthorized()
+
   const { data: holdings, error } = await supabaseAdmin
     .from('stock_holdings')
     .select('*')
+    .eq('user_id', user.id)
     .order('created_at', { ascending: true })
 
   if (error) return Response.json({ error: error.message }, { status: 500 })
@@ -46,6 +51,7 @@ export async function GET() {
   const balanceRes = await supabaseAdmin
     .from('account_balance')
     .select('balance')
+    .eq('user_id', user.id)
     .order('recorded_at', { ascending: false })
     .limit(1)
     .maybeSingle()
@@ -62,11 +68,14 @@ export async function GET() {
 }
 
 export async function POST(request: NextRequest) {
+  const user = await getAuthenticatedUser(request)
+  if (!user) return unauthorized()
+
   const body: StockHoldingInput = await request.json()
 
   const { data, error } = await supabaseAdmin
     .from('stock_holdings')
-    .insert([body])
+    .insert([{ ...body, user_id: user.id }])
     .select()
     .single()
 

@@ -1,8 +1,12 @@
 import { NextRequest } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
+import { getAuthenticatedUser, unauthorized } from '@/lib/auth'
 import { FIXED_CATEGORIES } from '@/types/transaction'
 
 export async function GET(request: NextRequest) {
+  const user = await getAuthenticatedUser(request)
+  if (!user) return unauthorized()
+
   const { searchParams } = request.nextUrl
   const year  = searchParams.get('year')  ?? new Date().getFullYear().toString()
   const month = searchParams.get('month') ?? (new Date().getMonth() + 1).toString()
@@ -41,6 +45,7 @@ export async function GET(request: NextRequest) {
       supabaseAdmin
         .from('transactions')
         .select('category, amount')
+        .eq('user_id', user.id)
         .gte('date', r.start)
         .lt('date', r.end)
     )

@@ -1,18 +1,25 @@
+import { NextRequest } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
+import { getAuthenticatedUser, unauthorized } from '@/lib/auth'
 import { projectCashflow } from '@/lib/cashflow'
 import { ScheduledPayment } from '@/types/cashflow'
 
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const user = await getAuthenticatedUser(request)
+  if (!user) return unauthorized()
+
   const [balanceRes, paymentsRes] = await Promise.all([
     supabaseAdmin
       .from('account_balance')
       .select('*')
+      .eq('user_id', user.id)
       .order('recorded_at', { ascending: false })
       .limit(1)
       .maybeSingle(),
     supabaseAdmin
       .from('scheduled_payments')
       .select('*')
+      .eq('user_id', user.id)
       .order('due_day', { ascending: true }),
   ])
 
