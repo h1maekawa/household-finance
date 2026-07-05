@@ -3,7 +3,7 @@ import { useState } from 'react'
 import useSWR from 'swr'
 import { format, addMonths, startOfMonth } from 'date-fns'
 import { ja } from 'date-fns/locale'
-import { TransactionsResponse, CATEGORIES } from '@/types/transaction'
+import { TransactionsResponse, CATEGORIES, INCOME_CATEGORIES } from '@/types/transaction'
 import TransactionList from '@/components/TransactionList'
 
 const fetcher = (url: string) => fetch(url).then(r => r.json())
@@ -23,7 +23,8 @@ export default function TransactionsPage() {
   const transactions = activeCategory
     ? allTransactions.filter(t => t.category === activeCategory)
     : allTransactions
-  const total = data?.summary?.total ?? 0
+  const expenseTotal = data?.summary?.expense_total ?? 0
+  const incomeTotal = data?.summary?.income_total ?? 0
 
   return (
     <div className="mx-auto max-w-xl lg:max-w-3xl">
@@ -40,7 +41,11 @@ export default function TransactionsPage() {
           <div className="text-center">
             <p className="text-sm font-medium">{format(month, 'yyyy年M月', { locale: ja })}</p>
             {data && (
-              <p className="font-mono text-xs text-muted">合計 {total.toLocaleString()}円 ・ {transactions.length}件</p>
+              <p className="font-mono text-xs text-muted">
+                支出 {expenseTotal.toLocaleString()}円
+                {incomeTotal > 0 && <> ・ 収入 {incomeTotal.toLocaleString()}円</>}
+                ・ {transactions.length}件
+              </p>
             )}
           </div>
           <button
@@ -56,7 +61,7 @@ export default function TransactionsPage() {
         {/* カテゴリフィルタ */}
         <div className="mb-4 flex gap-2 overflow-x-auto">
           <FilterChip label="すべて" active={activeCategory === null} onClick={() => setActiveCategory(null)} />
-          {CATEGORIES.map(c => (
+          {[...CATEGORIES, ...INCOME_CATEGORIES].map(c => (
             <FilterChip
               key={c.name}
               label={`${c.icon} ${c.name}`}

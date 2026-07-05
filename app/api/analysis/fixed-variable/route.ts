@@ -46,6 +46,7 @@ export async function GET(request: NextRequest) {
         .from('transactions')
         .select('category, amount')
         .eq('user_id', user.id)
+        .eq('kind', 'expense')
         .gte('date', r.start)
         .lt('date', r.end)
     )

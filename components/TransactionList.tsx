@@ -2,7 +2,7 @@
 import { useState, useRef } from 'react'
 import { format, parseISO } from 'date-fns'
 import { ja } from 'date-fns/locale'
-import { Transaction, TransactionInput, CATEGORIES, PAYMENT_METHODS } from '@/types/transaction'
+import { Transaction, TransactionInput, CATEGORIES, INCOME_CATEGORIES, PAYMENT_METHODS } from '@/types/transaction'
 import { useToast } from '@/components/Toast'
 
 interface Props {
@@ -19,8 +19,18 @@ const CATEGORY_TONE: Record<string, { bg: string; text: string }> = {
   '医療':      { bg: 'bg-[#F0F3F7]', text: 'text-[#8891A0]' },
   '通信費':    { bg: 'bg-[#E8F2FA]', text: 'text-[#1476B3]' },
   '水道光熱費': { bg: 'bg-[#E8F2FA]', text: 'text-[#1476B3]' },
+  '給与':      { bg: 'bg-[#E3F5F0]', text: 'text-[#1FAE8C]' },
+  'その他収入': { bg: 'bg-[#E3F5F0]', text: 'text-[#1FAE8C]' },
 }
 const DEFAULT_TONE = { bg: 'bg-[#F0F3F7]', text: 'text-[#8891A0]' }
+
+function categoryIcon(category: string): string {
+  return (
+    CATEGORIES.find(c => c.name === category)?.icon ??
+    INCOME_CATEGORIES.find(c => c.name === category)?.icon ??
+    '📦'
+  )
+}
 
 function groupByDate(txs: Transaction[]): [string, Transaction[]][] {
   const map = new Map<string, Transaction[]>()
@@ -105,8 +115,9 @@ function SwipeableRow({
   const [isDragging, setIsDragging] = useState(false)
   const startX  = useRef(0)
 
-  const catIcon = CATEGORIES.find(c => c.name === tx.category)?.icon ?? '📦'
+  const catIcon = categoryIcon(tx.category)
   const tone = CATEGORY_TONE[tx.category] ?? DEFAULT_TONE
+  const isIncome = tx.kind === 'income'
 
   return (
     <div className={`relative overflow-hidden ${!isLast ? 'border-b border-border' : ''}`}>
@@ -144,8 +155,8 @@ function SwipeableRow({
           </p>
           <p className="mt-0.5 text-[11px] text-muted">{tx.category}</p>
         </div>
-        <p className="shrink-0 font-mono text-sm text-danger">
-          -{tx.amount.toLocaleString()}円
+        <p className={`shrink-0 font-mono text-sm ${isIncome ? 'text-success' : 'text-danger'}`}>
+          {isIncome ? '+' : '-'}{tx.amount.toLocaleString()}円
         </p>
       </div>
     </div>
@@ -165,7 +176,11 @@ function EditModal({
     category:       tx.category,
     payment_method: tx.payment_method,
     memo:           tx.memo,
+    kind:           tx.kind ?? 'expense',
   })
+
+  const isIncome = form.kind === 'income'
+  const categoryOptions = isIncome ? INCOME_CATEGORIES : CATEGORIES
 
   return (
     <div className="fixed inset-0 z-50 flex items-end" onClick={onClose}>
@@ -178,6 +193,18 @@ function EditModal({
           <button onClick={onClose} className="text-muted text-xl">✕</button>
         </div>
 
+        <div className="grid grid-cols-2 gap-2 rounded-xl bg-surface p-1">
+          {(['expense', 'income'] as const).map(k => (
+            <button key={k} type="button"
+              onClick={() => setForm(f => ({ ...f, kind: k, category: undefined }))}
+              className={`py-2 rounded-lg text-sm font-medium transition-base ${
+                form.kind === k ? 'bg-card shadow-sm text-foreground' : 'text-muted'
+              }`}>
+              {k === 'expense' ? '支出' : '収入'}
+            </button>
+          ))}
+        </div>
+
         <div className="grid grid-cols-2 gap-3">
           <div>
             <label className="text-xs text-muted mb-1 block">日付</label>
@@ -188,14 +215,14 @@ function EditModal({
             <label className="text-xs text-muted mb-1 block">金額</label>
             <input type="number" inputMode="numeric" value={form.amount || ''}
               onChange={e => setForm(f => ({ ...f, amount: parseInt(e.target.value) || 0 }))}
-              className="w-full rounded-xl border border-border px-3 py-2 text-sm bg-surface font-bold text-danger" />
+              className={`w-full rounded-xl border border-border px-3 py-2 text-sm bg-surface font-bold ${isIncome ? 'text-success' : 'text-danger'}`} />
           </div>
         </div>
 
         <div>
           <label className="text-xs text-muted mb-2 block">カテゴリ</label>
           <div className="grid grid-cols-3 gap-2">
-            {CATEGORIES.map(c => (
+            {categoryOptions.map(c => (
               <button key={c.name} type="button" onClick={() => setForm(f => ({ ...f, category: c.name }))}
                 className={`flex flex-col items-center py-2 rounded-xl border text-xs font-medium transition-base ${
                   form.category === c.name ? 'border-primary bg-primary/10 text-primary' : 'border-border bg-card'

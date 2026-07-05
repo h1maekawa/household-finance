@@ -1,6 +1,6 @@
 'use client'
 import { useState } from 'react'
-import { ParsedTransaction, CATEGORIES, TransactionInput } from '@/types/transaction'
+import { ParsedTransaction, CATEGORIES, INCOME_CATEGORIES, PAYMENT_METHODS, TransactionInput } from '@/types/transaction'
 import { useToast } from '@/components/Toast'
 
 interface Props {
@@ -47,6 +47,7 @@ export default function ChatInput({ onSuccess }: Props) {
         payment_method: parsed.payment_method,
         memo:           parsed.memo,
         source:         'chat',
+        kind:           parsed.kind ?? 'expense',
       }
       const res = await fetch('/api/transactions', {
         method: 'POST',
@@ -70,7 +71,9 @@ export default function ChatInput({ onSuccess }: Props) {
     setParsed({ ...parsed, [field]: value })
   }
 
-  const catIcon = CATEGORIES.find(c => c.name === parsed?.category)?.icon ?? '📦'
+  const isIncome = parsed?.kind === 'income'
+  const categoryOptions = isIncome ? INCOME_CATEGORIES : CATEGORIES
+  const catIcon = categoryOptions.find(c => c.name === parsed?.category)?.icon ?? '📦'
 
   return (
     <div className="flex flex-col gap-4 p-4">
@@ -111,6 +114,21 @@ export default function ChatInput({ onSuccess }: Props) {
             </span>
           </div>
 
+          <div className="grid grid-cols-2 gap-2 rounded-xl bg-surface p-1">
+            {(['expense', 'income'] as const).map(k => (
+              <button
+                key={k}
+                type="button"
+                onClick={() => setParsed(p => p && { ...p, kind: k, category: '' })}
+                className={`py-2 rounded-lg text-sm font-medium transition-base ${
+                  (parsed.kind ?? 'expense') === k ? 'bg-card shadow-sm text-foreground' : 'text-muted'
+                }`}
+              >
+                {k === 'expense' ? '支出' : '収入'}
+              </button>
+            ))}
+          </div>
+
           <div className="grid grid-cols-2 gap-3 text-sm">
             <div>
               <p className="text-muted mb-1">日付</p>
@@ -128,7 +146,7 @@ export default function ChatInput({ onSuccess }: Props) {
                 inputMode="numeric"
                 value={parsed.amount}
                 onChange={e => handleEdit('amount', parseInt(e.target.value) || 0)}
-                className="w-full rounded-lg border border-border px-3 py-2 bg-surface text-sm font-bold text-danger"
+                className={`w-full rounded-lg border border-border px-3 py-2 bg-surface text-sm font-bold ${isIncome ? 'text-success' : 'text-danger'}`}
               />
             </div>
             <div>
@@ -138,7 +156,8 @@ export default function ChatInput({ onSuccess }: Props) {
                 onChange={e => handleEdit('category', e.target.value)}
                 className="w-full rounded-lg border border-border px-3 py-2 bg-surface text-sm"
               >
-                {CATEGORIES.map(c => (
+                <option value="" disabled>選択してください</option>
+                {categoryOptions.map(c => (
                   <option key={c.name} value={c.name}>{c.icon} {c.name}</option>
                 ))}
               </select>
@@ -150,8 +169,8 @@ export default function ChatInput({ onSuccess }: Props) {
                 onChange={e => handleEdit('payment_method', e.target.value)}
                 className="w-full rounded-lg border border-border px-3 py-2 bg-surface text-sm"
               >
-                {['現金', '楽天カード', 'PayPay', 'Suica'].map(m => (
-                  <option key={m} value={m}>{m}</option>
+                {PAYMENT_METHODS.map(m => (
+                  <option key={m.name} value={m.name}>{m.name}</option>
                 ))}
               </select>
             </div>

@@ -29,17 +29,26 @@ export async function GET(request: NextRequest) {
     return Response.json({ error: error.message }, { status: 500 })
   }
 
-  // サマリ計算
+  // サマリ計算(収入は支出の集計・カテゴリ内訳には含めない)
   const transactions = data ?? []
-  const total = transactions.reduce((sum, t) => sum + t.amount, 0)
+  const expenseTx = transactions.filter(t => t.kind !== 'income')
+  const incomeTx = transactions.filter(t => t.kind === 'income')
+
+  const expense_total = expenseTx.reduce((sum, t) => sum + t.amount, 0)
+  const income_total = incomeTx.reduce((sum, t) => sum + t.amount, 0)
   const by_category: Record<string, number> = {}
-  for (const t of transactions) {
+  for (const t of expenseTx) {
     by_category[t.category] = (by_category[t.category] ?? 0) + t.amount
   }
 
   return Response.json({
     transactions,
-    summary: { total, by_category },
+    summary: {
+      total: expense_total, // 後方互換: 既存UIは「今月の支出」としてこの値を使う
+      expense_total,
+      income_total,
+      by_category,
+    },
   })
 }
 
@@ -51,7 +60,7 @@ export async function POST(request: NextRequest) {
 
   const { data, error } = await supabaseAdmin
     .from('transactions')
-    .insert([{ ...body, user_id: user.id }])
+    .insert([{ ...body, kind: body.kind ?? 'expense', user_id: user.id }])
     .select()
     .single()
 

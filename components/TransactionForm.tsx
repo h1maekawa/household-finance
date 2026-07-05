@@ -1,7 +1,7 @@
 'use client'
 import { useState } from 'react'
 import { format } from 'date-fns'
-import { CATEGORIES, PAYMENT_METHODS, TransactionInput } from '@/types/transaction'
+import { CATEGORIES, INCOME_CATEGORIES, PAYMENT_METHODS, TransactionInput } from '@/types/transaction'
 import { useToast } from '@/components/Toast'
 
 interface Props {
@@ -15,12 +15,15 @@ const empty = (): TransactionInput => ({
   payment_method: '',
   memo: '',
   source: 'manual',
+  kind: 'expense',
 })
 
 export default function TransactionForm({ onSuccess }: Props) {
   const { showToast } = useToast()
   const [form, setForm] = useState<TransactionInput>(empty())
   const [loading, setLoading] = useState(false)
+  const isIncome = form.kind === 'income'
+  const categoryOptions = isIncome ? INCOME_CATEGORIES : CATEGORIES
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -48,6 +51,22 @@ export default function TransactionForm({ onSuccess }: Props) {
 
   return (
     <form onSubmit={handleSubmit} className="flex flex-col gap-5 p-4">
+      {/* 支出/収入 */}
+      <div className="grid grid-cols-2 gap-2 rounded-xl bg-surface p-1">
+        {(['expense', 'income'] as const).map(k => (
+          <button
+            key={k}
+            type="button"
+            onClick={() => setForm(f => ({ ...f, kind: k, category: '' }))}
+            className={`py-2 rounded-lg text-sm font-medium transition-base ${
+              form.kind === k ? 'bg-card shadow-sm text-foreground' : 'text-muted'
+            }`}
+          >
+            {k === 'expense' ? '支出' : '収入'}
+          </button>
+        ))}
+      </div>
+
       {/* 日付 */}
       <div>
         <label className="block text-sm font-medium text-muted mb-1">日付</label>
@@ -69,7 +88,7 @@ export default function TransactionForm({ onSuccess }: Props) {
           placeholder="0"
           value={form.amount || ''}
           onChange={e => setForm(f => ({ ...f, amount: parseInt(e.target.value) || 0 }))}
-          className="w-full rounded-xl border border-border px-4 py-3 text-2xl font-bold bg-card focus:outline-none focus:ring-2 focus:ring-primary text-danger"
+          className={`w-full rounded-xl border border-border px-4 py-3 text-2xl font-bold bg-card focus:outline-none focus:ring-2 focus:ring-primary ${isIncome ? 'text-success' : 'text-danger'}`}
           required
           min={1}
         />
@@ -79,7 +98,7 @@ export default function TransactionForm({ onSuccess }: Props) {
       <div>
         <label className="block text-sm font-medium text-muted mb-2">カテゴリ</label>
         <div className="grid grid-cols-3 gap-2">
-          {CATEGORIES.map(c => (
+          {categoryOptions.map(c => (
             <button
               key={c.name}
               type="button"

@@ -7,7 +7,15 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from 'recharts'
 import { TransactionsResponse } from '@/types/transaction'
-import { CATEGORIES } from '@/types/transaction'
+import { CATEGORIES, INCOME_CATEGORIES } from '@/types/transaction'
+
+function categoryIcon(category: string) {
+  return (
+    CATEGORIES.find(c => c.name === category)?.icon ??
+    INCOME_CATEGORIES.find(c => c.name === category)?.icon ??
+    '📦'
+  )
+}
 import AlertBanner from '@/components/AlertBanner'
 import Link from 'next/link'
 
@@ -29,7 +37,7 @@ export default function DashboardPage() {
   const { data: investments } = useSWR('/api/investments', fetcher)
 
   const transactions = data?.transactions ?? []
-  const summary      = data?.summary ?? { total: 0, by_category: {} }
+  const summary      = data?.summary ?? { total: 0, expense_total: 0, income_total: 0, by_category: {} }
 
   const chartData = Object.entries(summary.by_category)
     .sort((a, b) => b[1] - a[1])
@@ -214,7 +222,8 @@ export default function DashboardPage() {
           ) : (
             <div className="card overflow-hidden">
               {recentFive.map((tx, i) => {
-                const icon = CATEGORIES.find(c => c.name === tx.category)?.icon ?? '📦'
+                const icon = categoryIcon(tx.category)
+                const isIncome = tx.kind === 'income'
                 return (
                   <div key={tx.id}
                     className={`flex items-center gap-3 px-4 py-3 ${i < recentFive.length - 1 ? 'border-b border-border' : ''}`}>
@@ -223,8 +232,8 @@ export default function DashboardPage() {
                       <p className="text-sm font-medium truncate">{tx.memo || tx.category}</p>
                       <p className="text-xs text-muted">{tx.date} · {tx.payment_method}</p>
                     </div>
-                    <p className="text-sm font-bold text-danger shrink-0">
-                      -{tx.amount.toLocaleString()}円
+                    <p className={`text-sm font-bold shrink-0 ${isIncome ? 'text-success' : 'text-danger'}`}>
+                      {isIncome ? '+' : '-'}{tx.amount.toLocaleString()}円
                     </p>
                   </div>
                 )
