@@ -54,14 +54,15 @@ GAS_IMPORT_SECRET=9b81a698906390738a2b9e59cf9192ec352036d516487d42fb154cb1a7a662
 GAS_IMPORT_USER_ID=(手順3でコピーしたUID)
 ```
 
-### 5. Gmailにラベルを設定(まだの場合)
+### 5. Gmail検索クエリを決める
 
-このスクリプトはラベルベースで対象メールを絞り込みます。三井住友カード・楽天カードの利用通知メールに、Gmailのフィルタ機能であらかじめ以下のようなラベルが自動で付くようにしておいてください。
+パーサーの振り分け(三井住友/楽天/PayPayのどれで解析するか)は送信元アドレスと件名の両方で判定するので、`SEARCH_QUERY` はラベルではなく送信元アドレスで直接絞り込むのが一番確実です。実際に確認できた送信元アドレスを使うと以下のようになります。
 
-- 三井住友カードの通知メール → ラベル `三井住友クレジット`
-- 楽天カードの通知メール → ラベル `楽天カード`
+```
+from:(info@mail.rakuten-card.co.jp OR statement@vpass.ne.jp) newer_than:3d
+```
 
-(Gmail設定 → フィルタとブロック中のアドレス → 新しいフィルタを作成 → 送信元を指定 → 「ラベルを付ける」)
+他のカードやPayPayも使っている場合は `OR` で送信元アドレスを追加してください。すでにGmailのフィルタでラベル分けをしている場合は、代わりに `(label:三井住友クレジット OR label:楽天カード) -in:trash -in:spam` のようにラベルベースの条件を使っても構いません。
 
 ### 6. Google Apps Scriptを作成
 
@@ -73,7 +74,7 @@ GAS_IMPORT_USER_ID=(手順3でコピーしたUID)
    |---|---|
    | `API_URL` | `https://household-finance-smoky.vercel.app/api/transactions/import` |
    | `API_SECRET` | 手順2の共有シークレット(Vercelと同じ値) |
-   | `SEARCH_QUERY` | `(label:三井住友クレジット OR label:楽天カード) -in:trash -in:spam`(ラベル名は手順5に合わせて調整) |
+   | `SEARCH_QUERY` | 手順5で決めた検索クエリ |
    | `LABEL_NAME` | `kakeibo-processed`(省略可。処理済みメールに付けるラベル名) |
 
 4. スクリプトエディタの関数選択で `sendTestTransaction` を選び、実行(初回は権限の承認を求められるので許可する)。実行ログに「テスト送信に成功しました」と出て、アプリの「履歴」タブに1,280円の食費テスト取引が増えていれば成功。
