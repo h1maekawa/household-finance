@@ -15,6 +15,7 @@ export interface ScheduledPayment {
   type: 'fixed' | 'credit'
   is_active: boolean
   memo?: string
+  last_paid_month?: string | null // 'YYYY-MM'。直近どの月まで支払い済みか
   created_at: string
 }
 
@@ -26,6 +27,7 @@ export interface ScheduledPaymentInput {
   type: 'fixed' | 'credit'
   is_active?: boolean
   memo?: string
+  last_paid_month?: string | null
 }
 
 export interface DailyBalance {

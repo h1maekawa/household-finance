@@ -17,6 +17,7 @@ function categoryIcon(category: string) {
   )
 }
 import AlertBanner from '@/components/AlertBanner'
+import DebtsSummaryCard from '@/components/DebtsSummaryCard'
 import Link from 'next/link'
 
 const fetcher = (url: string) => fetch(url).then(r => r.json())
@@ -86,6 +87,9 @@ export default function DashboardPage() {
       </div>
 
       <div className="flex flex-col gap-4 px-4 pt-4">
+        {/* 貸し借り・未納(一番最初に表示) */}
+        <DebtsSummaryCard />
+
         {/* Alerts */}
         {analysis?.alerts?.length > 0 && (
           <AlertBanner alerts={analysis.alerts} />
@@ -111,7 +115,7 @@ export default function DashboardPage() {
                   {investments.summary.investmentValue.toLocaleString()}
                   <span className="text-sm font-normal text-muted ml-1">円</span>
                 </p>
-                <p className="text-xs text-muted mt-1">現金 + 投資評価額のうち、投資評価額を連携中</p>
+                <p className="text-xs text-muted mt-1">保有銘柄の時価総額(自動更新)</p>
               </div>
               <div className="text-right shrink-0">
                 <p className={`text-sm font-bold ${investments.summary.dayPnl >= 0 ? 'text-success' : 'text-danger'}`}>
@@ -119,7 +123,6 @@ export default function DashboardPage() {
                   {investments.summary.dayPnl.toLocaleString()}円
                 </p>
                 <p className="text-xs text-muted mt-1">本日の投資損益</p>
-                <p className="text-xs text-warning mt-2">重要 {investments.summary.unreadHighImportanceNews}件</p>
               </div>
             </div>
           </Link>

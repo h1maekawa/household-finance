@@ -24,6 +24,7 @@ export interface StockHoldingInput {
 export interface StockQuote {
   ticker: string
   price: number
+  change: number          // 前日比(現地通貨)
   currency: string
   updatedAt: Date | undefined
 }

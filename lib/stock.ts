@@ -11,6 +11,7 @@ export async function getStockPrice(ticker: string, market: 'JP' | 'US'): Promis
   return {
     ticker,
     price:     quote.regularMarketPrice ?? 0,
+    change:    quote.regularMarketChange ?? 0, // 前日比(現地通貨)
     currency:  quote.currency ?? (market === 'JP' ? 'JPY' : 'USD'),
     updatedAt: quote.regularMarketTime,
   }
