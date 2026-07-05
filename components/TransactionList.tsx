@@ -10,6 +10,18 @@ interface Props {
   onMutate: () => void
 }
 
+const CATEGORY_TONE: Record<string, { bg: string; text: string }> = {
+  '食費':      { bg: 'bg-[#FBEAE9]', text: 'text-[#E2544B]' },
+  '外食':      { bg: 'bg-[#FBEAE9]', text: 'text-[#E2544B]' },
+  '交通費':    { bg: 'bg-[#F0F3F7]', text: 'text-[#8891A0]' },
+  '日用品':    { bg: 'bg-[#E3F5F0]', text: 'text-[#1FAE8C]' },
+  '娯楽':      { bg: 'bg-[#E3F5F0]', text: 'text-[#1FAE8C]' },
+  '医療':      { bg: 'bg-[#F0F3F7]', text: 'text-[#8891A0]' },
+  '通信費':    { bg: 'bg-[#E8F2FA]', text: 'text-[#1476B3]' },
+  '水道光熱費': { bg: 'bg-[#E8F2FA]', text: 'text-[#1476B3]' },
+}
+const DEFAULT_TONE = { bg: 'bg-[#F0F3F7]', text: 'text-[#8891A0]' }
+
 function groupByDate(txs: Transaction[]): [string, Transaction[]][] {
   const map = new Map<string, Transaction[]>()
   for (const t of txs) {
@@ -40,7 +52,7 @@ export default function TransactionList({ transactions, onMutate }: Props) {
       <div className="flex flex-col gap-4">
         {grouped.map(([date, txs]) => (
           <div key={date}>
-            <p className="text-xs font-medium text-muted px-4 mb-1">
+            <p className="mb-1.5 px-1 font-mono text-[11px] text-muted">
               {format(parseISO(date), 'M月d日（E）', { locale: ja })}
             </p>
             <div className="card overflow-hidden">
@@ -94,6 +106,7 @@ function SwipeableRow({
   const startX  = useRef(0)
 
   const catIcon = CATEGORIES.find(c => c.name === tx.category)?.icon ?? '📦'
+  const tone = CATEGORY_TONE[tx.category] ?? DEFAULT_TONE
 
   return (
     <div className={`relative overflow-hidden ${!isLast ? 'border-b border-border' : ''}`}>
@@ -121,12 +134,17 @@ function SwipeableRow({
         }}
         onClick={() => { if (offsetX === 0) onEdit() }}
       >
-        <span className="text-2xl shrink-0">{catIcon}</span>
-        <div className="flex-1 min-w-0">
-          <p className="text-sm font-medium truncate">{tx.memo || tx.category}</p>
-          <p className="text-xs text-muted">{tx.category} · {tx.payment_method}</p>
+        <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] text-base ${tone.bg} ${tone.text}`}>
+          {catIcon}
         </div>
-        <p className="text-base font-bold text-danger shrink-0">
+        <div className="flex-1 min-w-0">
+          <p className="truncate text-[13px]">
+            {tx.memo || tx.category}
+            <span className="ml-2 rounded bg-surface px-2 py-0.5 text-[10px] text-muted">{tx.payment_method}</span>
+          </p>
+          <p className="mt-0.5 text-[11px] text-muted">{tx.category}</p>
+        </div>
+        <p className="shrink-0 font-mono text-sm text-danger">
           -{tx.amount.toLocaleString()}円
         </p>
       </div>

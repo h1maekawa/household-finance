@@ -25,7 +25,7 @@ export default function CashflowChart({ data }: Props) {
   return (
     <ResponsiveContainer width="100%" height={220}>
       <LineChart data={chartData} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
-        <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" />
+        <CartesianGrid strokeDasharray="3 3" stroke="#E6EAEF" />
         <XAxis dataKey="date" tick={{ fontSize: 10 }} interval={4} />
         <YAxis tickFormatter={fmt} tick={{ fontSize: 10 }} width={40} />
         <Tooltip
@@ -33,11 +33,11 @@ export default function CashflowChart({ data }: Props) {
           labelFormatter={label => `${label}`}
           contentStyle={{ fontSize: 12, borderRadius: 8 }}
         />
-        <ReferenceLine y={0} stroke="#EF4444" strokeDasharray="4 4" />
+        <ReferenceLine y={0} stroke="#E2544B" strokeDasharray="4 4" />
         <Line
           type="monotone"
           dataKey="balance"
-          stroke="#3B82F6"
+          stroke="#1476B3"
           strokeWidth={2}
           dot={false}
           activeDot={{ r: 4 }}

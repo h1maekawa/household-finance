@@ -7,8 +7,8 @@ export default function manifest(): MetadataRoute.Manifest {
     description: '個人向け家計管理アプリ',
     start_url: '/',
     display: 'standalone',
-    background_color: '#F9FAFB',
-    theme_color: '#3B82F6',
+    background_color: '#F4F6F9',
+    theme_color: '#1476B3',
     icons: [
       {
         src: '/favicon.ico',

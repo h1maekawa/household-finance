@@ -83,16 +83,6 @@ export default function DashboardPage() {
           <AlertBanner alerts={analysis.alerts} />
         )}
 
-        <Link href="/flow" className="card p-4 block active:opacity-80">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <p className="text-sm font-bold">Flow+ デザインを見る</p>
-              <p className="text-xs text-muted mt-1">家計簿と資産運用をまとめた新しいモックアップ</p>
-            </div>
-            <span className="text-primary text-sm font-bold shrink-0">開く →</span>
-          </div>
-        </Link>
-
         <Link href="/flow/setup" className="card p-4 block active:opacity-80">
           <div className="flex items-center justify-between gap-3">
             <div>
@@ -133,7 +123,7 @@ export default function DashboardPage() {
             <h2 className="font-bold text-base mb-3">カテゴリ別支出</h2>
             <ResponsiveContainer width="100%" height={180}>
               <BarChart data={chartData} margin={{ top: 0, right: 0, left: -20, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" />
+                <CartesianGrid strokeDasharray="3 3" stroke="#E6EAEF" />
                 <XAxis
                   dataKey="category"
                   tick={{ fontSize: 9 }}
@@ -145,7 +135,7 @@ export default function DashboardPage() {
                   labelFormatter={(_, payload) => payload?.[0]?.payload?.category ?? ''}
                   contentStyle={{ fontSize: 12, borderRadius: 8 }}
                 />
-                <Bar dataKey="amount" fill="#3B82F6" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="amount" fill="#1476B3" radius={[4, 4, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
 

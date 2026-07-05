@@ -1,18 +1,19 @@
 @import "tailwindcss";
 
 :root {
-  --background: #F9FAFB;
-  --foreground: #111827;
+  --background: #F4F6F9;
+  --foreground: #1E2933;
   --card: #FFFFFF;
-  --primary: #3B82F6;
-  --primary-dark: #2563EB;
-  --danger: #EF4444;
-  --success: #10B981;
-  --warning: #F59E0B;
-  --surface: #F9FAFB;
-  --border: #E5E7EB;
-  --muted: #6B7280;
+  --primary: #1476B3;
+  --primary-dark: #105D8C;
+  --danger: #E2544B;
+  --success: #1FAE8C;
+  --warning: #F0B429;
+  --surface: #F0F3F7;
+  --border: #E6EAEF;
+  --muted: #8891A0;
   --bottom-nav-height: 64px;
+  --sidebar-width: 200px;
 }
 
 @theme inline {
@@ -57,9 +58,9 @@ body {
 .skeleton {
   background: linear-gradient(
     90deg,
-    #e5e7eb 25%,
-    #f3f4f6 50%,
-    #e5e7eb 75%
+    #E6EAEF 25%,
+    #F0F3F7 50%,
+    #E6EAEF 75%
   );
   background-size: 200% 100%;
   animation: shimmer 1.4s infinite linear;
@@ -94,8 +95,7 @@ body {
 /* ===== Card ===== */
 .card {
   background: var(--card);
-  border-radius: 1rem;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
+  border-radius: 14px;
   border: 1px solid var(--border);
 }
 

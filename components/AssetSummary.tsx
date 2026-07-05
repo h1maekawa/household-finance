@@ -7,7 +7,7 @@ interface Props {
   totalAssets: number
 }
 
-const COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899']
+const COLORS = ['#1476B3', '#1FAE8C', '#F0B429', '#E2544B', '#8891A0', '#3E6FA0']
 
 export default function AssetSummary({ accountBalance, stockValue, totalAssets }: Props) {
   const data = [
