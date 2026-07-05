@@ -42,9 +42,16 @@ const CATEGORY_MAP = [
   { keywords: ['給与', '給料', '賞与', 'ボーナス'], category: '給与', kind: 'income' },
 ]
 
+// カード利用通知の利用先名は半角カタカナ(ﾐﾆｽﾄﾂﾌﾟ 等)で来ることが多く、
+// CATEGORY_MAP は全角(ミニストップ)で書いているため、NFKCで正規化してから
+// 比較する(NFKCは半角カタカナ→全角、全角英数→半角なども統一してくれる)。
+function normalizeText_(text) {
+  return (text || '').normalize('NFKC')
+}
+
 function getAutoCategory_(merchantName) {
   if (!merchantName) return { category: 'その他', kind: 'expense' }
-  const norm = merchantName.toLowerCase().replace(/[\s　]/g, '')
+  const norm = normalizeText_(merchantName).toLowerCase().replace(/[\s　]/g, '')
   for (const item of CATEGORY_MAP) {
     for (const kw of item.keywords) {
       if (norm.includes(kw)) {
@@ -85,9 +92,10 @@ function processCardEmails() {
     for (const message of messages) {
       const messageId = message.getId()
       const subject = message.getSubject()
+      const from = message.getFrom()
       const body = message.getPlainBody()
 
-      Logger.log(`処理中メール: ${subject} (ID: ${messageId})`)
+      Logger.log(`処理中メール: ${subject} / ${from} (ID: ${messageId})`)
 
       // 速報版(詳細情報が欠けた先行通知)は無視して安全にスキップする
       if (subject.includes('【速報版】')) {
@@ -95,26 +103,30 @@ function processCardEmails() {
         continue
       }
 
+      // パーサーの振り分けは件名だけでなく送信元アドレスも見る。
+      // Oliveなど三井住友の一部ブランドは件名に「三井住友カード」を含まないことがあるため、
+      // statement@vpass.ne.jp / rakuten-card.co.jp といった実際の送信元で判定する方が確実。
       let parsedData = null
-      if (subject.includes('三井住友カード')) {
+      if (from.includes('vpass.ne.jp') || subject.includes('三井住友カード') || subject.includes('Olive')) {
         parsedData = parseSmbcCard_(body)
-      } else if (subject.includes('カード利用のお知らせ') || subject.includes('楽天カード')) {
+      } else if (from.includes('rakuten-card.co.jp') || subject.includes('カード利用のお知らせ') || subject.includes('楽天カード')) {
         parsedData = parseRakutenCard_(body)
-      } else if (subject.includes('PayPay')) {
+      } else if (from.toLowerCase().includes('paypay') || subject.includes('PayPay')) {
         parsedData = parsePayPay_(body)
       }
 
       let ok
       if (parsedData) {
         // --- 正規表現パース成功: 構造化データをそのまま送信(高速・無料) ---
-        const auto = getAutoCategory_(parsedData.merchant)
+        const merchant = normalizeText_(parsedData.merchant)
+        const auto = getAutoCategory_(merchant)
         ok = sendStructured_(apiUrl, apiSecret, {
           date: parsedData.date,
           amount: parsedData.amount,
           category: auto.category,
           kind: auto.kind,
           payment_method: parsedData.paymentMethod,
-          memo: `${parsedData.paymentMethod}自動連携 (${parsedData.merchant})`,
+          memo: `${parsedData.paymentMethod}自動連携 (${merchant})`,
           external_id: messageId,
         })
       } else {
