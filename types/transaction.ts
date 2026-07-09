@@ -13,6 +13,8 @@ export interface Transaction {
   source: Source
   kind: Kind
   external_id?: string | null
+  needs_review?: boolean
+  review_reason?: string | null
   created_at: string
   updated_at: string
 }
@@ -26,6 +28,8 @@ export interface TransactionInput {
   source: Source
   kind?: Kind             // 省略時はAPI側で 'expense' として扱う
   external_id?: string    // 外部連携(Gmail取り込みなど)の重複防止キー
+  needs_review?: boolean
+  review_reason?: string | null
 }
 
 export interface TransactionSummary {

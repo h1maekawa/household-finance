@@ -3,6 +3,7 @@ import { useState, useRef } from 'react'
 import { format, parseISO } from 'date-fns'
 import { ja } from 'date-fns/locale'
 import { Transaction, TransactionInput, CATEGORIES, INCOME_CATEGORIES, PAYMENT_METHODS } from '@/types/transaction'
+import { DebtDirection } from '@/types/debt'
 import { useToast } from '@/components/Toast'
 
 interface Props {
@@ -45,6 +46,7 @@ function groupByDate(txs: Transaction[]): [string, Transaction[]][] {
 export default function TransactionList({ transactions, onMutate }: Props) {
   const { showToast } = useToast()
   const [editTarget, setEditTarget] = useState<Transaction | null>(null)
+  const reviewTransactions = transactions.filter(tx => tx.needs_review)
 
   if (transactions.length === 0) {
     return (
@@ -60,6 +62,35 @@ export default function TransactionList({ transactions, onMutate }: Props) {
   return (
     <>
       <div className="flex flex-col gap-4">
+        {reviewTransactions.length > 0 && (
+          <div className="card overflow-hidden border border-warning/30">
+            <div className="flex items-center justify-between gap-3 border-b border-border px-4 py-3">
+              <div>
+                <p className="text-sm font-bold">確認が必要な取引</p>
+                <p className="mt-0.5 text-xs text-muted">金額を見てカテゴリやメモを入力してください</p>
+              </div>
+              <span className="rounded-full bg-warning/10 px-2.5 py-1 text-xs font-bold text-warning">
+                {reviewTransactions.length}件
+              </span>
+            </div>
+            {reviewTransactions.slice(0, 5).map(tx => (
+              <button
+                key={tx.id}
+                type="button"
+                onClick={() => setEditTarget(tx)}
+                className="flex w-full items-center gap-3 border-b border-border px-4 py-3 text-left last:border-0 active:bg-surface"
+              >
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] bg-warning/10 text-warning">!</div>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-[13px] font-medium">{tx.memo || tx.review_reason || '内容を確認してください'}</p>
+                  <p className="mt-0.5 text-[11px] text-muted">{tx.date} · {tx.payment_method}</p>
+                </div>
+                <p className="shrink-0 font-mono text-sm text-danger">-{tx.amount.toLocaleString()}円</p>
+              </button>
+            ))}
+          </div>
+        )}
+
         {grouped.map(([date, txs]) => (
           <div key={date}>
             <p className="mb-1.5 px-1 font-mono text-[11px] text-muted">
@@ -88,6 +119,25 @@ export default function TransactionList({ transactions, onMutate }: Props) {
         <EditModal
           tx={editTarget}
           onClose={() => setEditTarget(null)}
+          onCreateDebt={async ({ direction, counterparty, amount }) => {
+            const res = await fetch('/api/debts', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                direction,
+                counterparty,
+                amount,
+                date: editTarget.date,
+                memo: editTarget.memo || `${editTarget.payment_method} ${editTarget.category}`,
+              }),
+            })
+            if (res.ok) {
+              showToast(direction === 'lent' ? '貸したお金に追加しました' : '借りたお金に追加しました', 'success')
+              onMutate()
+            } else {
+              showToast('貸し借りへの追加に失敗しました', 'error')
+            }
+          }}
           onSave={async body => {
             const res = await fetch(`/api/transactions/${editTarget.id}`, {
               method: 'PATCH',
@@ -165,10 +215,12 @@ function SwipeableRow({
 
 function EditModal({
   tx, onClose, onSave,
+  onCreateDebt,
 }: {
   tx: Transaction
   onClose: () => void
   onSave: (body: Partial<TransactionInput>) => void
+  onCreateDebt: (body: { direction: DebtDirection; counterparty: string; amount: number }) => Promise<void>
 }) {
   const [form, setForm] = useState<Partial<TransactionInput>>({
     date:           tx.date,
@@ -178,9 +230,26 @@ function EditModal({
     memo:           tx.memo,
     kind:           tx.kind ?? 'expense',
   })
+  const [debtCounterparty, setDebtCounterparty] = useState('')
+  const [debtAmount, setDebtAmount] = useState(tx.amount)
+  const [creatingDebt, setCreatingDebt] = useState(false)
 
   const isIncome = form.kind === 'income'
   const categoryOptions = isIncome ? INCOME_CATEGORIES : CATEGORIES
+
+  async function handleCreateDebt(direction: DebtDirection) {
+    if (!debtCounterparty.trim()) return
+    if (!debtAmount || debtAmount <= 0) return
+
+    setCreatingDebt(true)
+    try {
+      await onCreateDebt({ direction, counterparty: debtCounterparty.trim(), amount: debtAmount })
+      setDebtCounterparty('')
+      setDebtAmount(tx.amount)
+    } finally {
+      setCreatingDebt(false)
+    }
+  }
 
   return (
     <div className="fixed inset-0 z-50 flex items-end" onClick={onClose}>
@@ -254,9 +323,61 @@ function EditModal({
             className="w-full rounded-xl border border-border px-3 py-2 text-sm bg-surface" />
         </div>
 
+        <div className="rounded-xl border border-border bg-surface p-3">
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <div>
+              <p className="text-sm font-bold">この取引を貸し借りにも記録</p>
+              <p className="mt-0.5 text-xs text-muted">相手と金額を入れて、立替や借りた分として残せます</p>
+            </div>
+            <p className="shrink-0 font-mono text-xs text-muted">{tx.amount.toLocaleString()}円</p>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs text-muted mb-1 block">相手</label>
+              <input
+                type="text"
+                value={debtCounterparty}
+                onChange={e => setDebtCounterparty(e.target.value)}
+                placeholder="例：田中さん"
+                className="w-full rounded-xl border border-border px-3 py-2 text-sm bg-card"
+              />
+            </div>
+            <div>
+              <label className="text-xs text-muted mb-1 block">金額</label>
+              <input
+                type="number"
+                inputMode="numeric"
+                value={debtAmount || ''}
+                onChange={e => setDebtAmount(parseInt(e.target.value) || 0)}
+                className="w-full rounded-xl border border-border px-3 py-2 text-sm bg-card font-bold"
+              />
+            </div>
+          </div>
+
+          <div className="mt-3 grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              onClick={() => handleCreateDebt('lent')}
+              disabled={creatingDebt || !debtCounterparty.trim() || debtAmount <= 0}
+              className="rounded-xl border border-success/30 bg-card py-2 text-sm font-bold text-success disabled:opacity-50"
+            >
+              貸した
+            </button>
+            <button
+              type="button"
+              onClick={() => handleCreateDebt('borrowed')}
+              disabled={creatingDebt || !debtCounterparty.trim() || debtAmount <= 0}
+              className="rounded-xl border border-danger/30 bg-card py-2 text-sm font-bold text-danger disabled:opacity-50"
+            >
+              借りた
+            </button>
+          </div>
+        </div>
+
         <button onClick={() => onSave(form)}
           className="w-full py-3 rounded-2xl bg-primary text-white font-bold transition-base active:opacity-80">
-          保存する
+          {tx.needs_review ? '確認して保存' : '保存する'}
         </button>
       </div>
     </div>

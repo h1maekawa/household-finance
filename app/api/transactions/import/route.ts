@@ -17,9 +17,15 @@
 //   GAS_IMPORT_USER_ID … 取り込んだ取引を紐づける Supabase の auth.users.id
 import { NextRequest } from 'next/server'
 import { timingSafeEqual } from 'crypto'
-import { supabaseAdmin } from '@/lib/supabase'
+import { getAuthenticatedUser, unauthorized } from '@/lib/auth'
+import { isSupabaseConfigured, supabaseAdmin } from '@/lib/supabase'
 import { parseChatInput } from '@/lib/gemini'
 import { CATEGORIES, INCOME_CATEGORIES, Kind } from '@/types/transaction'
+
+function hasEnv(name: string): boolean {
+  const value = process.env[name]
+  return Boolean(value && !value.includes('placeholder'))
+}
 
 function isValidSecret(request: NextRequest): boolean {
   const provided = request.headers.get('x-import-secret')
@@ -49,6 +55,41 @@ interface ImportFields {
   kind: Kind
   payment_method: string
   memo?: string
+  needs_review?: boolean
+  review_reason?: string | null
+}
+
+export async function GET(request: NextRequest) {
+  const user = await getAuthenticatedUser(request)
+  if (!user) return unauthorized()
+
+  const gasImportUserId = process.env.GAS_IMPORT_USER_ID
+  const checks = {
+    supabaseUrl: isSupabaseConfigured,
+    serviceRoleKey: hasEnv('SUPABASE_SERVICE_ROLE_KEY'),
+    gasImportSecret: hasEnv('GAS_IMPORT_SECRET'),
+    gasImportUserId: hasEnv('GAS_IMPORT_USER_ID'),
+    importUserMatchesLogin: Boolean(gasImportUserId && gasImportUserId === user.id),
+    geminiFallback: hasEnv('GEMINI_API_KEY'),
+  }
+  const ready =
+    checks.supabaseUrl &&
+    checks.serviceRoleKey &&
+    checks.gasImportSecret &&
+    checks.gasImportUserId &&
+    checks.importUserMatchesLogin
+
+  return Response.json({
+    ready,
+    checks,
+    user: {
+      id: user.id,
+      email: user.email,
+    },
+    nextAction: ready
+      ? 'GAS側で diagnoseCardEmails を実行し、Gmail検索とカードメール解析を確認してください。'
+      : 'Vercelの環境変数 GAS_IMPORT_SECRET / GAS_IMPORT_USER_ID と Supabase service role key を確認してください。',
+  })
 }
 
 export async function POST(request: NextRequest) {
@@ -79,6 +120,8 @@ export async function POST(request: NextRequest) {
       kind,
       payment_method: body.payment_method || (kind === 'income' ? '口座振込' : '現金'),
       memo: body.memo ?? '',
+      needs_review: Boolean(body.needs_review),
+      review_reason: body.review_reason ?? null,
     }
   } else if (typeof body.text === 'string' && body.text.trim()) {
     // --- モードB: Geminiにフォールバック ---
@@ -102,6 +145,8 @@ export async function POST(request: NextRequest) {
         kind,
         payment_method: parsed.payment_method,
         memo: parsed.memo,
+        needs_review: parsed.category === 'その他' || parsed.category === 'その他収入',
+        review_reason: parsed.category === 'その他' || parsed.category === 'その他収入' ? 'AI解析後のカテゴリ確認' : null,
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : '解析に失敗しました'

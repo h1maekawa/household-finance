@@ -9,6 +9,7 @@ import {
 import Link from 'next/link'
 import AlertBanner from '@/components/AlertBanner'
 import DebtsSummaryCard from '@/components/DebtsSummaryCard'
+import GmailImportStatusCard from '@/components/GmailImportStatusCard'
 import SignOutButton from '@/components/SignOutButton'
 import { TransactionsResponse } from '@/types/transaction'
 import { CATEGORIES, INCOME_CATEGORIES } from '@/types/transaction'
@@ -40,6 +41,7 @@ export default function DashboardPage() {
 
   const transactions = data?.transactions ?? []
   const summary      = data?.summary ?? { total: 0, expense_total: 0, income_total: 0, by_category: {} }
+  const reviewCount  = transactions.filter(tx => tx.needs_review).length
 
   const chartData = Object.entries(summary.by_category)
     .sort((a, b) => b[1] - a[1])
@@ -93,6 +95,22 @@ export default function DashboardPage() {
       <div className="flex flex-col gap-4 px-4 pt-4">
         {/* 貸し借り・未納(一番最初に表示) */}
         <DebtsSummaryCard />
+
+        <GmailImportStatusCard />
+
+        {reviewCount > 0 && (
+          <Link href="/transactions" className="card border border-warning/30 p-4 block active:opacity-80">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-sm font-bold">確認が必要な取引があります</p>
+                <p className="text-xs text-muted mt-1">金額を見ながらカテゴリやメモを入力できます</p>
+              </div>
+              <span className="rounded-full bg-warning/10 px-2.5 py-1 text-xs font-bold text-warning shrink-0">
+                {reviewCount}件
+              </span>
+            </div>
+          </Link>
+        )}
 
         {/* Alerts */}
         {analysis?.alerts?.length > 0 && (

@@ -22,7 +22,9 @@
  */
 
 const DEFAULT_LABEL_NAME = 'kakeibo-processed'
+const DEFAULT_BACKFILL_LABEL_NAME = 'kakeibo-backfill-processed'
 const MAX_THREADS_PER_RUN = 30
+const MAX_BACKFILL_THREADS_PER_RUN = 100
 const MAX_BODY_LENGTH = 3000
 
 // =========================================================================
@@ -34,9 +36,9 @@ const MAX_BODY_LENGTH = 3000
 // =========================================================================
 const CATEGORY_MAP = [
   { keywords: ['uber', '出前館', 'menu'], category: '外食', kind: 'expense' },
-  { keywords: ['ファミマ', 'ファミリーマート', 'セブン', 'ローソン', 'ミニストップ'], category: '日用品', kind: 'expense' },
-  { keywords: ['jr', 'メトロ', '都営', 'suica', 'pasmo', 'タクシー'], category: '交通費', kind: 'expense' },
-  { keywords: ['マクドナルド', 'マック', 'スタバ', 'スターバックス', 'ガスト', 'サイゼリヤ', '壱角家'], category: '外食', kind: 'expense' },
+  { keywords: ['ファミマ', 'ファミリーマート', 'セブン', 'ローソン', 'ミニストップ', 'ministop', 'trialgo', 'trial'], category: '日用品', kind: 'expense' },
+  { keywords: ['jr', 'メトロ', '都営', 'suica', 'pasmo', 'タクシー', 'luup'], category: '交通費', kind: 'expense' },
+  { keywords: ['マクドナルド', 'マック', 'スタバ', 'スターバックス', 'ガスト', 'サイゼリヤ', '壱角家', 'すき家', 'sukiya'], category: '外食', kind: 'expense' },
   { keywords: ['ディズニー', 'シネマ', '映画', 'netflix', 'spotify', 'カラオケ', 'ﾏﾈｷﾈｺ'], category: '娯楽', kind: 'expense' },
   { keywords: ['病院', 'クリニック', '調剤', '薬局', '歯科'], category: '医療', kind: 'expense' },
   { keywords: ['給与', '給料', '賞与', 'ボーナス'], category: '給与', kind: 'income' },
@@ -72,6 +74,58 @@ function processCardEmails() {
   const searchQuery = props.getProperty('SEARCH_QUERY')
   const labelName = props.getProperty('LABEL_NAME') || DEFAULT_LABEL_NAME
 
+  processCardEmailsByQuery_(apiUrl, apiSecret, searchQuery, labelName, MAX_THREADS_PER_RUN)
+}
+
+/**
+ * 過去分のカード利用通知をまとめて取り込む手動実行用。
+ * スクリプトプロパティ BACKFILL_SEARCH_QUERY があればそれを使い、
+ * なければ SEARCH_QUERY の newer_than 条件を外した検索にする。
+ */
+function backfillCardEmails() {
+  const props = PropertiesService.getScriptProperties()
+  const apiUrl = props.getProperty('API_URL')
+  const apiSecret = props.getProperty('API_SECRET')
+  const baseSearchQuery = props.getProperty('SEARCH_QUERY')
+  const backfillSearchQuery = props.getProperty('BACKFILL_SEARCH_QUERY') || stripRelativeDateQuery_(baseSearchQuery)
+  const labelName = props.getProperty('BACKFILL_LABEL_NAME') || DEFAULT_BACKFILL_LABEL_NAME
+
+  processCardEmailsByQuery_(apiUrl, apiSecret, backfillSearchQuery, labelName, MAX_BACKFILL_THREADS_PER_RUN)
+}
+
+/**
+ * 過去取り込み用の検索条件で、Gmail上に何件見えているかだけ確認する。
+ * 登録やラベル付けは行わない。
+ */
+function diagnoseBackfillEmails() {
+  const props = PropertiesService.getScriptProperties()
+  const baseSearchQuery = props.getProperty('SEARCH_QUERY')
+  const backfillSearchQuery = props.getProperty('BACKFILL_SEARCH_QUERY') || stripRelativeDateQuery_(baseSearchQuery)
+  const labelName = props.getProperty('BACKFILL_LABEL_NAME') || DEFAULT_BACKFILL_LABEL_NAME
+
+  if (!backfillSearchQuery) {
+    Logger.log('BACKFILL_SEARCH_QUERY または SEARCH_QUERY が未設定です。')
+    return
+  }
+
+  const fullQuery = `${backfillSearchQuery} -label:${labelName}`
+  const threads = GmailApp.search(fullQuery, 0, MAX_BACKFILL_THREADS_PER_RUN)
+  let messageCount = 0
+  Logger.log(`過去取り込み検索クエリ: ${fullQuery}`)
+  Logger.log(`検索結果: ${threads.length}スレッド`)
+
+  for (const thread of threads) {
+    const messages = thread.getMessages()
+    messageCount += messages.length
+    for (const message of messages.slice(0, 3)) {
+      Logger.log(`候補: ${message.getDate()} / ${message.getSubject()} / ${message.getFrom()}`)
+    }
+  }
+
+  Logger.log(`検索結果内のメール数: ${messageCount}件`)
+}
+
+function processCardEmailsByQuery_(apiUrl, apiSecret, searchQuery, labelName, maxThreads) {
   if (!apiUrl || !apiSecret || !searchQuery) {
     Logger.log('スクリプトプロパティ(API_URL / API_SECRET / SEARCH_QUERY)が未設定です。プロジェクトの設定から追加してください。')
     return
@@ -79,7 +133,7 @@ function processCardEmails() {
 
   const processedLabel = getOrCreateLabel_(labelName)
   const fullQuery = `${searchQuery} -label:${labelName}`
-  const threads = GmailApp.search(fullQuery, 0, MAX_THREADS_PER_RUN)
+  const threads = GmailApp.search(fullQuery, 0, maxThreads)
   Logger.log(`検索クエリ: ${fullQuery}`)
   Logger.log(`今回処理するスレッド数: ${threads.length}件`)
 
@@ -107,7 +161,9 @@ function processCardEmails() {
       // Oliveなど三井住友の一部ブランドは件名に「三井住友カード」を含まないことがあるため、
       // statement@vpass.ne.jp / rakuten-card.co.jp といった実際の送信元で判定する方が確実。
       let parsedData = null
-      if (from.includes('vpass.ne.jp') || subject.includes('三井住友カード') || subject.includes('Olive')) {
+      if (from.includes('dn.smbc.co.jp') || subject.includes('三井住友銀行')) {
+        parsedData = parseSmbcBankTransfer_(body)
+      } else if (from.includes('vpass.ne.jp') || subject.includes('三井住友カード') || subject.includes('Olive')) {
         parsedData = parseSmbcCard_(body)
       } else if (from.includes('rakuten-card.co.jp') || subject.includes('カード利用のお知らせ') || subject.includes('楽天カード')) {
         parsedData = parseRakutenCard_(body)
@@ -120,6 +176,7 @@ function processCardEmails() {
         // --- 正規表現パース成功: 構造化データをそのまま送信(高速・無料) ---
         const merchant = normalizeText_(parsedData.merchant)
         const auto = getAutoCategory_(merchant)
+        const needsReview = auto.category === 'その他' || auto.category === 'その他収入'
         ok = sendStructured_(apiUrl, apiSecret, {
           date: parsedData.date,
           amount: parsedData.amount,
@@ -127,6 +184,8 @@ function processCardEmails() {
           kind: auto.kind,
           payment_method: parsedData.paymentMethod,
           memo: `${parsedData.paymentMethod}自動連携 (${merchant})`,
+          needs_review: needsReview,
+          review_reason: needsReview ? `分類確認: ${merchant}` : null,
           external_id: messageId,
         })
       } else {
@@ -147,6 +206,13 @@ function processCardEmails() {
   }
 }
 
+function stripRelativeDateQuery_(query) {
+  return String(query || '')
+    .replace(/\bnewer_than:\S+/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
 /**
  * 動作確認用。API接続とサーバー側の登録処理を1件だけテストする。
  * 実行後、アプリの「履歴」タブに「テスト用取引」が増えていれば成功。
@@ -161,14 +227,15 @@ function sendTestTransaction() {
     return
   }
 
+  const today = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd')
   const ok = sendStructured_(apiUrl, apiSecret, {
-    date: Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd'),
+    date: today,
     amount: 1280,
     category: '食費',
     kind: 'expense',
     payment_method: 'クレジットカード',
     memo: 'テスト用取引(sendTestTransactionから送信)',
-    external_id: `test-${Date.now()}`,
+    external_id: `test-send-transaction-${today}`,
   })
   Logger.log(ok ? 'テスト送信に成功しました。履歴タブを確認してください。' : 'テスト送信に失敗しました。ログを確認してください。')
 }
@@ -190,15 +257,109 @@ function installTrigger() {
   Logger.log('15分おきのトリガーを作成しました。')
 }
 
+/**
+ * 取り込みが止まっている場所を調べるための診断関数。
+ * APIへの登録は行わず、Gmail検索結果・送信元・件名・パーサー判定だけをログに出す。
+ */
+function diagnoseCardEmails() {
+  const props = PropertiesService.getScriptProperties()
+  const apiUrl = props.getProperty('API_URL')
+  const apiSecret = props.getProperty('API_SECRET')
+  const searchQuery = props.getProperty('SEARCH_QUERY')
+  const labelName = props.getProperty('LABEL_NAME') || DEFAULT_LABEL_NAME
+
+  Logger.log(`API_URL: ${apiUrl ? '設定済み' : '未設定'}`)
+  Logger.log(`API_SECRET: ${apiSecret ? '設定済み' : '未設定'}`)
+  Logger.log(`SEARCH_QUERY: ${searchQuery || '未設定'}`)
+  Logger.log(`LABEL_NAME: ${labelName}`)
+
+  if (!searchQuery) {
+    Logger.log('SEARCH_QUERY が未設定のため、Gmail検索を実行できません。')
+    return
+  }
+
+  const fullQuery = `${searchQuery} -label:${labelName}`
+  const threads = GmailApp.search(fullQuery, 0, 10)
+  Logger.log(`検索クエリ: ${fullQuery}`)
+  Logger.log(`検索結果: ${threads.length}スレッド`)
+
+  for (const thread of threads) {
+    for (const message of thread.getMessages()) {
+      const subject = message.getSubject()
+      const from = message.getFrom()
+      const body = message.getPlainBody()
+      let parserName = '未判定'
+      let parsedData = null
+
+      if (from.includes('dn.smbc.co.jp') || subject.includes('三井住友銀行')) {
+        parserName = '三井住友銀行'
+        parsedData = parseSmbcBankTransfer_(body)
+      } else if (from.includes('vpass.ne.jp') || subject.includes('三井住友カード') || subject.includes('Olive')) {
+        parserName = '三井住友カード'
+        parsedData = parseSmbcCard_(body)
+      } else if (from.includes('rakuten-card.co.jp') || subject.includes('カード利用のお知らせ') || subject.includes('楽天カード')) {
+        parserName = '楽天カード'
+        parsedData = parseRakutenCard_(body)
+      } else if (from.toLowerCase().includes('paypay') || subject.includes('PayPay')) {
+        parserName = 'PayPay'
+        parsedData = parsePayPay_(body)
+      }
+
+      Logger.log(`---`)
+      Logger.log(`件名: ${subject}`)
+      Logger.log(`送信元: ${from}`)
+      Logger.log(`受信日時: ${message.getDate()}`)
+      Logger.log(`パーサー: ${parserName}`)
+      Logger.log(parsedData ? `解析OK: ${JSON.stringify(parsedData)}` : '解析NG: 正規表現に一致しません。Geminiフォールバック対象です。')
+      if (!parsedData) {
+        Logger.log(`本文先頭: ${body.slice(0, 700).replace(/\s+/g, ' ')}`)
+      }
+    }
+  }
+}
+
 // =========================================================================
 // 各カード会社のパーサーモジュール
 // =========================================================================
 
+// 三井住友銀行: 振込受付完了 / 口座出金
+function parseSmbcBankTransfer_(body) {
+  const normalizedBody = normalizeText_(body)
+
+  if (!normalizedBody.includes('振込') && !normalizedBody.includes('出金') && !normalizedBody.includes('引落')) return null
+
+  const transferDateRegex = /受付日時\s*[:：]\s*(\d{4})年\s*(\d{1,2})月\s*(\d{1,2})日\s*(\d{1,2})時\s*(\d{1,2})分/
+  const withdrawalDateRegex = /(?:出金日|引落日|取引日)\s*[:：]\s*(\d{4})年\s*(\d{1,2})月\s*(\d{1,2})日/
+  const amountRegex = /(?:振込金額|お振込金額|金額|出金金額|出金額|引落金額|引落額|取引金額)\s*[:：]?\s*(\d{1,3}(?:,\d{3})*|\d+)\s*円/
+  const merchantRegex = /(?:振込先|お振込先|受取人名|受取人|振込先口座名義|内容|摘要)\s*[:：]\s*([^\r\n]+)/
+
+  const dMatch = normalizedBody.match(transferDateRegex) || normalizedBody.match(withdrawalDateRegex)
+  const aMatch = normalizedBody.match(amountRegex)
+  const mMatch = normalizedBody.match(merchantRegex)
+
+  if (dMatch && aMatch) {
+    const y = dMatch[1]
+    const m = String(dMatch[2]).padStart(2, '0')
+    const d = String(dMatch[3]).padStart(2, '0')
+    const merchant = mMatch ? cleanMerchantName_(mMatch[1]) : '三井住友銀行出金'
+    return {
+      date: `${y}-${m}-${d}`,
+      amount: parseInt(aMatch[1].replace(/,/g, ''), 10),
+      merchant: merchant || '三井住友銀行出金',
+      paymentMethod: '口座振込',
+    }
+  }
+
+  return null
+}
+
 // 三井住友カード
 function parseSmbcCard_(body) {
+  const normalizedBody = normalizeText_(body)
+
   // パターン1: 新フォーマット
-  const regex1 = /ご利用日時：\s*([0-9]{4}\/[0-9]{1,2}\/[0-9]{1,2})[^\n]*\n([^\n]+?)\s+([\d,]+)\s*円/
-  const match1 = body.match(regex1)
+  const regex1 = /ご利用日時[:：]\s*([0-9]{4}\/[0-9]{1,2}\/[0-9]{1,2})[^\n]*\n([^\n]+?)\s+([\d,]+)\s*円/
+  const match1 = normalizedBody.match(regex1)
   if (match1) {
     let merchant = match1[2].trim()
     merchant = merchant.replace(/（[^）]+）$/, '').trim()
@@ -211,23 +372,41 @@ function parseSmbcCard_(body) {
   }
 
   // パターン2: 旧フォーマットや崩れたテキストへの安全策
-  const dateRegex = /ご利用日時.*?([0-9]{4}\/[0-9]{1,2}\/[0-9]{1,2})/
-  const amountRegex = /ご利用金額.*?([\d,]+)\s*円/
-  const merchantRegex = /ご利用加盟店.*?([^\r\n]+)/
+  const dateRegex = /(?:ご利用日時|ご利用日|利用日時|利用日|ご利用年月日)[^\d]*(\d{4}[\/年.-]\d{1,2}[\/月.-]\d{1,2})/
+  const amountRegex = /(?:ご利用金額|利用金額|金額|ご利用額|利用額)[^\d]*(\d{1,3}(?:,\d{3})*|\d+)\s*円/
+  const merchantRegex = /(?:ご利用先|利用先|ご利用加盟店|利用加盟店|加盟店名|ご利用店名|利用店名|ご利用店舗|利用店舗|店舗名|ショップ名)[:：\s]*([^\r\n]+)/
 
-  const dMatch = body.match(dateRegex)
-  const aMatch = body.match(amountRegex)
-  const mMatch = body.match(merchantRegex)
+  const dMatch = normalizedBody.match(dateRegex)
+  const aMatch = normalizedBody.match(amountRegex)
+  const mMatch = normalizedBody.match(merchantRegex)
 
   if (dMatch && aMatch) {
+    const merchant = mMatch ? cleanMerchantName_(mMatch[1]) : '三井住友カード利用'
     return {
-      date: dMatch[1].replace(/\//g, '-'),
+      date: normalizeDate_(dMatch[1]),
       amount: parseInt(aMatch[1].replace(/,/g, ''), 10),
-      merchant: mMatch ? mMatch[1].trim() : '三井住友カード利用',
+      merchant: merchant || '三井住友カード利用',
       paymentMethod: 'クレジットカード',
     }
   }
   return null
+}
+
+function normalizeDate_(value) {
+  const match = String(value || '').match(/(\d{4})[\/年.-](\d{1,2})[\/月.-](\d{1,2})/)
+  if (!match) return value
+  const y = match[1]
+  const m = String(match[2]).padStart(2, '0')
+  const d = String(match[3]).padStart(2, '0')
+  return `${y}-${m}-${d}`
+}
+
+function cleanMerchantName_(value) {
+  return String(value || '')
+    .replace(/^[\s:：]+/, '')
+    .replace(/（[^）]+）$/, '')
+    .replace(/\s+(?:ご利用金額|利用金額|金額|ご利用額|利用額).*$/, '')
+    .trim()
 }
 
 // 楽天カード

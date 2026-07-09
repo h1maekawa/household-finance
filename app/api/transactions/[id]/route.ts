@@ -34,7 +34,12 @@ export async function PATCH(request: NextRequest, { params }: Context) {
 
   const { data, error } = await supabaseAdmin
     .from('transactions')
-    .update({ ...body, updated_at: new Date().toISOString() })
+    .update({
+      ...body,
+      needs_review: body.needs_review ?? false,
+      review_reason: body.needs_review ? body.review_reason ?? null : null,
+      updated_at: new Date().toISOString(),
+    })
     .eq('id', id)
     .eq('user_id', user.id)
     .select()
