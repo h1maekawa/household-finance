@@ -6,6 +6,10 @@ import { ja } from 'date-fns/locale'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from 'recharts'
+import Link from 'next/link'
+import AlertBanner from '@/components/AlertBanner'
+import DebtsSummaryCard from '@/components/DebtsSummaryCard'
+import SignOutButton from '@/components/SignOutButton'
 import { TransactionsResponse } from '@/types/transaction'
 import { CATEGORIES, INCOME_CATEGORIES } from '@/types/transaction'
 
@@ -16,9 +20,6 @@ function categoryIcon(category: string) {
     '📦'
   )
 }
-import AlertBanner from '@/components/AlertBanner'
-import DebtsSummaryCard from '@/components/DebtsSummaryCard'
-import Link from 'next/link'
 
 const fetcher = (url: string) => fetch(url).then(r => r.json())
 
@@ -59,6 +60,9 @@ export default function DashboardPage() {
     <div className="max-w-xl mx-auto">
       {/* Header */}
       <div className="bg-primary text-white px-4 pt-10 pb-6">
+        <div className="mb-3 flex justify-end">
+          <SignOutButton />
+        </div>
         <div className="flex items-center justify-between mb-4">
           <button
             onClick={() => setMonth(m => addMonths(m, -1))}
