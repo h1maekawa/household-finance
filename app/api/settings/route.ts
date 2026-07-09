@@ -1,0 +1,90 @@
+import { NextRequest } from 'next/server'
+import { supabaseAdmin } from '@/lib/supabase'
+import { getAuthenticatedUser, unauthorized } from '@/lib/auth'
+
+type SettingsBody = {
+  initial_balance?: number
+  monthly_income?: number
+}
+
+function normalizeAmount(value: unknown) {
+  const amount = Number(value)
+  if (!Number.isFinite(amount) || amount < 0) return null
+  return Math.round(amount)
+}
+
+export async function GET(request: NextRequest) {
+  const user = await getAuthenticatedUser(request)
+  if (!user) return unauthorized()
+
+  const [profileRes, balanceRes] = await Promise.all([
+    supabaseAdmin
+      .from('users_profile')
+      .select('*')
+      .eq('user_id', user.id)
+      .maybeSingle(),
+    supabaseAdmin
+      .from('account_balance')
+      .select('*')
+      .eq('user_id', user.id)
+      .order('recorded_at', { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+  ])
+
+  if (profileRes.error) {
+    return Response.json({ error: profileRes.error.message }, { status: 500 })
+  }
+  if (balanceRes.error) {
+    return Response.json({ error: balanceRes.error.message }, { status: 500 })
+  }
+
+  return Response.json({
+    profile: profileRes.data ?? {
+      user_id: user.id,
+      initial_balance: balanceRes.data?.balance ?? 0,
+      monthly_income: 0,
+    },
+    currentBalance: balanceRes.data,
+  })
+}
+
+export async function PATCH(request: NextRequest) {
+  const user = await getAuthenticatedUser(request)
+  if (!user) return unauthorized()
+
+  const body: SettingsBody = await request.json()
+  const initialBalance = normalizeAmount(body.initial_balance)
+  const monthlyIncome = normalizeAmount(body.monthly_income)
+
+  if (initialBalance === null || monthlyIncome === null) {
+    return Response.json({ error: '残高と月収は0以上の数値で入力してください' }, { status: 400 })
+  }
+
+  const { data: profile, error: profileError } = await supabaseAdmin
+    .from('users_profile')
+    .upsert({
+      user_id: user.id,
+      initial_balance: initialBalance,
+      monthly_income: monthlyIncome,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: 'user_id' })
+    .select()
+    .single()
+
+  if (profileError) {
+    return Response.json({ error: profileError.message }, { status: 500 })
+  }
+
+  const { data: balance, error: balanceError } = await supabaseAdmin
+    .from('account_balance')
+    .insert([{ balance: initialBalance, user_id: user.id }])
+    .select()
+    .single()
+
+  if (balanceError) {
+    return Response.json({ error: balanceError.message }, { status: 500 })
+  }
+
+  return Response.json({ profile, currentBalance: balance })
+}

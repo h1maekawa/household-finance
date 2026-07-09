@@ -10,7 +10,9 @@ import Link from 'next/link'
 import AlertBanner from '@/components/AlertBanner'
 import DebtsSummaryCard from '@/components/DebtsSummaryCard'
 import GmailImportStatusCard from '@/components/GmailImportStatusCard'
+import PaymentMethodSummaryCard from '@/components/PaymentMethodSummaryCard'
 import SignOutButton from '@/components/SignOutButton'
+import { ScheduledPayment } from '@/types/cashflow'
 import { TransactionsResponse } from '@/types/transaction'
 import { CATEGORIES, INCOME_CATEGORIES } from '@/types/transaction'
 
@@ -38,6 +40,7 @@ export default function DashboardPage() {
     fetcher
   )
   const { data: investments } = useSWR('/api/investments', fetcher)
+  const { data: scheduledPayments } = useSWR<ScheduledPayment[]>('/api/scheduled-payments', fetcher)
 
   const transactions = data?.transactions ?? []
   const summary      = data?.summary ?? { total: 0, expense_total: 0, income_total: 0, by_category: {} }
@@ -98,6 +101,8 @@ export default function DashboardPage() {
 
         <GmailImportStatusCard />
 
+        <PaymentMethodSummaryCard transactions={transactions} scheduledPayments={scheduledPayments ?? []} />
+
         {reviewCount > 0 && (
           <Link href="/transactions" className="card border border-warning/30 p-4 block active:opacity-80">
             <div className="flex items-center justify-between gap-3">
@@ -117,11 +122,11 @@ export default function DashboardPage() {
           <AlertBanner alerts={analysis.alerts} />
         )}
 
-        <Link href="/flow/setup" className="card p-4 block active:opacity-80">
+        <Link href="/settings" className="card p-4 block active:opacity-80">
           <div className="flex items-center justify-between gap-3">
             <div>
-              <p className="text-sm font-bold">Flow+ 初期設定</p>
-              <p className="text-xs text-muted mt-1">ログインから残高・収入・固定費・カード締め日まで</p>
+              <p className="text-sm font-bold">設定</p>
+              <p className="text-xs text-muted mt-1">初期残高・毎月の収入を変更できます</p>
             </div>
             <span className="text-primary text-sm font-bold shrink-0">開く →</span>
           </div>

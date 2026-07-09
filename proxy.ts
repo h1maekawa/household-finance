@@ -13,6 +13,7 @@ const protectedPaths = [
   '/investments',
   '/input',
   '/assets',
+  '/settings',
 ]
 
 export async function proxy(request: NextRequest) {

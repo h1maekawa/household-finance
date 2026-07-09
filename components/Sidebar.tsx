@@ -8,6 +8,7 @@ const tabs = [
   { href: '/transactions', label: '履歴',   icon: '📊' },
   { href: '/cashflow',     label: '予測',   icon: '💰' },
   { href: '/investments',  label: '投資',   icon: '💹' },
+  { href: '/settings',     label: '設定',   icon: '⚙️' },
 ]
 
 // デスクトップ幅(lg以上)でのみ表示するサイドナビ。
@@ -39,7 +40,7 @@ export default function Sidebar() {
         })}
       </nav>
 
-      <Link href="/flow/setup" className="mt-auto block px-3 py-2 text-xs text-primary">
+      <Link href="/settings" className="mt-auto block px-3 py-2 text-xs text-primary">
         初期設定
       </Link>
     </aside>

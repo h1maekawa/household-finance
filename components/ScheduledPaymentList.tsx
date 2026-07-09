@@ -42,7 +42,10 @@ export default function ScheduledPaymentList({ payments, onMutate }: Props) {
   return (
     <div>
       <div className="flex items-center justify-between mb-3">
-        <h3 className="font-bold text-base">引き落とし予定</h3>
+        <div>
+          <h3 className="font-bold text-base">引き落とし予定</h3>
+          <p className="mt-0.5 text-xs text-muted">カード請求は種別を「クレカ請求」にします</p>
+        </div>
         <button
           onClick={() => { setEditTarget(null); setShowModal(true) }}
           className="text-sm text-primary font-medium"
