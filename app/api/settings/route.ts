@@ -5,12 +5,19 @@ import { createSupabaseServerClient } from '@/lib/supabase/server'
 type SettingsBody = {
   initial_balance?: number
   monthly_income?: number
+  income_day?: number
 }
 
 function normalizeAmount(value: unknown) {
   const amount = Number(value)
   if (!Number.isFinite(amount) || amount < 0) return null
   return Math.round(amount)
+}
+
+function normalizeDay(value: unknown) {
+  const day = Number(value)
+  if (!Number.isFinite(day) || day < 1 || day > 31) return null
+  return Math.round(day)
 }
 
 export async function GET(request: NextRequest) {
@@ -58,9 +65,10 @@ export async function PATCH(request: NextRequest) {
   const body: SettingsBody = await request.json()
   const initialBalance = normalizeAmount(body.initial_balance)
   const monthlyIncome = normalizeAmount(body.monthly_income)
+  const incomeDay = normalizeDay(body.income_day ?? 25)
 
-  if (initialBalance === null || monthlyIncome === null) {
-    return Response.json({ error: '残高と月収は0以上の数値で入力してください' }, { status: 400 })
+  if (initialBalance === null || monthlyIncome === null || incomeDay === null) {
+    return Response.json({ error: '残高・月収・給料日を正しく入力してください' }, { status: 400 })
   }
 
   const { data: profile, error: profileError } = await supabase
@@ -69,6 +77,7 @@ export async function PATCH(request: NextRequest) {
       user_id: user.id,
       initial_balance: initialBalance,
       monthly_income: monthlyIncome,
+      income_day: incomeDay,
       updated_at: new Date().toISOString(),
     }, { onConflict: 'user_id' })
     .select()

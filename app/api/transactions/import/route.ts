@@ -21,6 +21,7 @@ import { requireActiveEntitlement } from '@/lib/entitlements'
 import { hashImportSecret } from '@/lib/import-secrets'
 import { isSupabaseConfigured, supabaseAdmin } from '@/lib/supabase'
 import { parseChatInput } from '@/lib/gemini'
+import { decideCategory, MerchantRule } from '@/lib/category-rules'
 import { CATEGORIES, INCOME_CATEGORIES, Kind } from '@/types/transaction'
 
 function hasEnv(name: string): boolean {
@@ -61,6 +62,16 @@ function normalizeCategory(category: string | undefined, kind: Kind): string {
   return kind === 'income' ? 'その他収入' : 'その他'
 }
 
+async function getMerchantRules(userId: string): Promise<MerchantRule[]> {
+  const { data } = await supabaseAdmin
+    .from('merchant_rules')
+    .select('id,merchant_pattern,category,payment_method,confidence')
+    .eq('user_id', userId)
+    .order('created_at', { ascending: false })
+
+  return data ?? []
+}
+
 interface ImportFields {
   date: string
   amount: number
@@ -70,6 +81,14 @@ interface ImportFields {
   memo?: string
   needs_review?: boolean
   review_reason?: string | null
+}
+
+interface ScheduledImportFields {
+  date: string
+  amount: number
+  category: string
+  name: string
+  memo?: string
 }
 
 export async function GET(request: NextRequest) {
@@ -122,20 +141,79 @@ export async function POST(request: NextRequest) {
   }
 
   const externalId: string | undefined = body.external_id
+  const merchantRules = await getMerchantRules(targetUserId)
+
+  if (body.import_target === 'scheduled_payment') {
+    if (!body.date || !body.amount) {
+      return Response.json({ error: 'scheduled_payment には date/amount が必要です' }, { status: 400 })
+    }
+
+    const categoryDecision = decideCategory({
+      merchantText: String(body.name || body.merchant || body.memo || '口座引落予定'),
+      currentCategory: body.category,
+      rules: merchantRules,
+    })
+    const fields: ScheduledImportFields = {
+      date: body.date,
+      amount: Number(body.amount),
+      category: normalizeCategory(categoryDecision.category, 'expense'),
+      name: String(body.name || body.merchant || '口座引落予定'),
+      memo: body.memo ?? '',
+    }
+
+    const scheduledDate = new Date(fields.date)
+    if (!Number.isFinite(fields.amount) || fields.amount <= 0 || Number.isNaN(scheduledDate.getTime())) {
+      return Response.json({ error: '予定の日付または金額が不正です' }, { status: 400 })
+    }
+
+    const { data, error } = await supabaseAdmin
+      .from('scheduled_payments')
+      .insert([{
+        name: fields.name,
+        amount: Math.round(fields.amount),
+        due_day: scheduledDate.getDate(),
+        category: fields.category,
+        type: 'fixed',
+        is_active: true,
+        memo: fields.memo,
+        scheduled_date: fields.date,
+        external_id: externalId ?? null,
+        source: 'gmail_bank',
+        user_id: targetUserId,
+      }])
+      .select()
+      .single()
+
+    if (error) {
+      if (error.code === '23505') {
+        return Response.json({ duplicate: true }, { status: 200 })
+      }
+      return Response.json({ error: error.message }, { status: 500 })
+    }
+
+    return Response.json({ scheduledPayment: data }, { status: 201 })
+  }
+
   let fields: ImportFields
 
   if (body.date && body.amount && body.category) {
     // --- モードA: GAS側で既に正規表現パース済み ---
     const kind: Kind = body.kind === 'income' ? 'income' : 'expense'
+    const categoryDecision = decideCategory({
+      merchantText: String(body.memo || body.merchant || body.name || body.category),
+      kind,
+      currentCategory: body.category,
+      rules: merchantRules,
+    })
     fields = {
       date: body.date,
       amount: Number(body.amount),
-      category: normalizeCategory(body.category, kind),
+      category: normalizeCategory(categoryDecision.category, kind),
       kind,
       payment_method: body.payment_method || (kind === 'income' ? '口座振込' : '現金'),
       memo: body.memo ?? '',
-      needs_review: Boolean(body.needs_review),
-      review_reason: body.review_reason ?? null,
+      needs_review: categoryDecision.needsReview || Boolean(body.needs_review),
+      review_reason: categoryDecision.reviewReason ?? body.review_reason ?? null,
     }
   } else if (typeof body.text === 'string' && body.text.trim()) {
     // --- モードB: Geminiにフォールバック ---
@@ -152,15 +230,21 @@ export async function POST(request: NextRequest) {
       }
 
       const kind: Kind = parsed.kind === 'income' ? 'income' : 'expense'
+      const categoryDecision = decideCategory({
+        merchantText: parsed.memo,
+        kind,
+        currentCategory: parsed.category,
+        rules: merchantRules,
+      })
       fields = {
         date: parsed.date,
         amount: parsed.amount,
-        category: normalizeCategory(parsed.category, kind),
+        category: normalizeCategory(categoryDecision.category, kind),
         kind,
         payment_method: parsed.payment_method,
         memo: parsed.memo,
-        needs_review: parsed.category === 'その他' || parsed.category === 'その他収入',
-        review_reason: parsed.category === 'その他' || parsed.category === 'その他収入' ? 'AI解析後のカテゴリ確認' : null,
+        needs_review: categoryDecision.needsReview || parsed.category === 'その他' || parsed.category === 'その他収入',
+        review_reason: categoryDecision.reviewReason ?? (parsed.category === 'その他' || parsed.category === 'その他収入' ? 'AI解析後のカテゴリ確認' : null),
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : '解析に失敗しました'

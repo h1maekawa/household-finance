@@ -163,6 +163,8 @@ function processCardEmailsByQuery_(apiUrl, apiSecret, searchQuery, labelName, ma
       let parsedData = null
       if (from.includes('dn.smbc.co.jp') || subject.includes('三井住友銀行')) {
         parsedData = parseSmbcBankTransfer_(body)
+      } else if (from.includes('ac.rakuten-bank.co.jp') || subject.includes('楽天銀行')) {
+        parsedData = parseRakutenBank_(body)
       } else if (from.includes('vpass.ne.jp') || subject.includes('三井住友カード') || subject.includes('Olive')) {
         parsedData = parseSmbcCard_(body)
       } else if (from.includes('rakuten-card.co.jp') || subject.includes('カード利用のお知らせ') || subject.includes('楽天カード')) {
@@ -172,21 +174,37 @@ function processCardEmailsByQuery_(apiUrl, apiSecret, searchQuery, labelName, ma
       }
 
       let ok
-      if (parsedData) {
+      if (parsedData && parsedData.skip) {
+        Logger.log(`スキップ: ${parsedData.reason}`)
+        ok = true
+      } else if (parsedData) {
         // --- 正規表現パース成功: 構造化データをそのまま送信(高速・無料) ---
-        const merchant = normalizeText_(parsedData.merchant)
-        const auto = getAutoCategory_(merchant)
-        const needsReview = auto.category === 'その他' || auto.category === 'その他収入'
-        ok = sendStructured_(apiUrl, apiSecret, {
-          date: parsedData.date,
-          amount: parsedData.amount,
-          category: auto.category,
-          kind: auto.kind,
-          payment_method: parsedData.paymentMethod,
-          memo: `${parsedData.paymentMethod}自動連携 (${merchant})`,
-          needs_review: needsReview,
-          review_reason: needsReview ? `分類確認: ${merchant}` : null,
-          external_id: messageId,
+        const parsedItems = Array.isArray(parsedData) ? parsedData : [parsedData]
+        ok = true
+
+        parsedItems.forEach((item, index) => {
+          const merchant = normalizeText_(item.merchant)
+          const auto = getAutoCategory_(merchant)
+          const needsReview = auto.category === 'その他' || auto.category === 'その他収入'
+          const itemExternalId = parsedItems.length > 1 ? `${messageId}-${index + 1}` : messageId
+          const payload = {
+            date: item.date,
+            amount: item.amount,
+            category: item.category || auto.category,
+            kind: auto.kind,
+            payment_method: item.paymentMethod,
+            memo: item.memo || `${item.paymentMethod}自動連携 (${merchant})`,
+            needs_review: needsReview,
+            review_reason: needsReview ? `分類確認: ${merchant}` : null,
+            external_id: itemExternalId,
+          }
+
+          if (item.importTarget === 'scheduled_payment') {
+            payload.import_target = 'scheduled_payment'
+            payload.name = item.merchant || '口座引落予定'
+          }
+
+          if (!sendStructured_(apiUrl, apiSecret, payload)) ok = false
         })
       } else {
         // --- 正規表現で解析できなかった: 件名+本文をそのまま送り、
@@ -294,6 +312,9 @@ function diagnoseCardEmails() {
       if (from.includes('dn.smbc.co.jp') || subject.includes('三井住友銀行')) {
         parserName = '三井住友銀行'
         parsedData = parseSmbcBankTransfer_(body)
+      } else if (from.includes('ac.rakuten-bank.co.jp') || subject.includes('楽天銀行')) {
+        parserName = '楽天銀行'
+        parsedData = parseRakutenBank_(body)
       } else if (from.includes('vpass.ne.jp') || subject.includes('三井住友カード') || subject.includes('Olive')) {
         parserName = '三井住友カード'
         parsedData = parseSmbcCard_(body)
@@ -327,6 +348,38 @@ function parseSmbcBankTransfer_(body) {
   const normalizedBody = normalizeText_(body)
 
   if (!normalizedBody.includes('振込') && !normalizedBody.includes('出金') && !normalizedBody.includes('引落')) return null
+
+  const scheduledDateRegex = /口座引落予定日\s*[:：]\s*(\d{4})年\s*(\d{1,2})月\s*(\d{1,2})日/
+  const scheduledDateMatch = normalizedBody.match(scheduledDateRegex)
+  if (scheduledDateMatch) {
+    const y = scheduledDateMatch[1]
+    const m = String(scheduledDateMatch[2]).padStart(2, '0')
+    const d = String(scheduledDateMatch[3]).padStart(2, '0')
+    const date = `${y}-${m}-${d}`
+    const items = []
+    const detailRegex = /◆明細\d+([\s\S]*?)(?=◆明細\d+|―――|$)/g
+    let detailMatch
+
+    while ((detailMatch = detailRegex.exec(normalizedBody)) !== null) {
+      const detail = detailMatch[1]
+      const amountMatch = detail.match(/引落金額\s*[:：]\s*(\d{1,3}(?:,\d{3})*|\d+)\s*円/)
+      const merchantMatch = detail.match(/内容\s*[:：]\s*([^\r\n]+)/)
+      if (!amountMatch) continue
+
+      const merchant = merchantMatch ? cleanMerchantName_(merchantMatch[1]) : '口座引落予定'
+      items.push({
+        importTarget: 'scheduled_payment',
+        date: date,
+        amount: parseInt(amountMatch[1].replace(/,/g, ''), 10),
+        merchant: merchant || '口座引落予定',
+        paymentMethod: '口座引落',
+        category: 'その他',
+        memo: `三井住友銀行 口座引落予定 (${merchant || '内容未設定'})`,
+      })
+    }
+
+    if (items.length > 0) return items
+  }
 
   const transferDateRegex = /受付日時\s*[:：]\s*(\d{4})年\s*(\d{1,2})月\s*(\d{1,2})日\s*(\d{1,2})時\s*(\d{1,2})分/
   const withdrawalDateRegex = /(?:出金日|引落日|取引日)\s*[:：]\s*(\d{4})年\s*(\d{1,2})月\s*(\d{1,2})日/
@@ -411,9 +464,35 @@ function cleanMerchantName_(value) {
 
 // 楽天カード
 function parseRakutenCard_(body) {
+  const normalizedBody = normalizeText_(body)
+
+  const paymentAmountRegex = /(?:確定|お支払い金額)[\s\S]{0,80}?(\d{1,3}(?:,\d{3})*|\d+)\s*円/
+  const paymentDateRegex = /お支払い日\s*(\d{4})\/(\d{1,2})\/(\d{1,2})/
+  const cardRegex = /ご利用カード\s*([^\r\n]+)/
+  const paymentAmountMatch = normalizedBody.match(paymentAmountRegex)
+  const paymentDateMatch = normalizedBody.match(paymentDateRegex)
+
+  if (paymentAmountMatch && paymentDateMatch && normalizedBody.includes('お支払い金額')) {
+    const y = paymentDateMatch[1]
+    const m = String(paymentDateMatch[2]).padStart(2, '0')
+    const d = String(paymentDateMatch[3]).padStart(2, '0')
+    const cardMatch = normalizedBody.match(cardRegex)
+    const cardName = cardMatch ? cleanMerchantName_(cardMatch[1]) : '楽天カード'
+
+    return {
+      importTarget: 'scheduled_payment',
+      date: `${y}-${m}-${d}`,
+      amount: parseInt(paymentAmountMatch[1].replace(/,/g, ''), 10),
+      merchant: '楽天カード請求',
+      paymentMethod: '口座振替',
+      category: 'その他',
+      memo: `${cardName || '楽天カード'} お支払い金額`,
+    }
+  }
+
   // パターン1: 表形式フォーマット
   const regex1 = /([0-9]{4}\/[0-9]{1,2}\/[0-9]{1,2})\s+([^\n]+?)\s+([\d,]+)\s*円/
-  const match1 = body.match(regex1)
+  const match1 = normalizedBody.match(regex1)
   if (match1) {
     return {
       date: match1[1].replace(/\//g, '-'),
@@ -428,9 +507,9 @@ function parseRakutenCard_(body) {
   const amountRegex = /利用金額.*?([\d,]+)\s*円/
   const merchantRegex = /利用先.*?([^\r\n]+)/
 
-  const dMatch = body.match(dateRegex)
-  const aMatch = body.match(amountRegex)
-  const mMatch = body.match(merchantRegex)
+  const dMatch = normalizedBody.match(dateRegex)
+  const aMatch = normalizedBody.match(amountRegex)
+  const mMatch = normalizedBody.match(merchantRegex)
 
   if (dMatch && aMatch) {
     return {
@@ -440,6 +519,40 @@ function parseRakutenCard_(body) {
       paymentMethod: 'クレジットカード',
     }
   }
+  return null
+}
+
+function parseRakutenBank_(body) {
+  const normalizedBody = normalizeText_(body)
+  if (!normalizedBody.includes('口座振替') && !normalizedBody.includes('自動引落')) return null
+
+  const amountRegex = /(?:引落金額|支払金額|金額)\s*[:：]?\s*(\d{1,3}(?:,\d{3})*|\d+)\s*円/
+  const dateRegex = /支払い日時\s*(\d{4})\/(\d{1,2})\/(\d{1,2})/
+  const amountMatch = normalizedBody.match(amountRegex)
+  const dateMatch = normalizedBody.match(dateRegex)
+
+  if (!amountMatch) {
+    return {
+      skip: true,
+      reason: '楽天銀行の自動引落メールに金額がないため、楽天カードのお支払い金額メールを優先します',
+    }
+  }
+
+  if (dateMatch) {
+    const y = dateMatch[1]
+    const m = String(dateMatch[2]).padStart(2, '0')
+    const d = String(dateMatch[3]).padStart(2, '0')
+    return {
+      importTarget: 'scheduled_payment',
+      date: `${y}-${m}-${d}`,
+      amount: parseInt(amountMatch[1].replace(/,/g, ''), 10),
+      merchant: '楽天銀行 口座振替',
+      paymentMethod: '口座振替',
+      category: 'その他',
+      memo: '楽天銀行 口座振替',
+    }
+  }
+
   return null
 }
 

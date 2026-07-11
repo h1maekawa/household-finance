@@ -44,7 +44,7 @@ export default function ScheduledPaymentList({ payments, onMutate }: Props) {
       <div className="flex items-center justify-between mb-3">
         <div>
           <h3 className="font-bold text-base">引き落とし予定</h3>
-          <p className="mt-0.5 text-xs text-muted">カード請求は種別を「クレカ請求」にします</p>
+          <p className="mt-0.5 text-xs text-muted">家賃やサブスクなど、取引履歴から出せない固定費だけ追加します</p>
         </div>
         <button
           onClick={() => { setEditTarget(null); setShowModal(true) }}
@@ -68,7 +68,7 @@ export default function ScheduledPaymentList({ payments, onMutate }: Props) {
                   <p className={`text-sm font-medium ${!p.is_active ? 'text-muted line-through' : ''}`}>
                     {p.name}
                   </p>
-                  <span className="text-xs text-muted">毎月{p.due_day}日</span>
+                  <span className="text-xs text-muted">{p.scheduled_date ? p.scheduled_date : `毎月${p.due_day}日`}</span>
                 </div>
                 <p className="text-xs text-muted">{p.category}</p>
               </div>
@@ -125,7 +125,7 @@ function PaymentModal({
 }) {
   const [form, setForm] = useState<ScheduledPaymentInput>(
     initial
-      ? { name: initial.name, amount: initial.amount, due_day: initial.due_day, category: initial.category, type: initial.type, is_active: initial.is_active, memo: initial.memo }
+      ? { name: initial.name, amount: initial.amount, due_day: initial.due_day, category: initial.category, type: initial.type === 'credit' ? 'credit' : 'fixed', is_active: initial.is_active, memo: initial.memo }
       : emptyForm()
   )
   const [saving, setSaving] = useState(false)

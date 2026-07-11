@@ -63,7 +63,7 @@ GAS_IMPORT_USER_ID=(手順3でコピーしたUID)
 パーサーの振り分け(三井住友/楽天/PayPayのどれで解析するか)は送信元アドレスと件名の両方で判定するので、`SEARCH_QUERY` はラベルではなく送信元アドレスで直接絞り込むのが一番確実です。実際に確認できた送信元アドレスを使うと以下のようになります。
 
 ```
-from:(info@mail.rakuten-card.co.jp OR statement@vpass.ne.jp OR SMBC_service@dn.smbc.co.jp) newer_than:3d
+from:(info@mail.rakuten-card.co.jp OR service@ac.rakuten-bank.co.jp OR statement@vpass.ne.jp OR SMBC_service@dn.smbc.co.jp) newer_than:3d
 ```
 
 他のカードやPayPayも使っている場合は `OR` で送信元アドレスを追加してください。すでにGmailのフィルタでラベル分けをしている場合は、代わりに `(label:三井住友クレジット OR label:楽天カード) -in:trash -in:spam` のようにラベルベースの条件を使っても構いません。
@@ -96,7 +96,7 @@ from:(info@mail.rakuten-card.co.jp OR statement@vpass.ne.jp OR SMBC_service@dn.s
 
 | プロパティ | 値の例 |
 |---|---|
-| `BACKFILL_SEARCH_QUERY` | `from:(info@mail.rakuten-card.co.jp OR statement@vpass.ne.jp OR SMBC_service@dn.smbc.co.jp) after:2026/01/01 -in:trash -in:spam` |
+| `BACKFILL_SEARCH_QUERY` | `from:(info@mail.rakuten-card.co.jp OR service@ac.rakuten-bank.co.jp OR statement@vpass.ne.jp OR SMBC_service@dn.smbc.co.jp) after:2026/01/01 -in:trash -in:spam` |
 | `BACKFILL_LABEL_NAME` | `kakeibo-backfill-processed` |
 
 `BACKFILL_SEARCH_QUERY` を未設定にした場合は、`SEARCH_QUERY` から `newer_than:3d` のような相対日付条件を外して検索します。対象が多い場合は1回で最大100スレッドまで処理します。まだ未処理のメールが残っている場合は、`backfillCardEmails` を複数回実行してください。

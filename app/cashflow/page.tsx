@@ -18,6 +18,9 @@ export default function CashflowPage() {
   const current = data?.currentBalance
   const projected = data?.projectedDays ?? []
   const payments  = data?.scheduledPayments ?? []
+  const generatedPayments = data?.generatedPayments ?? []
+  const creditCards = data?.creditCards ?? []
+  const profile = data?.profile
 
   const minBalance = projected.length > 0 ? Math.min(...projected.map(d => d.balance)) : 0
   const negDays    = projected.filter(d => d.isNegative).length
@@ -110,10 +113,36 @@ export default function CashflowPage() {
           </div>
         ) : null}
 
+        {data && (
+          <div className="card p-4">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h2 className="font-bold text-base">自動予測の設定</h2>
+                <p className="mt-1 text-xs leading-relaxed text-muted">
+                  カード請求は取引履歴から自動集計します。固定費だけ下の予定に追加してください。
+                </p>
+              </div>
+              <a href="/settings" className="shrink-0 text-xs font-bold text-primary">設定</a>
+            </div>
+            <div className="mt-4 grid grid-cols-2 gap-3">
+              <div className="rounded-xl bg-surface p-3">
+                <p className="text-[11px] text-muted">毎月の固定収入</p>
+                <p className="mt-1 text-sm font-bold">{(profile?.monthly_income ?? 0).toLocaleString()}円</p>
+                <p className="mt-0.5 text-[11px] text-muted">毎月{profile?.income_day ?? 25}日</p>
+              </div>
+              <div className="rounded-xl bg-surface p-3">
+                <p className="text-[11px] text-muted">カード請求見込み</p>
+                <p className="mt-1 text-sm font-bold">{generatedPayments.reduce((sum, p) => sum + p.amount, 0).toLocaleString()}円</p>
+                <p className="mt-0.5 text-[11px] text-muted">{creditCards.length}件のカード設定</p>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Timeline */}
         {projected.some(d => d.payments.length > 0) && (
           <div className="card p-4">
-            <h2 className="font-bold text-base mb-3">引き落としスケジュール</h2>
+            <h2 className="font-bold text-base mb-3">入出金スケジュール</h2>
             <div className="flex flex-col gap-2 max-h-64 overflow-y-auto">
               {projected
                 .filter(d => d.payments.length > 0)
@@ -127,8 +156,13 @@ export default function CashflowPage() {
                     <div className="flex-1 flex flex-col gap-1">
                       {d.payments.map(p => (
                         <div key={p.id} className="flex justify-between text-sm">
-                          <span className="text-foreground">{p.name}</span>
-                          <span className="text-danger font-medium">-{p.amount.toLocaleString()}円</span>
+                          <span className="text-foreground">
+                            {p.name}
+                            {p.memo && <span className="ml-1 text-[11px] text-muted">({p.memo})</span>}
+                          </span>
+                          <span className={`font-medium ${p.type === 'income' ? 'text-success' : 'text-danger'}`}>
+                            {p.type === 'income' ? '+' : '-'}{p.amount.toLocaleString()}円
+                          </span>
                         </div>
                       ))}
                     </div>
