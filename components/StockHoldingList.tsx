@@ -1,6 +1,7 @@
 'use client'
-import { useEffect, useState } from 'react'
+import { ChangeEvent, useEffect, useState } from 'react'
 import { StockWithQuote, StockHoldingInput } from '@/types/stock'
+import { readRakutenStockCsv } from '@/lib/rakuten-stock-csv'
 import { useToast } from '@/components/Toast'
 
 interface Props {
@@ -20,6 +21,7 @@ export default function StockHoldingList({ holdings, onMutate }: Props) {
   const { showToast } = useToast()
   const [showModal, setShowModal] = useState(false)
   const [editTarget, setEditTarget] = useState<StockWithQuote | null>(null)
+  const [importing, setImporting] = useState(false)
 
   async function handleDelete(id: string) {
     const res = await fetch(`/api/stocks/${id}`, { method: 'DELETE' })
@@ -27,15 +29,65 @@ export default function StockHoldingList({ holdings, onMutate }: Props) {
     else showToast('削除に失敗しました', 'error')
   }
 
+  async function handleCsvUpload(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0]
+    if (!file) return
+
+    setImporting(true)
+    try {
+      const imported = await readRakutenStockCsv(file)
+      if (imported.length === 0) {
+        showToast('CSVから銘柄を読み取れませんでした', 'warning')
+        return
+      }
+
+      let added = 0
+      let updated = 0
+
+      for (const item of imported) {
+        const existing = holdings.find(h =>
+          h.ticker.toUpperCase() === item.ticker.toUpperCase() && h.market === item.market
+        )
+        const res = await fetch(existing ? `/api/stocks/${existing.id}` : '/api/stocks', {
+          method: existing ? 'PATCH' : 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(item),
+        })
+
+        if (!res.ok) throw new Error((await res.json()).error ?? 'CSV取込に失敗しました')
+        if (existing) updated += 1
+        else added += 1
+      }
+
+      showToast(`楽天CSVを反映しました: 新規${added}件 / 更新${updated}件`, 'success')
+      onMutate()
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'CSV取込に失敗しました', 'error')
+    } finally {
+      setImporting(false)
+      event.target.value = ''
+    }
+  }
+
+  const ImportButton = (
+    <label className={`rounded-xl border border-border px-3 py-2 text-sm font-medium text-primary active:opacity-80 ${importing ? 'opacity-50' : ''}`}>
+      {importing ? '取込中...' : '楽天CSV取込'}
+      <input type="file" accept=".csv,text/csv" onChange={handleCsvUpload} disabled={importing} className="hidden" />
+    </label>
+  )
+
   if (holdings.length === 0) {
     return (
       <div className="flex flex-col items-center py-10 text-muted gap-2">
         <span className="text-4xl">📈</span>
         <p className="text-sm">保有銘柄がありません</p>
-        <button onClick={() => { setEditTarget(null); setShowModal(true) }}
-          className="mt-2 px-4 py-2 rounded-xl bg-primary text-white text-sm font-medium">
-          ＋ 銘柄を追加
-        </button>
+        <div className="mt-2 flex gap-2">
+          {ImportButton}
+          <button onClick={() => { setEditTarget(null); setShowModal(true) }}
+            className="px-4 py-2 rounded-xl bg-primary text-white text-sm font-medium">
+            ＋ 銘柄を追加
+          </button>
+        </div>
         {showModal && <StockModal initial={null} onClose={() => setShowModal(false)} onSave={body => save(null, body, showToast, onMutate, setShowModal)} />}
       </div>
     )
@@ -45,10 +97,13 @@ export default function StockHoldingList({ holdings, onMutate }: Props) {
     <div>
       <div className="flex items-center justify-between mb-3">
         <h3 className="font-bold text-base">保有銘柄</h3>
-        <button onClick={() => { setEditTarget(null); setShowModal(true) }}
-          className="text-sm text-primary font-medium">
-          ＋ 追加
-        </button>
+        <div className="flex items-center gap-2">
+          {ImportButton}
+          <button onClick={() => { setEditTarget(null); setShowModal(true) }}
+            className="text-sm text-primary font-medium">
+            ＋ 追加
+          </button>
+        </div>
       </div>
 
       <div className="card overflow-hidden">
@@ -61,9 +116,18 @@ export default function StockHoldingList({ holdings, onMutate }: Props) {
                   <div className="flex items-center gap-2">
                     <span className="text-xs px-1.5 py-0.5 rounded bg-surface text-muted font-mono">{h.ticker}</span>
                     <span className="text-xs text-muted">{h.market === 'JP' ? '東証' : '米国'}</span>
+                    {h.valueSource === 'broker' && (
+                      <span className="rounded bg-success/10 px-1.5 py-0.5 text-[10px] font-bold text-success">楽天評価</span>
+                    )}
                   </div>
                   <p className="text-sm font-medium mt-0.5 truncate">{h.name}</p>
                   <p className="text-xs text-muted">{h.shares}株 · 取得単価 {h.average_cost.toLocaleString()}円</p>
+                  {h.valueSource === 'broker' && h.broker_current_price && (
+                    <p className="text-[11px] text-muted">
+                      楽天現在値 {h.broker_current_price.toLocaleString()}{h.broker_price_currency === 'USD' ? 'USドル' : '円'}
+                      {h.broker_fx_rate ? ` · 為替 ${h.broker_fx_rate.toFixed(2)}円` : ''}
+                    </p>
+                  )}
                 </div>
                 <div className="text-right shrink-0">
                   {h.error ? (
@@ -76,6 +140,11 @@ export default function StockHoldingList({ holdings, onMutate }: Props) {
                           ? `${h.gainLoss >= 0 ? '+' : ''}${h.gainLoss.toLocaleString()}円 (${h.gainLossRate !== null ? (h.gainLossRate * 100).toFixed(1) : 0}%)`
                           : '-'}
                       </p>
+                      {h.valueSource === 'broker' && h.yahooCurrentValue !== null && h.yahooCurrentValue !== undefined && (
+                        <p className="mt-0.5 text-[10px] text-muted">
+                          Yahoo参考 {h.yahooCurrentValue.toLocaleString()}円
+                        </p>
+                      )}
                     </>
                   )}
                 </div>

@@ -25,17 +25,55 @@ export async function GET(request: NextRequest) {
     holdings.map(async h => {
       try {
         const quote = await getStockPrice(h.ticker, h.market)
-        const priceJpy = h.market === 'US' ? Math.round(quote.price * usdJpy) : quote.price
-        const currentValue = priceJpy * h.shares
+        const yahooPriceJpy = h.market === 'US' ? Math.round(quote.price * usdJpy) : quote.price
+        const yahooCurrentValue = yahooPriceJpy * h.shares
         const costTotal    = h.average_cost * h.shares
+        const hasBrokerValue = typeof h.broker_current_value === 'number' && h.broker_current_value > 0
+        const currentValue = hasBrokerValue ? Math.round(h.broker_current_value) : yahooCurrentValue
+        const gainLoss = typeof h.broker_gain_loss === 'number'
+          ? Math.round(h.broker_gain_loss)
+          : currentValue - costTotal
+        const gainLossRate = typeof h.broker_gain_loss_rate === 'number'
+          ? h.broker_gain_loss_rate
+          : costTotal > 0 ? gainLoss / costTotal : 0
+
         return {
           ...h,
-          currentPrice:  priceJpy,
+          currentPrice:  hasBrokerValue ? h.broker_current_price ?? yahooPriceJpy : yahooPriceJpy,
           currentValue,
-          gainLoss:      currentValue - costTotal,
-          gainLossRate:  costTotal > 0 ? (currentValue - costTotal) / costTotal : 0,
+          gainLoss,
+          gainLossRate,
+          valueSource: hasBrokerValue ? 'broker' : 'yahoo',
+          yahooCurrentPrice: yahooPriceJpy,
+          yahooCurrentValue,
+          yahooGainLoss: yahooCurrentValue - costTotal,
+          yahooGainLossRate: costTotal > 0 ? (yahooCurrentValue - costTotal) / costTotal : 0,
         }
       } catch (e) {
+        const costTotal = h.average_cost * h.shares
+        const hasBrokerValue = typeof h.broker_current_value === 'number' && h.broker_current_value > 0
+        if (hasBrokerValue) {
+          const currentValue = Math.round(h.broker_current_value)
+          const gainLoss = typeof h.broker_gain_loss === 'number'
+            ? Math.round(h.broker_gain_loss)
+            : currentValue - costTotal
+          return {
+            ...h,
+            currentPrice: h.broker_current_price ?? null,
+            currentValue,
+            gainLoss,
+            gainLossRate: typeof h.broker_gain_loss_rate === 'number'
+              ? h.broker_gain_loss_rate
+              : costTotal > 0 ? gainLoss / costTotal : 0,
+            valueSource: 'broker',
+            yahooCurrentPrice: null,
+            yahooCurrentValue: null,
+            yahooGainLoss: null,
+            yahooGainLossRate: null,
+            error: null,
+          }
+        }
+
         return {
           ...h,
           currentPrice: null,

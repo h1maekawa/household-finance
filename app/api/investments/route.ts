@@ -35,6 +35,11 @@ export async function GET(request: NextRequest) {
 
   await Promise.all(
     holdings.map(async h => {
+      if (typeof h.broker_current_value === 'number' && h.broker_current_value > 0) {
+        investmentValue += Math.round(h.broker_current_value)
+        return
+      }
+
       try {
         const quote = await getStockPrice(h.ticker, h.market)
         const fx = h.market === 'US' ? usdJpy : 1
