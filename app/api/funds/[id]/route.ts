@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
 import { getAuthenticatedUser, unauthorized } from '@/lib/auth'
+import { requireActiveEntitlement } from '@/lib/entitlements'
 import { FundHoldingInput } from '@/types/fund'
 
 type Context = { params: Promise<{ id: string }> }
@@ -8,6 +9,7 @@ type Context = { params: Promise<{ id: string }> }
 export async function PATCH(request: NextRequest, { params }: Context) {
   const user = await getAuthenticatedUser(request)
   if (!user) return unauthorized()
+  if (!await requireActiveEntitlement(user.id)) return Response.json({ error: 'Pro purchase required' }, { status: 402 })
 
   const { id } = await params
   const body: Partial<FundHoldingInput> = await request.json()
@@ -27,6 +29,7 @@ export async function PATCH(request: NextRequest, { params }: Context) {
 export async function DELETE(request: NextRequest, { params }: Context) {
   const user = await getAuthenticatedUser(request)
   if (!user) return unauthorized()
+  if (!await requireActiveEntitlement(user.id)) return Response.json({ error: 'Pro purchase required' }, { status: 402 })
 
   const { id } = await params
 

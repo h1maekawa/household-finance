@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
 import { getAuthenticatedUser, unauthorized } from '@/lib/auth'
+import { requireActiveEntitlement } from '@/lib/entitlements'
 import { InvestmentTransactionInput } from '@/types/investment-transaction'
 
 type Body = {
@@ -10,6 +11,7 @@ type Body = {
 export async function GET(request: NextRequest) {
   const user = await getAuthenticatedUser(request)
   if (!user) return unauthorized()
+  if (!await requireActiveEntitlement(user.id)) return Response.json({ error: 'Pro purchase required' }, { status: 402 })
 
   const { searchParams } = request.nextUrl
   const limit = Number(searchParams.get('limit') ?? 100)
@@ -28,6 +30,7 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   const user = await getAuthenticatedUser(request)
   if (!user) return unauthorized()
+  if (!await requireActiveEntitlement(user.id)) return Response.json({ error: 'Pro purchase required' }, { status: 402 })
 
   const body: Body = await request.json()
   const transactions = body.transactions ?? []

@@ -3,6 +3,7 @@ import { useState } from 'react'
 import useSWR from 'swr'
 import AssetSummary from '@/components/AssetSummary'
 import FundHoldingList from '@/components/FundHoldingList'
+import InvestmentCsvImportPanel from '@/components/InvestmentCsvImportPanel'
 import InvestmentTransactionList from '@/components/InvestmentTransactionList'
 import StockHoldingList from '@/components/StockHoldingList'
 
@@ -66,11 +67,19 @@ export default function InvestmentsPage() {
             ))}
           </div>
         ) : (
-          <StockHoldingList holdings={data.holdings ?? []} onMutate={refreshInvestmentData} />
+          <>
+            <InvestmentCsvImportPanel
+              mode="holdings"
+              holdings={data.holdings ?? []}
+              funds={data.funds ?? []}
+              onMutate={refreshInvestmentData}
+            />
+            <StockHoldingList holdings={data.holdings ?? []} onMutate={refreshInvestmentData} showImport={false} />
+          </>
         ))}
 
         {activeTab === 'holdings' && data && (
-          <FundHoldingList funds={data.funds ?? []} onMutate={refreshInvestmentData} />
+          <FundHoldingList funds={data.funds ?? []} onMutate={refreshInvestmentData} showImport={false} />
         )}
 
         {activeTab === 'history' && (
@@ -88,7 +97,15 @@ export default function InvestmentsPage() {
               ))}
             </div>
           ) : (
-            <InvestmentTransactionList transactions={transactionData.transactions ?? []} />
+            <>
+              <InvestmentCsvImportPanel
+                mode="history"
+                holdings={data?.holdings ?? []}
+                funds={data?.funds ?? []}
+                onMutate={refreshInvestmentData}
+              />
+              <InvestmentTransactionList transactions={transactionData.transactions ?? []} />
+            </>
           )
         )}
       </div>

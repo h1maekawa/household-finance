@@ -7,6 +7,7 @@ import { useToast } from '@/components/Toast'
 interface Props {
   holdings: StockWithQuote[]
   onMutate: () => void
+  showImport?: boolean
 }
 
 const emptyForm = (): StockHoldingInput => ({
@@ -17,7 +18,7 @@ const emptyForm = (): StockHoldingInput => ({
   average_cost: 0,
 })
 
-export default function StockHoldingList({ holdings, onMutate }: Props) {
+export default function StockHoldingList({ holdings, onMutate, showImport = true }: Props) {
   const { showToast } = useToast()
   const [showModal, setShowModal] = useState(false)
   const [editTarget, setEditTarget] = useState<StockWithQuote | null>(null)
@@ -115,7 +116,7 @@ export default function StockHoldingList({ holdings, onMutate }: Props) {
         <span className="text-4xl">📈</span>
         <p className="text-sm">保有銘柄がありません</p>
         <div className="mt-2 flex gap-2">
-          {ImportButton}
+          {showImport && ImportButton}
           <button onClick={() => { setEditTarget(null); setShowModal(true) }}
             className="px-4 py-2 rounded-xl bg-primary text-white text-sm font-medium">
             ＋ 銘柄を追加
@@ -131,7 +132,7 @@ export default function StockHoldingList({ holdings, onMutate }: Props) {
       <div className="flex items-center justify-between mb-3">
         <h3 className="font-bold text-base">保有銘柄</h3>
         <div className="flex items-center gap-2">
-          {ImportButton}
+          {showImport && ImportButton}
           <button onClick={() => { setEditTarget(null); setShowModal(true) }}
             className="text-sm text-primary font-medium">
             ＋ 追加

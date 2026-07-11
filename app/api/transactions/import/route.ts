@@ -16,8 +16,9 @@
 //   GAS_IMPORT_SECRET  … GAS側と共有するランダムな秘密文字列
 //   GAS_IMPORT_USER_ID … 取り込んだ取引を紐づける Supabase の auth.users.id
 import { NextRequest } from 'next/server'
-import { timingSafeEqual } from 'crypto'
 import { getAuthenticatedUser, unauthorized } from '@/lib/auth'
+import { requireActiveEntitlement } from '@/lib/entitlements'
+import { hashImportSecret } from '@/lib/import-secrets'
 import { isSupabaseConfigured, supabaseAdmin } from '@/lib/supabase'
 import { parseChatInput } from '@/lib/gemini'
 import { CATEGORIES, INCOME_CATEGORIES, Kind } from '@/types/transaction'
@@ -27,18 +28,30 @@ function hasEnv(name: string): boolean {
   return Boolean(value && !value.includes('placeholder'))
 }
 
-function isValidSecret(request: NextRequest): boolean {
+async function resolveImportUserId(request: NextRequest): Promise<string | null> {
   const provided = request.headers.get('x-import-secret')
-  const expected = process.env.GAS_IMPORT_SECRET
+  if (!provided) return null
 
-  if (!provided || !expected) return false
+  const { data } = await supabaseAdmin
+    .from('user_import_secrets')
+    .select('id,user_id')
+    .eq('secret_hash', hashImportSecret(provided))
+    .eq('is_active', true)
+    .maybeSingle()
 
-  const a = Buffer.from(provided)
-  const b = Buffer.from(expected)
-  // 長さが違うと timingSafeEqual が例外を投げるため先にガードする
-  if (a.length !== b.length) return false
+  if (data?.user_id) {
+    await supabaseAdmin
+      .from('user_import_secrets')
+      .update({ last_used_at: new Date().toISOString() })
+      .eq('id', data.id)
+    return data.user_id
+  }
 
-  return timingSafeEqual(a, b)
+  if (process.env.GAS_IMPORT_SECRET && process.env.GAS_IMPORT_USER_ID && provided === process.env.GAS_IMPORT_SECRET) {
+    return process.env.GAS_IMPORT_USER_ID
+  }
+
+  return null
 }
 
 function normalizeCategory(category: string | undefined, kind: Kind): string {
@@ -93,13 +106,14 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const targetUserId = process.env.GAS_IMPORT_USER_ID
-  if (!process.env.GAS_IMPORT_SECRET || !targetUserId) {
-    return Response.json({ error: 'Gmail import is not configured' }, { status: 503 })
+  const targetUserId = await resolveImportUserId(request)
+  if (!targetUserId) {
+    return Response.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  if (!isValidSecret(request)) {
-    return Response.json({ error: 'Unauthorized' }, { status: 401 })
+  const allowed = await requireActiveEntitlement(targetUserId)
+  if (!allowed) {
+    return Response.json({ error: 'Pro purchase required' }, { status: 402 })
   }
 
   const body = await request.json().catch(() => null)

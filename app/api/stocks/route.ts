@@ -1,12 +1,14 @@
 import { NextRequest } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
 import { getAuthenticatedUser, unauthorized } from '@/lib/auth'
+import { requireActiveEntitlement } from '@/lib/entitlements'
 import { getStockPrice, getUsdToJpy } from '@/lib/stock'
 import { StockHoldingInput, StockWithQuote } from '@/types/stock'
 
 export async function GET(request: NextRequest) {
   const user = await getAuthenticatedUser(request)
   if (!user) return unauthorized()
+  if (!await requireActiveEntitlement(user.id)) return Response.json({ error: 'Pro purchase required' }, { status: 402 })
 
   const [holdingsRes, fundsRes] = await Promise.all([
     supabaseAdmin
@@ -119,6 +121,7 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   const user = await getAuthenticatedUser(request)
   if (!user) return unauthorized()
+  if (!await requireActiveEntitlement(user.id)) return Response.json({ error: 'Pro purchase required' }, { status: 402 })
 
   const body: StockHoldingInput = await request.json()
 

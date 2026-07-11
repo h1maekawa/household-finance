@@ -20,6 +20,9 @@ export default function SettingsPage() {
   const [monthlyIncome, setMonthlyIncome] = useState('')
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [billingActive, setBillingActive] = useState(false)
+  const [billingRequired, setBillingRequired] = useState(false)
+  const [newGasSecret, setNewGasSecret] = useState('')
 
   useEffect(() => {
     let mounted = true
@@ -35,6 +38,15 @@ export default function SettingsPage() {
       .finally(() => {
         if (mounted) setLoading(false)
       })
+
+    fetch('/api/billing/status')
+      .then(res => res.json())
+      .then(data => {
+        if (!mounted) return
+        setBillingActive(Boolean(data.active))
+        setBillingRequired(Boolean(data.billingRequired))
+      })
+      .catch(() => undefined)
 
     return () => { mounted = false }
   }, [showToast])
@@ -57,6 +69,29 @@ export default function SettingsPage() {
       showToast(err instanceof Error ? err.message : '保存に失敗しました', 'error')
     } finally {
       setSaving(false)
+    }
+  }
+
+  async function handleCheckout() {
+    try {
+      const res = await fetch('/api/billing/checkout', { method: 'POST' })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error)
+      window.location.href = data.url
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : '購入画面を開けませんでした', 'error')
+    }
+  }
+
+  async function handleCreateGasSecret() {
+    try {
+      const res = await fetch('/api/integrations/gas-secret', { method: 'POST' })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error)
+      setNewGasSecret(data.secret)
+      showToast('GAS連携キーを発行しました', 'success')
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'GAS連携キーを発行できませんでした', 'error')
     }
   }
 
@@ -96,6 +131,46 @@ export default function SettingsPage() {
         >
           {saving ? '保存中...' : '保存する'}
         </button>
+      </section>
+
+      <section className="card mt-4 p-4">
+        <h2 className="text-base font-bold">Pro機能</h2>
+        <p className="mt-1 text-xs leading-relaxed text-muted">
+          Gmail自動取込や投資CSV取込などの高度な機能を使えます。
+        </p>
+        <div className="mt-4 rounded-xl bg-surface p-3">
+          <p className="text-xs text-muted">現在の状態</p>
+          <p className="mt-1 text-sm font-bold">{billingActive ? '購入済み' : billingRequired ? '未購入' : '開発中は無料開放'}</p>
+        </div>
+        {!billingActive && billingRequired && (
+          <button
+            type="button"
+            onClick={handleCheckout}
+            className="mt-4 w-full rounded-2xl bg-primary py-3 font-bold text-white transition-base active:opacity-80"
+          >
+            買い切りで購入する
+          </button>
+        )}
+      </section>
+
+      <section className="card mt-4 p-4">
+        <h2 className="text-base font-bold">GAS連携キー</h2>
+        <p className="mt-1 text-xs leading-relaxed text-muted">
+          Gmail取込用のキーです。発行後、この画面に一度だけ表示されます。
+        </p>
+        <button
+          type="button"
+          onClick={handleCreateGasSecret}
+          className="mt-4 w-full rounded-2xl bg-primary py-3 font-bold text-white transition-base active:opacity-80"
+        >
+          新しい連携キーを発行する
+        </button>
+        {newGasSecret && (
+          <div className="mt-4 rounded-xl bg-surface p-3">
+            <p className="mb-1 text-xs text-muted">GAS_IMPORT_SECRET に設定</p>
+            <p className="break-all font-mono text-xs">{newGasSecret}</p>
+          </div>
+        )}
       </section>
     </div>
   )

@@ -7,9 +7,10 @@ import { useToast } from '@/components/Toast'
 interface Props {
   funds: FundHolding[]
   onMutate: () => void
+  showImport?: boolean
 }
 
-export default function FundHoldingList({ funds, onMutate }: Props) {
+export default function FundHoldingList({ funds, onMutate, showImport = true }: Props) {
   const { showToast } = useToast()
   const [importing, setImporting] = useState(false)
 
@@ -92,10 +93,12 @@ export default function FundHoldingList({ funds, onMutate }: Props) {
     <section>
       <div className="mb-3 flex items-center justify-between gap-3">
         <h3 className="font-bold text-base">投資信託</h3>
-        <label className={`rounded-xl border border-border px-3 py-2 text-sm font-medium text-primary active:opacity-80 ${importing ? 'opacity-50' : ''}`}>
-          {importing ? '取込中...' : '投信CSV取込'}
-          <input type="file" accept=".csv,text/csv" onChange={handleCsvUpload} disabled={importing} className="hidden" />
-        </label>
+        {showImport && (
+          <label className={`rounded-xl border border-border px-3 py-2 text-sm font-medium text-primary active:opacity-80 ${importing ? 'opacity-50' : ''}`}>
+            {importing ? '取込中...' : '投信CSV取込'}
+            <input type="file" accept=".csv,text/csv" onChange={handleCsvUpload} disabled={importing} className="hidden" />
+          </label>
+        )}
       </div>
 
       {funds.length === 0 ? (
