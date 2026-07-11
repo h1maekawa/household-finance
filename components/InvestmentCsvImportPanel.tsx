@@ -30,6 +30,34 @@ export default function InvestmentCsvImportPanel({ mode, holdings, funds, onMuta
 
     let stockChanged = 0
     let fundChanged = 0
+    let stockRemoved = 0
+    let fundRemoved = 0
+
+    if (stocks.length > 0) {
+      const stockKeys = new Set(stocks.map(item => `${item.market}:${item.ticker.toUpperCase()}`))
+      const stockMarkets = new Set(stocks.map(item => item.market))
+      const staleStocks = holdings.filter(holding =>
+        stockMarkets.has(holding.market) &&
+        !stockKeys.has(`${holding.market}:${holding.ticker.toUpperCase()}`)
+      )
+
+      for (const holding of staleStocks) {
+        const res = await fetch(`/api/stocks/${holding.id}`, { method: 'DELETE' })
+        if (!res.ok) throw new Error((await res.json()).error ?? '古い株式の削除に失敗しました')
+        stockRemoved += 1
+      }
+    }
+
+    if (fundItems.length > 0) {
+      const fundKeys = new Set(fundItems.map(item => fundKey(item.name, item.account_type)))
+      const staleFunds = funds.filter(fund => !fundKeys.has(fundKey(fund.name, fund.account_type)))
+
+      for (const fund of staleFunds) {
+        const res = await fetch(`/api/funds/${fund.id}`, { method: 'DELETE' })
+        if (!res.ok) throw new Error((await res.json()).error ?? '古い投資信託の削除に失敗しました')
+        fundRemoved += 1
+      }
+    }
 
     for (const item of stocks) {
       const existing = holdings.find(h => h.ticker.toUpperCase() === item.ticker.toUpperCase() && h.market === item.market)
@@ -43,7 +71,7 @@ export default function InvestmentCsvImportPanel({ mode, holdings, funds, onMuta
     }
 
     for (const item of fundItems) {
-      const existing = funds.find(fund => fund.name === item.name && (fund.account_type ?? '') === (item.account_type ?? ''))
+      const existing = funds.find(fund => fundKey(fund.name, fund.account_type) === fundKey(item.name, item.account_type))
       const res = await fetch(existing ? `/api/funds/${existing.id}` : '/api/funds', {
         method: existing ? 'PATCH' : 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -53,7 +81,10 @@ export default function InvestmentCsvImportPanel({ mode, holdings, funds, onMuta
       fundChanged += 1
     }
 
-    showToast(`保有残高CSVを反映しました: 株式${stockChanged}件 / 投信${fundChanged}件`, 'success')
+    showToast(
+      `保有残高CSVを反映しました: 株式${stockChanged}件 / 投信${fundChanged}件${stockRemoved || fundRemoved ? ` / 削除${stockRemoved + fundRemoved}件` : ''}`,
+      'success',
+    )
     onMutate()
   }
 
@@ -126,4 +157,16 @@ export default function InvestmentCsvImportPanel({ mode, holdings, funds, onMuta
       </div>
     </div>
   )
+}
+
+function fundKey(name: string, accountType?: string | null) {
+  return `${normalizeFundName(name)}:${accountType ?? ''}`
+}
+
+function normalizeFundName(name: string) {
+  return name
+    .replace(/\(除く日本\)/g, '')
+    .replace(/（除く日本）/g, '')
+    .replace(/\s/g, '')
+    .trim()
 }
