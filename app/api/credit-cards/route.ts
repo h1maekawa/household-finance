@@ -1,12 +1,20 @@
 import { NextRequest } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
 import { getAuthenticatedUser, unauthorized } from '@/lib/auth'
+import type { CardType, CardPlan } from '@/lib/card-payment-rules'
+
+const VALID_CARD_TYPES = new Set<CardType>(['rakuten', 'smbc', 'generic'])
+const VALID_CARD_PLANS = new Set<CardPlan>([
+  'rakuten_standard', 'rakuten_market', 'smbc_10th', 'smbc_26th', 'generic',
+])
 
 type CreditCardBody = {
   name?: string
   closing_day_int?: number
   payment_day_int?: number
   payment_month_offset?: number
+  card_type?: string
+  card_plan?: string
 }
 
 function normalizeDay(value: unknown) {
@@ -31,6 +39,11 @@ function toRow(body: CreditCardBody, userId: string) {
     return null
   }
 
+  const rawType = String(body.card_type ?? '').trim() as CardType
+  const rawPlan = String(body.card_plan ?? '').trim() as CardPlan
+  const cardType: CardType = VALID_CARD_TYPES.has(rawType) ? rawType : 'generic'
+  const cardPlan: CardPlan = VALID_CARD_PLANS.has(rawPlan) ? rawPlan : 'generic'
+
   return {
     user_id: userId,
     name,
@@ -39,6 +52,8 @@ function toRow(body: CreditCardBody, userId: string) {
     closing_day_int: closingDay,
     payment_day_int: paymentDay,
     payment_month_offset: paymentMonthOffset,
+    card_type: cardType,
+    card_plan: cardPlan,
     updated_at: new Date().toISOString(),
   }
 }

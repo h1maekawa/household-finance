@@ -158,6 +158,9 @@ export default function CashflowPage() {
                         <div key={p.id} className="flex justify-between text-sm">
                           <span className="text-foreground">
                             {p.name}
+                            {p.generated && p.source === 'credit_card' && (
+                              <span className="ml-1.5 text-[10px] text-muted font-normal">[予測]</span>
+                            )}
                             {p.memo && <span className="ml-1 text-[11px] text-muted">({p.memo})</span>}
                           </span>
                           <span className={`font-medium ${p.type === 'income' ? 'text-success' : 'text-danger'}`}>

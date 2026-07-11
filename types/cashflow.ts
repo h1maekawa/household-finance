@@ -51,6 +51,10 @@ export interface CreditCardSetting {
   closing_day_int?: number | null
   payment_day_int?: number | null
   payment_month_offset?: number | null
+  /** カード種別: 'rakuten' | 'smbc' | 'generic' */
+  card_type?: string | null
+  /** カードプラン: 'rakuten_standard' | 'rakuten_market' | 'smbc_10th' | 'smbc_26th' | 'generic' */
+  card_plan?: string | null
   created_at: string
 }
 
