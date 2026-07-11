@@ -4,15 +4,17 @@ import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend } from 'recha
 interface Props {
   accountBalance: number
   stockValue: number
+  fundValue?: number
   totalAssets: number
 }
 
 const COLORS = ['#1476B3', '#1FAE8C', '#F0B429', '#E2544B', '#8891A0', '#3E6FA0']
 
-export default function AssetSummary({ accountBalance, stockValue, totalAssets }: Props) {
+export default function AssetSummary({ accountBalance, stockValue, fundValue = 0, totalAssets }: Props) {
   const data = [
     { name: '口座残高', value: accountBalance },
     { name: '株式評価額', value: stockValue },
+    { name: '投資信託評価額', value: fundValue },
   ].filter(d => d.value > 0)
 
   return (
@@ -46,6 +48,10 @@ export default function AssetSummary({ accountBalance, stockValue, totalAssets }
         <div className="bg-surface rounded-xl p-3">
           <p className="text-xs text-muted mb-1">株式評価額</p>
           <p className="text-base font-bold">{stockValue.toLocaleString()}円</p>
+        </div>
+        <div className="bg-surface rounded-xl p-3">
+          <p className="text-xs text-muted mb-1">投資信託評価額</p>
+          <p className="text-base font-bold">{fundValue.toLocaleString()}円</p>
         </div>
       </div>
     </div>

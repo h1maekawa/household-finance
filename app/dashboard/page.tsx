@@ -12,6 +12,7 @@ import DebtsSummaryCard from '@/components/DebtsSummaryCard'
 import GmailImportStatusCard from '@/components/GmailImportStatusCard'
 import PaymentMethodSummaryCard from '@/components/PaymentMethodSummaryCard'
 import SignOutButton from '@/components/SignOutButton'
+import TransactionList from '@/components/TransactionList'
 import { ScheduledPayment } from '@/types/cashflow'
 import { TransactionsResponse } from '@/types/transaction'
 import { CATEGORIES, INCOME_CATEGORIES } from '@/types/transaction'
@@ -40,10 +41,12 @@ const CATEGORY_COLORS = [
 
 export default function DashboardPage() {
   const [month, setMonth] = useState(startOfMonth(new Date()))
+  const [activeTab, setActiveTab] = useState<'overview' | 'history'>('overview')
+  const [activeCategory, setActiveCategory] = useState<string | null>(null)
   const year  = month.getFullYear()
   const mo    = month.getMonth() + 1
 
-  const { data } = useSWR<TransactionsResponse>(
+  const { data, mutate } = useSWR<TransactionsResponse>(
     `/api/transactions?year=${year}&month=${mo}`,
     fetcher
   )
@@ -57,6 +60,10 @@ export default function DashboardPage() {
   const transactions = data?.transactions ?? []
   const summary      = data?.summary ?? { total: 0, expense_total: 0, income_total: 0, by_category: {} }
   const reviewCount  = transactions.filter(tx => tx.needs_review).length
+  const expenseTransactions = transactions.filter(tx => tx.kind !== 'income')
+  const filteredExpenseTransactions = activeCategory
+    ? expenseTransactions.filter(tx => tx.category === activeCategory)
+    : expenseTransactions
 
   const categoryTotal = summary.expense_total || summary.total || 0
   const chartData = Object.entries(summary.by_category)
@@ -112,6 +119,29 @@ export default function DashboardPage() {
       </div>
 
       <div className="flex flex-col gap-4 px-4 pt-4">
+        <div className="grid grid-cols-2 rounded-xl bg-white p-1">
+          <button
+            type="button"
+            onClick={() => setActiveTab('overview')}
+            className={`rounded-lg py-2 text-sm font-bold transition-base ${
+              activeTab === 'overview' ? 'bg-primary text-white' : 'text-muted'
+            }`}
+          >
+            概要
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab('history')}
+            className={`rounded-lg py-2 text-sm font-bold transition-base ${
+              activeTab === 'history' ? 'bg-primary text-white' : 'text-muted'
+            }`}
+          >
+            支出履歴
+          </button>
+        </div>
+
+        {activeTab === 'overview' ? (
+          <>
         {/* 貸し借り・未納(一番最初に表示) */}
         <DebtsSummaryCard />
 
@@ -329,6 +359,59 @@ export default function DashboardPage() {
             </div>
           )}
         </div>
+          </>
+        ) : (
+          <div className="flex flex-col gap-4">
+            <div className="card p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-xs text-muted mb-1">この月の支出</p>
+                  <p className="text-2xl font-bold">
+                    {summary.expense_total.toLocaleString()}
+                    <span className="text-sm font-normal text-muted ml-1">円</span>
+                  </p>
+                </div>
+                <div className="text-right shrink-0">
+                  <p className="text-xs text-muted mb-1">表示中</p>
+                  <p className="text-sm font-bold">{filteredExpenseTransactions.length}件</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex gap-2 overflow-x-auto">
+              <HistoryFilterChip
+                label="すべて"
+                active={activeCategory === null}
+                onClick={() => setActiveCategory(null)}
+              />
+              {CATEGORIES.map(c => (
+                <HistoryFilterChip
+                  key={c.name}
+                  label={`${c.icon} ${c.name}`}
+                  active={activeCategory === c.name}
+                  onClick={() => setActiveCategory(c.name)}
+                />
+              ))}
+            </div>
+
+            {!data ? (
+              <div className="card overflow-hidden">
+                {[...Array(4)].map((_, i) => (
+                  <div key={i} className="flex gap-3 px-4 py-3 border-b border-border last:border-0">
+                    <div className="skeleton w-9 h-9 rounded-[10px]" />
+                    <div className="flex-1 flex flex-col gap-1">
+                      <div className="skeleton h-4 w-3/4 rounded" />
+                      <div className="skeleton h-3 w-1/2 rounded" />
+                    </div>
+                    <div className="skeleton h-5 w-16 rounded" />
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <TransactionList transactions={filteredExpenseTransactions} onMutate={() => mutate()} />
+            )}
+          </div>
+        )}
 
         {/* Quick Add Button */}
         <Link
@@ -339,5 +422,19 @@ export default function DashboardPage() {
         </Link>
       </div>
     </div>
+  )
+}
+
+function HistoryFilterChip({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`shrink-0 rounded-full border px-3.5 py-1.5 text-xs transition-base ${
+        active ? 'border-primary bg-primary text-white' : 'border-border bg-card text-muted'
+      }`}
+    >
+      {label}
+    </button>
   )
 }

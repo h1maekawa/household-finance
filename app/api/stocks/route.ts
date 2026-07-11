@@ -8,16 +8,24 @@ export async function GET(request: NextRequest) {
   const user = await getAuthenticatedUser(request)
   if (!user) return unauthorized()
 
-  const { data: holdings, error } = await supabaseAdmin
-    .from('stock_holdings')
-    .select('*')
-    .eq('user_id', user.id)
-    .order('created_at', { ascending: true })
+  const [holdingsRes, fundsRes] = await Promise.all([
+    supabaseAdmin
+      .from('stock_holdings')
+      .select('*')
+      .eq('user_id', user.id)
+      .order('created_at', { ascending: true }),
+    supabaseAdmin
+      .from('fund_holdings')
+      .select('*')
+      .eq('user_id', user.id)
+      .order('created_at', { ascending: true }),
+  ])
 
-  if (error) return Response.json({ error: error.message }, { status: 500 })
-  if (!holdings || holdings.length === 0) {
-    return Response.json({ holdings: [], accountBalance: 0, stockValue: 0, totalAssets: 0 })
-  }
+  if (holdingsRes.error) return Response.json({ error: holdingsRes.error.message }, { status: 500 })
+  if (fundsRes.error) return Response.json({ error: fundsRes.error.message }, { status: 500 })
+
+  const holdings = holdingsRes.data ?? []
+  const funds = fundsRes.data ?? []
 
   const usdJpy = await getUsdToJpy()
 
@@ -96,12 +104,15 @@ export async function GET(request: NextRequest) {
 
   const accountBalance = balanceRes.data?.balance ?? 0
   const stockValue = withQuotes.reduce((s, h) => s + (h.currentValue ?? 0), 0)
+  const fundValue = funds.reduce((s, fund) => s + Number(fund.current_value ?? 0), 0)
 
   return Response.json({
     holdings: withQuotes,
+    funds,
     accountBalance,
     stockValue,
-    totalAssets: accountBalance + stockValue,
+    fundValue,
+    totalAssets: accountBalance + stockValue + fundValue,
   })
 }
 

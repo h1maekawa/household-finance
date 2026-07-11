@@ -12,25 +12,37 @@ export async function GET(request: NextRequest) {
   const user = await getAuthenticatedUser(request)
   if (!user) return unauthorized()
 
-  const { data: holdings, error } = await supabaseAdmin
-    .from('stock_holdings')
-    .select('*')
-    .eq('user_id', user.id)
+  const [holdingsRes, fundsRes] = await Promise.all([
+    supabaseAdmin
+      .from('stock_holdings')
+      .select('*')
+      .eq('user_id', user.id),
+    supabaseAdmin
+      .from('fund_holdings')
+      .select('current_value')
+      .eq('user_id', user.id),
+  ])
 
-  if (error) {
-    return Response.json({ error: error.message }, { status: 500 })
+  if (holdingsRes.error) {
+    return Response.json({ error: holdingsRes.error.message }, { status: 500 })
   }
+  if (fundsRes.error) {
+    return Response.json({ error: fundsRes.error.message }, { status: 500 })
+  }
+
+  const holdings = holdingsRes.data ?? []
+  const fundValue = (fundsRes.data ?? []).reduce((sum, fund) => sum + Number(fund.current_value ?? 0), 0)
 
   if (!holdings || holdings.length === 0) {
     return Response.json({
-      summary: { investmentValue: 0, dayPnl: 0, unreadHighImportanceNews: 0 },
+      summary: { investmentValue: fundValue, dayPnl: 0, unreadHighImportanceNews: 0 },
       updatedAt: new Date().toISOString(),
     })
   }
 
   const usdJpy = await getUsdToJpy()
 
-  let investmentValue = 0
+  let investmentValue = fundValue
   let dayPnl = 0
 
   await Promise.all(

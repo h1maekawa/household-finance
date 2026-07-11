@@ -1,7 +1,7 @@
 'use client'
 import { ChangeEvent, useEffect, useState } from 'react'
 import { StockWithQuote, StockHoldingInput } from '@/types/stock'
-import { readRakutenStockCsv } from '@/lib/rakuten-stock-csv'
+import { readRakutenStockCsv, readRakutenStockTransactions } from '@/lib/rakuten-stock-csv'
 import { useToast } from '@/components/Toast'
 
 interface Props {
@@ -37,15 +37,38 @@ export default function StockHoldingList({ holdings, onMutate }: Props) {
     try {
       const imported = await readRakutenStockCsv(file)
       if (imported.length === 0) {
-        showToast('CSVから銘柄を読み取れませんでした', 'warning')
-        return
+        const transactions = await readRakutenStockTransactions(file)
+        if (transactions.length === 0) {
+          showToast('CSVから銘柄を読み取れませんでした', 'warning')
+          return
+        }
       }
 
       let added = 0
       let updated = 0
+      let cleaned = 0
+      const isBalanceSnapshot = imported.some(item => item.broker_current_value && item.broker_current_value > 0)
+      const invalidHoldings = holdings.filter(h => h.shares <= 0 && !(h.broker_current_value && h.broker_current_value > 0))
+      for (const holding of invalidHoldings) {
+        const res = await fetch(`/api/stocks/${holding.id}`, { method: 'DELETE' })
+        if (res.ok) cleaned += 1
+      }
+      let activeHoldings = holdings.filter(h => !invalidHoldings.some(invalid => invalid.id === h.id))
+      if (isBalanceSnapshot) {
+        const importedKeys = new Set(imported.map(item => `${item.market}:${item.ticker.toUpperCase()}`))
+        const importedMarkets = new Set(imported.map(item => item.market))
+        const staleHoldings = activeHoldings.filter(h =>
+          importedMarkets.has(h.market) && !importedKeys.has(`${h.market}:${h.ticker.toUpperCase()}`)
+        )
+        for (const holding of staleHoldings) {
+          const res = await fetch(`/api/stocks/${holding.id}`, { method: 'DELETE' })
+          if (res.ok) cleaned += 1
+        }
+        activeHoldings = activeHoldings.filter(h => !staleHoldings.some(stale => stale.id === h.id))
+      }
 
       for (const item of imported) {
-        const existing = holdings.find(h =>
+        const existing = activeHoldings.find(h =>
           h.ticker.toUpperCase() === item.ticker.toUpperCase() && h.market === item.market
         )
         const res = await fetch(existing ? `/api/stocks/${existing.id}` : '/api/stocks', {
@@ -59,7 +82,17 @@ export default function StockHoldingList({ holdings, onMutate }: Props) {
         else added += 1
       }
 
-      showToast(`楽天CSVを反映しました: 新規${added}件 / 更新${updated}件`, 'success')
+      const transactions = await readRakutenStockTransactions(file)
+      if (transactions.length > 0) {
+        const res = await fetch('/api/investment-transactions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ transactions }),
+        })
+        if (!res.ok) throw new Error((await res.json()).error ?? '取引履歴の保存に失敗しました')
+      }
+
+      showToast(`楽天CSVを反映しました: 新規${added}件 / 更新${updated}件${cleaned ? ` / 整理${cleaned}件` : ''}`, 'success')
       onMutate()
     } catch (err) {
       showToast(err instanceof Error ? err.message : 'CSV取込に失敗しました', 'error')

@@ -1,6 +1,7 @@
 'use client'
 import useSWR from 'swr'
 import AssetSummary from '@/components/AssetSummary'
+import FundHoldingList from '@/components/FundHoldingList'
 import StockHoldingList from '@/components/StockHoldingList'
 
 const fetcher = (url: string) => fetch(url).then(r => r.json())
@@ -30,6 +31,7 @@ export default function AssetsPage() {
           <AssetSummary
             accountBalance={data.accountBalance ?? 0}
             stockValue={data.stockValue ?? 0}
+            fundValue={data.fundValue ?? 0}
             totalAssets={data.totalAssets ?? 0}
           />
         )}
@@ -50,6 +52,10 @@ export default function AssetsPage() {
           </div>
         ) : (
           <StockHoldingList holdings={data.holdings ?? []} onMutate={() => mutate()} />
+        )}
+
+        {!data ? null : (
+          <FundHoldingList funds={data.funds ?? []} onMutate={() => mutate()} />
         )}
       </div>
     </div>
