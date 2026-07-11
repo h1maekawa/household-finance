@@ -1,5 +1,5 @@
 'use client'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { StockWithQuote, StockHoldingInput } from '@/types/stock'
 import { useToast } from '@/components/Toast'
 
@@ -106,7 +106,7 @@ async function save(
   showToast: (m: string, t?: 'success' | 'error') => void,
   onMutate: () => void,
   setShowModal: (v: boolean) => void
-) {
+): Promise<boolean> {
   const url    = target ? `/api/stocks/${target.id}` : '/api/stocks'
   const method = target ? 'PATCH' : 'POST'
   const res = await fetch(url, {
@@ -118,8 +118,10 @@ async function save(
     showToast(target ? '更新しました' : '追加しました', 'success')
     onMutate()
     setShowModal(false)
+    return true
   } else {
     showToast('保存に失敗しました', 'error')
+    return false
   }
 }
 
@@ -128,66 +130,113 @@ function StockModal({
 }: {
   initial: StockWithQuote | null
   onClose: () => void
-  onSave: (body: StockHoldingInput) => void
+  onSave: (body: StockHoldingInput) => Promise<boolean>
 }) {
   const [form, setForm] = useState<StockHoldingInput>(
     initial
       ? { ticker: initial.ticker, name: initial.name, market: initial.market, shares: initial.shares, average_cost: initial.average_cost }
       : emptyForm()
   )
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') onClose()
+    }
+
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [onClose])
+
+  async function handleSubmit() {
+    if (!form.ticker || !form.name || form.shares <= 0 || form.average_cost <= 0) return
+    setSaving(true)
+    const saved = await onSave(form)
+    if (!saved) setSaving(false)
+  }
+
+  const canSave = Boolean(form.ticker && form.name && form.shares > 0 && form.average_cost > 0)
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end" onClick={onClose}>
-      <div className="w-full bg-card rounded-t-2xl p-4 flex flex-col gap-4 max-h-[80svh] overflow-y-auto"
-        onClick={e => e.stopPropagation()}>
-        <div className="flex items-center justify-between">
-          <h2 className="font-bold text-lg">{initial ? '銘柄を編集' : '銘柄を追加'}</h2>
-          <button onClick={onClose} className="text-muted text-xl">✕</button>
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/55 px-4 py-6 backdrop-blur-[2px]"
+      onClick={onClose}
+      role="presentation"
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="stock-modal-title"
+        className="flex max-h-[calc(100svh-48px)] w-full max-w-[480px] flex-col overflow-hidden rounded-2xl bg-card shadow-2xl"
+        onClick={e => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between border-b border-border px-4 py-4">
+          <h2 id="stock-modal-title" className="font-bold text-base">{initial ? '銘柄を編集' : '銘柄を追加'}</h2>
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex h-9 w-9 items-center justify-center rounded-full text-xl text-muted transition-base active:bg-surface"
+            aria-label="閉じる"
+          >
+            ×
+          </button>
         </div>
 
-        <div className="grid grid-cols-2 gap-3">
+        <div className="flex flex-1 flex-col gap-4 overflow-y-auto px-4 py-4">
           <div>
             <label className="text-xs text-muted mb-1 block">ティッカー</label>
             <input type="text" placeholder="例：7203" value={form.ticker}
               onChange={e => setForm(f => ({ ...f, ticker: e.target.value.toUpperCase() }))}
-              className="w-full rounded-xl border border-border px-3 py-2 text-sm bg-surface font-mono" />
+              className="w-full rounded-xl border border-border px-3 py-3 text-sm bg-surface font-mono focus:border-primary focus:bg-card focus:outline-none" />
           </div>
           <div>
             <label className="text-xs text-muted mb-1 block">市場</label>
             <select value={form.market} onChange={e => setForm(f => ({ ...f, market: e.target.value as 'JP' | 'US' }))}
-              className="w-full rounded-xl border border-border px-3 py-2 text-sm bg-surface">
+              className="w-full rounded-xl border border-border px-3 py-3 text-sm bg-surface focus:border-primary focus:bg-card focus:outline-none">
               <option value="JP">東証（JP）</option>
               <option value="US">米国（US）</option>
             </select>
           </div>
-        </div>
 
-        <div>
-          <label className="text-xs text-muted mb-1 block">銘柄名</label>
-          <input type="text" placeholder="例：トヨタ自動車" value={form.name}
-            onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
-            className="w-full rounded-xl border border-border px-3 py-2 text-sm bg-surface" />
-        </div>
+          <div>
+            <label className="text-xs text-muted mb-1 block">銘柄名</label>
+            <input type="text" placeholder="例：トヨタ自動車" value={form.name}
+              onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
+              className="w-full rounded-xl border border-border px-3 py-3 text-sm bg-surface focus:border-primary focus:bg-card focus:outline-none" />
+          </div>
 
-        <div className="grid grid-cols-2 gap-3">
           <div>
             <label className="text-xs text-muted mb-1 block">保有株数</label>
             <input type="number" inputMode="numeric" value={form.shares || ''}
-              onChange={e => setForm(f => ({ ...f, shares: parseInt(e.target.value) || 0 }))}
-              className="w-full rounded-xl border border-border px-3 py-2 text-sm bg-surface" />
+              onChange={e => setForm(f => ({ ...f, shares: Number(e.target.value) || 0 }))}
+              className="w-full rounded-xl border border-border px-3 py-3 text-sm bg-surface focus:border-primary focus:bg-card focus:outline-none" />
           </div>
           <div>
             <label className="text-xs text-muted mb-1 block">平均取得単価（円）</label>
             <input type="number" inputMode="numeric" value={form.average_cost || ''}
-              onChange={e => setForm(f => ({ ...f, average_cost: parseInt(e.target.value) || 0 }))}
-              className="w-full rounded-xl border border-border px-3 py-2 text-sm bg-surface" />
+              onChange={e => setForm(f => ({ ...f, average_cost: Number(e.target.value) || 0 }))}
+              className="w-full rounded-xl border border-border px-3 py-3 text-sm bg-surface focus:border-primary focus:bg-card focus:outline-none" />
           </div>
         </div>
 
-        <button onClick={() => onSave(form)}
-          className="w-full py-3 rounded-2xl bg-primary text-white font-bold transition-base active:opacity-80">
-          保存する
-        </button>
+        <div className="grid grid-cols-2 gap-3 border-t border-border p-4">
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={saving}
+            className="rounded-xl bg-surface py-3 text-sm font-bold text-foreground transition-base active:opacity-80 disabled:opacity-50"
+          >
+            キャンセル
+          </button>
+          <button
+            type="button"
+            onClick={handleSubmit}
+            disabled={!canSave || saving}
+            className="rounded-xl bg-primary py-3 text-sm font-bold text-white transition-base active:opacity-80 disabled:opacity-50"
+          >
+            {saving ? '保存中...' : '保存する'}
+          </button>
+        </div>
       </div>
     </div>
   )

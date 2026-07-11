@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server'
-import { supabaseAdmin } from '@/lib/supabase'
 import { getAuthenticatedUser, unauthorized } from '@/lib/auth'
+import { createSupabaseServerClient } from '@/lib/supabase/server'
 
 type SettingsBody = {
   initial_balance?: number
@@ -16,14 +16,15 @@ function normalizeAmount(value: unknown) {
 export async function GET(request: NextRequest) {
   const user = await getAuthenticatedUser(request)
   if (!user) return unauthorized()
+  const supabase = await createSupabaseServerClient()
 
   const [profileRes, balanceRes] = await Promise.all([
-    supabaseAdmin
+    supabase
       .from('users_profile')
       .select('*')
       .eq('user_id', user.id)
       .maybeSingle(),
-    supabaseAdmin
+    supabase
       .from('account_balance')
       .select('*')
       .eq('user_id', user.id)
@@ -52,6 +53,7 @@ export async function GET(request: NextRequest) {
 export async function PATCH(request: NextRequest) {
   const user = await getAuthenticatedUser(request)
   if (!user) return unauthorized()
+  const supabase = await createSupabaseServerClient()
 
   const body: SettingsBody = await request.json()
   const initialBalance = normalizeAmount(body.initial_balance)
@@ -61,7 +63,7 @@ export async function PATCH(request: NextRequest) {
     return Response.json({ error: '残高と月収は0以上の数値で入力してください' }, { status: 400 })
   }
 
-  const { data: profile, error: profileError } = await supabaseAdmin
+  const { data: profile, error: profileError } = await supabase
     .from('users_profile')
     .upsert({
       user_id: user.id,
@@ -76,7 +78,7 @@ export async function PATCH(request: NextRequest) {
     return Response.json({ error: profileError.message }, { status: 500 })
   }
 
-  const { data: balance, error: balanceError } = await supabaseAdmin
+  const { data: balance, error: balanceError } = await supabase
     .from('account_balance')
     .insert([{ balance: initialBalance, user_id: user.id }])
     .select()

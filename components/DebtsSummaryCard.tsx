@@ -1,5 +1,5 @@
 'use client'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import useSWR from 'swr'
 import { format } from 'date-fns'
 import { Debt, DebtDirection, DebtInput } from '@/types/debt'
@@ -185,6 +185,15 @@ function AddDebtModal({
   })
   const [saving, setSaving] = useState(false)
 
+  useEffect(() => {
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') onClose()
+    }
+
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [onClose])
+
   async function handleSave() {
     if (!form.counterparty.trim()) { showToast('相手の名前を入力してください', 'warning'); return }
     if (!form.amount || form.amount <= 0) { showToast('金額を入力してください', 'warning'); return }
@@ -207,69 +216,96 @@ function AddDebtModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end" onClick={onClose}>
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/55 px-4 py-6 backdrop-blur-[2px]"
+      onClick={onClose}
+      role="presentation"
+    >
       <div
-        className="w-full bg-card rounded-t-2xl p-4 flex flex-col gap-4 max-h-[85svh] overflow-y-auto"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="debt-modal-title"
+        className="flex max-h-[calc(100svh-48px)] w-full max-w-[480px] flex-col overflow-hidden rounded-2xl bg-card shadow-2xl"
         onClick={e => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between">
-          <h2 className="font-bold text-lg">
+        <div className="flex items-center justify-between border-b border-border px-4 py-4">
+          <h2 id="debt-modal-title" className="font-bold text-base">
             {direction === 'borrowed' ? '借りたお金を記録' : '貸したお金を記録'}
           </h2>
-          <button onClick={onClose} className="text-muted text-xl">✕</button>
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex h-9 w-9 items-center justify-center rounded-full text-xl text-muted transition-base active:bg-surface"
+            aria-label="閉じる"
+          >
+            ×
+          </button>
         </div>
 
-        <div>
-          <label className="text-xs text-muted mb-1 block">相手</label>
-          <input
-            type="text"
-            value={form.counterparty}
-            onChange={e => setForm(f => ({ ...f, counterparty: e.target.value }))}
-            placeholder="例：田中さん"
-            className="w-full rounded-xl border border-border px-3 py-2 text-sm bg-surface"
-          />
-        </div>
-
-        <div className="grid grid-cols-2 gap-3">
+        <div className="flex flex-1 flex-col gap-4 overflow-y-auto px-4 py-4">
           <div>
-            <label className="text-xs text-muted mb-1 block">金額</label>
+            <label className="text-xs text-muted mb-1 block">相手</label>
             <input
-              type="number"
-              inputMode="numeric"
-              value={form.amount || ''}
-              onChange={e => setForm(f => ({ ...f, amount: parseInt(e.target.value) || 0 }))}
-              className="w-full rounded-xl border border-border px-3 py-2 text-sm bg-surface font-bold"
+              type="text"
+              value={form.counterparty}
+              onChange={e => setForm(f => ({ ...f, counterparty: e.target.value }))}
+              placeholder="例：田中さん"
+              className="w-full rounded-xl border border-border px-3 py-3 text-sm bg-surface focus:border-primary focus:bg-card focus:outline-none"
             />
           </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs text-muted mb-1 block">金額</label>
+              <input
+                type="number"
+                inputMode="numeric"
+                value={form.amount || ''}
+                onChange={e => setForm(f => ({ ...f, amount: parseInt(e.target.value) || 0 }))}
+                className="w-full rounded-xl border border-border px-3 py-3 text-sm bg-surface font-bold focus:border-primary focus:bg-card focus:outline-none"
+              />
+            </div>
+            <div>
+              <label className="text-xs text-muted mb-1 block">日付</label>
+              <input
+                type="date"
+                value={form.date}
+                onChange={e => setForm(f => ({ ...f, date: e.target.value }))}
+                className="w-full rounded-xl border border-border px-3 py-3 text-sm bg-surface focus:border-primary focus:bg-card focus:outline-none"
+              />
+            </div>
+          </div>
+
           <div>
-            <label className="text-xs text-muted mb-1 block">日付</label>
+            <label className="text-xs text-muted mb-1 block">メモ(任意)</label>
             <input
-              type="date"
-              value={form.date}
-              onChange={e => setForm(f => ({ ...f, date: e.target.value }))}
-              className="w-full rounded-xl border border-border px-3 py-2 text-sm bg-surface"
+              type="text"
+              value={form.memo ?? ''}
+              onChange={e => setForm(f => ({ ...f, memo: e.target.value }))}
+              placeholder="例：飲み会の立て替え"
+              className="w-full rounded-xl border border-border px-3 py-3 text-sm bg-surface focus:border-primary focus:bg-card focus:outline-none"
             />
           </div>
         </div>
 
-        <div>
-          <label className="text-xs text-muted mb-1 block">メモ(任意)</label>
-          <input
-            type="text"
-            value={form.memo ?? ''}
-            onChange={e => setForm(f => ({ ...f, memo: e.target.value }))}
-            placeholder="例：飲み会の立て替え"
-            className="w-full rounded-xl border border-border px-3 py-2 text-sm bg-surface"
-          />
+        <div className="grid grid-cols-2 gap-3 border-t border-border p-4">
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={saving}
+            className="rounded-xl bg-surface py-3 text-sm font-bold text-foreground transition-base active:opacity-80 disabled:opacity-50"
+          >
+            キャンセル
+          </button>
+          <button
+            type="button"
+            onClick={handleSave}
+            disabled={saving}
+            className="rounded-xl bg-primary py-3 text-sm font-bold text-white transition-base active:opacity-80 disabled:opacity-50"
+          >
+            {saving ? '保存中...' : '保存する'}
+          </button>
         </div>
-
-        <button
-          onClick={handleSave}
-          disabled={saving}
-          className="w-full py-3 rounded-2xl bg-primary text-white font-bold transition-base active:opacity-80 disabled:opacity-50"
-        >
-          {saving ? '保存中...' : '保存する'}
-        </button>
       </div>
     </div>
   )

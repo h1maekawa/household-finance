@@ -4,7 +4,7 @@ import useSWR from 'swr'
 import { format, addMonths, startOfMonth } from 'date-fns'
 import { ja } from 'date-fns/locale'
 import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
+  Cell, Pie, PieChart, ResponsiveContainer, Tooltip,
 } from 'recharts'
 import Link from 'next/link'
 import AlertBanner from '@/components/AlertBanner'
@@ -26,6 +26,18 @@ function categoryIcon(category: string) {
 
 const fetcher = (url: string) => fetch(url).then(r => r.json())
 
+const CATEGORY_COLORS = [
+  '#1476B3',
+  '#1FAE8C',
+  '#E2544B',
+  '#F0B429',
+  '#7C5CFF',
+  '#EF7B45',
+  '#2F80ED',
+  '#6B7280',
+  '#9B51E0',
+]
+
 export default function DashboardPage() {
   const [month, setMonth] = useState(startOfMonth(new Date()))
   const year  = month.getFullYear()
@@ -46,13 +58,17 @@ export default function DashboardPage() {
   const summary      = data?.summary ?? { total: 0, expense_total: 0, income_total: 0, by_category: {} }
   const reviewCount  = transactions.filter(tx => tx.needs_review).length
 
+  const categoryTotal = summary.expense_total || summary.total || 0
   const chartData = Object.entries(summary.by_category)
     .sort((a, b) => b[1] - a[1])
-    .map(([category, amount]) => ({
+    .map(([category, amount], index) => ({
       category,
       amount,
+      percentage: categoryTotal > 0 ? Math.round((amount / categoryTotal) * 100) : 0,
       icon: CATEGORIES.find(c => c.name === category)?.icon ?? '📦',
+      color: CATEGORY_COLORS[index % CATEGORY_COLORS.length],
     }))
+  const topCategory = chartData[0]
 
   const recentFive = transactions.slice(0, 5)
 
@@ -158,37 +174,79 @@ export default function DashboardPage() {
         {/* Category Chart */}
         {chartData.length > 0 && (
           <div className="card p-4">
-            <h2 className="font-bold text-base mb-3">カテゴリ別支出</h2>
-            <ResponsiveContainer width="100%" height={180}>
-              <BarChart data={chartData} margin={{ top: 0, right: 0, left: -20, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#E6EAEF" />
-                <XAxis
-                  dataKey="category"
-                  tick={{ fontSize: 9 }}
-                  tickFormatter={(_v, i) => chartData[i]?.icon ?? ''}
-                />
-                <YAxis tick={{ fontSize: 9 }} tickFormatter={fmt} />
-                <Tooltip
-                  formatter={(v) => [`${Number(v).toLocaleString()}円`]}
-                  labelFormatter={(_, payload) => payload?.[0]?.payload?.category ?? ''}
-                  contentStyle={{ fontSize: 12, borderRadius: 8 }}
-                />
-                <Bar dataKey="amount" fill="#1476B3" radius={[4, 4, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
-
-            {/* Legend */}
-            <div className="grid grid-cols-3 gap-1 mt-2">
-              {chartData.map(d => (
-                <div key={d.category} className="flex items-center gap-1 text-xs text-muted">
-                  <span>{d.icon}</span>
-                  <span className="truncate">{d.category}</span>
-                  <span className="ml-auto font-medium text-foreground shrink-0">
-                    {d.amount >= 10000 ? `${Math.floor(d.amount / 1000)}k` : d.amount.toLocaleString()}
-                  </span>
+            <div className="flex items-start justify-between gap-3 mb-3">
+              <div>
+                <h2 className="font-bold text-base">カテゴリ別支出</h2>
+                <p className="text-xs text-muted mt-1">今月の使い道の割合</p>
+              </div>
+              {topCategory && (
+                <div className="text-right shrink-0">
+                  <p className="text-xs text-muted">一番多い</p>
+                  <p className="text-sm font-bold">
+                    {topCategory.icon} {topCategory.category}
+                  </p>
                 </div>
-              ))}
+              )}
             </div>
+
+            <div className="grid grid-cols-[150px_1fr] gap-4 items-center">
+              <div className="relative h-[150px]">
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie
+                      data={chartData}
+                      dataKey="amount"
+                      nameKey="category"
+                      innerRadius={46}
+                      outerRadius={68}
+                      paddingAngle={2}
+                      stroke="none"
+                    >
+                      {chartData.map(d => (
+                        <Cell key={d.category} fill={d.color} />
+                      ))}
+                    </Pie>
+                    <Tooltip
+                      formatter={(v) => [`${Number(v).toLocaleString()}円`]}
+                      contentStyle={{ fontSize: 12, borderRadius: 8 }}
+                    />
+                  </PieChart>
+                </ResponsiveContainer>
+                <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                  <span className="text-xs text-muted">合計</span>
+                  <span className="text-lg font-bold">{fmt(categoryTotal)}</span>
+                  <span className="text-[10px] text-muted">円</span>
+                </div>
+              </div>
+
+              <div className="flex min-w-0 flex-col gap-2">
+                {chartData.slice(0, 5).map(d => (
+                  <div key={d.category} className="min-w-0">
+                    <div className="mb-1 flex items-center gap-2 text-xs">
+                      <span className="h-2.5 w-2.5 rounded-full shrink-0" style={{ backgroundColor: d.color }} />
+                      <span className="shrink-0">{d.icon}</span>
+                      <span className="truncate font-medium">{d.category}</span>
+                      <span className="ml-auto shrink-0 text-muted">{d.percentage}%</span>
+                    </div>
+                    <div className="h-2 rounded-full bg-surface overflow-hidden">
+                      <div
+                        className="h-full rounded-full"
+                        style={{ width: `${Math.max(d.percentage, 3)}%`, backgroundColor: d.color }}
+                      />
+                    </div>
+                    <p className="mt-0.5 text-right text-xs font-bold">
+                      {d.amount.toLocaleString()}円
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {chartData.length > 5 && (
+              <p className="mt-3 text-right text-xs text-muted">
+                他 {chartData.length - 5}カテゴリ
+              </p>
+            )}
           </div>
         )}
 

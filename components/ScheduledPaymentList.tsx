@@ -1,5 +1,5 @@
 'use client'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { ScheduledPayment, ScheduledPaymentInput } from '@/types/cashflow'
 import { CATEGORIES } from '@/types/transaction'
 import { useToast } from '@/components/Toast'
@@ -128,66 +128,116 @@ function PaymentModal({
       ? { name: initial.name, amount: initial.amount, due_day: initial.due_day, category: initial.category, type: initial.type, is_active: initial.is_active, memo: initial.memo }
       : emptyForm()
   )
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') onClose()
+    }
+
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [onClose])
+
+  async function handleSubmit() {
+    setSaving(true)
+    await onSave(form)
+    setSaving(false)
+  }
+
+  const canSave = Boolean(form.name.trim() && form.amount > 0 && form.due_day >= 1 && form.due_day <= 31)
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end" onClick={onClose}>
-      <div className="w-full bg-card rounded-t-2xl p-4 flex flex-col gap-4 max-h-[80svh] overflow-y-auto"
-        onClick={e => e.stopPropagation()}>
-        <div className="flex items-center justify-between">
-          <h2 className="font-bold text-lg">{initial ? '引き落とし編集' : '引き落とし追加'}</h2>
-          <button onClick={onClose} className="text-muted text-xl">✕</button>
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/55 px-4 py-6 backdrop-blur-[2px]"
+      onClick={onClose}
+      role="presentation"
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="payment-modal-title"
+        className="flex max-h-[calc(100svh-48px)] w-full max-w-[480px] flex-col overflow-hidden rounded-2xl bg-card shadow-2xl"
+        onClick={e => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between border-b border-border px-4 py-4">
+          <h2 id="payment-modal-title" className="font-bold text-base">{initial ? '引き落とし編集' : '引き落とし追加'}</h2>
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex h-9 w-9 items-center justify-center rounded-full text-xl text-muted transition-base active:bg-surface"
+            aria-label="閉じる"
+          >
+            ×
+          </button>
         </div>
 
-        <div>
-          <label className="text-xs text-muted mb-1 block">名称</label>
-          <input type="text" placeholder="例：楽天カード" value={form.name}
-            onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
-            className="w-full rounded-xl border border-border px-3 py-2 text-sm bg-surface" />
-        </div>
-
-        <div className="grid grid-cols-2 gap-3">
+        <div className="flex flex-1 flex-col gap-4 overflow-y-auto px-4 py-4">
           <div>
-            <label className="text-xs text-muted mb-1 block">金額（円）</label>
-            <input type="number" inputMode="numeric" value={form.amount || ''}
-              onChange={e => setForm(f => ({ ...f, amount: parseInt(e.target.value) || 0 }))}
-              className="w-full rounded-xl border border-border px-3 py-2 text-sm bg-surface font-bold text-danger" />
+            <label className="text-xs text-muted mb-1 block">名称</label>
+            <input type="text" placeholder="例：楽天カード" value={form.name}
+              onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
+              className="w-full rounded-xl border border-border px-3 py-3 text-sm bg-surface focus:border-primary focus:bg-card focus:outline-none" />
           </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs text-muted mb-1 block">金額（円）</label>
+              <input type="number" inputMode="numeric" value={form.amount || ''}
+                onChange={e => setForm(f => ({ ...f, amount: parseInt(e.target.value) || 0 }))}
+                className="w-full rounded-xl border border-border px-3 py-3 text-sm bg-surface font-bold text-danger focus:border-primary focus:bg-card focus:outline-none" />
+            </div>
+            <div>
+              <label className="text-xs text-muted mb-1 block">引き落とし日</label>
+              <input type="number" inputMode="numeric" min={1} max={31} value={form.due_day}
+                onChange={e => setForm(f => ({ ...f, due_day: parseInt(e.target.value) || 1 }))}
+                className="w-full rounded-xl border border-border px-3 py-3 text-sm bg-surface focus:border-primary focus:bg-card focus:outline-none" />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs text-muted mb-1 block">カテゴリ</label>
+              <select value={form.category} onChange={e => setForm(f => ({ ...f, category: e.target.value }))}
+                className="w-full rounded-xl border border-border px-3 py-3 text-sm bg-surface focus:border-primary focus:bg-card focus:outline-none">
+                {CATEGORIES.map(c => <option key={c.name} value={c.name}>{c.icon} {c.name}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="text-xs text-muted mb-1 block">種別</label>
+              <select value={form.type} onChange={e => setForm(f => ({ ...f, type: e.target.value as 'fixed' | 'credit' }))}
+                className="w-full rounded-xl border border-border px-3 py-3 text-sm bg-surface focus:border-primary focus:bg-card focus:outline-none">
+                <option value="fixed">固定費</option>
+                <option value="credit">クレカ請求</option>
+              </select>
+            </div>
+          </div>
+
           <div>
-            <label className="text-xs text-muted mb-1 block">引き落とし日</label>
-            <input type="number" inputMode="numeric" min={1} max={31} value={form.due_day}
-              onChange={e => setForm(f => ({ ...f, due_day: parseInt(e.target.value) || 1 }))}
-              className="w-full rounded-xl border border-border px-3 py-2 text-sm bg-surface" />
+            <label className="text-xs text-muted mb-1 block">メモ（任意）</label>
+            <input type="text" value={form.memo ?? ''} onChange={e => setForm(f => ({ ...f, memo: e.target.value }))}
+              className="w-full rounded-xl border border-border px-3 py-3 text-sm bg-surface focus:border-primary focus:bg-card focus:outline-none" />
           </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className="text-xs text-muted mb-1 block">カテゴリ</label>
-            <select value={form.category} onChange={e => setForm(f => ({ ...f, category: e.target.value }))}
-              className="w-full rounded-xl border border-border px-3 py-2 text-sm bg-surface">
-              {CATEGORIES.map(c => <option key={c.name} value={c.name}>{c.icon} {c.name}</option>)}
-            </select>
-          </div>
-          <div>
-            <label className="text-xs text-muted mb-1 block">種別</label>
-            <select value={form.type} onChange={e => setForm(f => ({ ...f, type: e.target.value as 'fixed' | 'credit' }))}
-              className="w-full rounded-xl border border-border px-3 py-2 text-sm bg-surface">
-              <option value="fixed">固定費</option>
-              <option value="credit">クレカ請求</option>
-            </select>
-          </div>
+        <div className="grid grid-cols-2 gap-3 border-t border-border p-4">
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={saving}
+            className="rounded-xl bg-surface py-3 text-sm font-bold text-foreground transition-base active:opacity-80 disabled:opacity-50"
+          >
+            キャンセル
+          </button>
+          <button
+            type="button"
+            onClick={handleSubmit}
+            disabled={!canSave || saving}
+            className="rounded-xl bg-primary py-3 text-sm font-bold text-white transition-base active:opacity-80 disabled:opacity-50"
+          >
+            {saving ? '保存中...' : '保存する'}
+          </button>
         </div>
-
-        <div>
-          <label className="text-xs text-muted mb-1 block">メモ（任意）</label>
-          <input type="text" value={form.memo ?? ''} onChange={e => setForm(f => ({ ...f, memo: e.target.value }))}
-            className="w-full rounded-xl border border-border px-3 py-2 text-sm bg-surface" />
-        </div>
-
-        <button onClick={() => onSave(form)}
-          className="w-full py-3 rounded-2xl bg-primary text-white font-bold transition-base active:opacity-80">
-          保存する
-        </button>
       </div>
     </div>
   )
