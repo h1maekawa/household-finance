@@ -79,8 +79,17 @@ interface ImportFields {
   kind: Kind
   payment_method: string
   memo?: string
+  card_issuer?: string | null
   needs_review?: boolean
   review_reason?: string | null
+}
+
+function normalizeIssuer(value: unknown) {
+  const issuer = String(value ?? '').trim()
+  if (!issuer) return null
+  if (issuer.includes('三井住友') || issuer.toLowerCase().includes('smbc')) return '三井住友カード'
+  if (issuer.includes('楽天')) return '楽天カード'
+  return issuer
 }
 
 interface ScheduledImportFields {
@@ -212,6 +221,7 @@ export async function POST(request: NextRequest) {
       kind,
       payment_method: body.payment_method || (kind === 'income' ? '口座振込' : '現金'),
       memo: body.memo ?? '',
+      card_issuer: normalizeIssuer(body.card_issuer),
       needs_review: categoryDecision.needsReview || Boolean(body.needs_review),
       review_reason: categoryDecision.reviewReason ?? body.review_reason ?? null,
     }
@@ -243,6 +253,7 @@ export async function POST(request: NextRequest) {
         kind,
         payment_method: parsed.payment_method,
         memo: parsed.memo,
+        card_issuer: normalizeIssuer(body.card_issuer),
         needs_review: categoryDecision.needsReview || parsed.category === 'その他' || parsed.category === 'その他収入',
         review_reason: categoryDecision.reviewReason ?? (parsed.category === 'その他' || parsed.category === 'その他収入' ? 'AI解析後のカテゴリ確認' : null),
       }
@@ -260,6 +271,7 @@ export async function POST(request: NextRequest) {
       ...fields,
       source: 'gmail',
       external_id: externalId ?? null,
+      card_issuer: fields.card_issuer ?? null,
       user_id: targetUserId,
     }])
     .select()

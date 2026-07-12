@@ -202,6 +202,9 @@ function SwipeableRow({
           <p className="truncate text-[13px]">
             {tx.memo || tx.category}
             <span className="ml-2 rounded bg-surface px-2 py-0.5 text-[10px] text-muted">{tx.payment_method}</span>
+            {tx.card_issuer && (
+              <span className="ml-1 rounded bg-primary/10 px-2 py-0.5 text-[10px] text-primary">{tx.card_issuer}</span>
+            )}
           </p>
           <p className="mt-0.5 text-[11px] text-muted">{tx.category}</p>
         </div>
@@ -228,6 +231,7 @@ function EditModal({
     category:       tx.category,
     payment_method: tx.payment_method,
     memo:           tx.memo,
+    card_issuer:    tx.card_issuer ?? null,
     kind:           tx.kind ?? 'expense',
   })
   const [debtCounterparty, setDebtCounterparty] = useState('')
@@ -339,6 +343,20 @@ function EditModal({
                 </button>
               ))}
             </div>
+          </div>
+
+          <div>
+            <label className="text-xs text-muted mb-1 block">カード発行会社</label>
+            <select
+              value={form.card_issuer ?? ''}
+              onChange={e => setForm(f => ({ ...f, card_issuer: e.target.value || null }))}
+              className="w-full rounded-xl border border-border px-3 py-3 text-sm bg-surface focus:border-primary focus:bg-card focus:outline-none"
+            >
+              <option value="">なし</option>
+              <option value="三井住友カード">三井住友カード</option>
+              <option value="楽天カード">楽天カード</option>
+              <option value="不明">不明</option>
+            </select>
           </div>
 
           <div>

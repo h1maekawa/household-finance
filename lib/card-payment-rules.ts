@@ -11,9 +11,9 @@ export type CardType = 'rakuten' | 'smbc' | 'generic'
 
 export type CardPlan =
   | 'rakuten_standard' // 楽天カード 通常（月末締め / 翌月27日）
-  | 'rakuten_market'   // 楽天カード 楽天市場・ペイ・トラベル（25日締め / 翌月27日）
+  | 'rakuten_market'   // 楽天カード 楽天市場・ペイ・トラベル（暫定: 通常ルール）
   | 'smbc_10th'        // SMBC 10日プラン（15日締め / 翌月10日）
-  | 'smbc_26th'        // SMBC 26日プラン（ルール未確定のため未対応）
+  | 'smbc_26th'        // SMBC 26日プラン（暫定: 月末締め / 翌月26日）
   | 'generic'          // ユーザー手動設定（既存 closing_day_int / payment_day_int 利用）
 
 export interface CardPaymentRule {
@@ -47,11 +47,11 @@ export const CARD_PAYMENT_RULES: Record<CardPlan, CardPaymentRule> = {
   rakuten_market: {
     cardType: 'rakuten',
     plan: 'rakuten_market',
-    closingDay: 25,   // 毎月25日締め
+    closingDay: 'end_of_month', // 締め日未確定のため通常ルールを暫定適用
     paymentDay: 27,   // 翌月27日払い
     paymentMonthOffset: 1,
     supported: true,
-    description: '楽天カード 楽天市場/ペイ/トラベル（25日締め / 翌月27日払い）',
+    description: '楽天カード 楽天市場/ペイ/トラベル（暫定: 月末締め / 翌月27日払い）',
   },
   smbc_10th: {
     cardType: 'smbc',
@@ -65,11 +65,11 @@ export const CARD_PAYMENT_RULES: Record<CardPlan, CardPaymentRule> = {
   smbc_26th: {
     cardType: 'smbc',
     plan: 'smbc_26th',
-    closingDay: 15,   // 暫定値（ルール未確定）
+    closingDay: 'end_of_month',
     paymentDay: 26,
     paymentMonthOffset: 1,
-    supported: false, // 26日プランのルールが確定するまで計算スキップ
-    description: '三井住友カード 26日プラン（未対応）',
+    supported: true,
+    description: '三井住友カード 26日プラン（暫定: 月末締め / 翌月26日払い）',
   },
   generic: {
     cardType: 'generic',

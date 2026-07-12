@@ -11,11 +11,13 @@ export async function GET(request: NextRequest) {
   const { searchParams } = request.nextUrl
   const year = searchParams.get('year') ?? new Date().getFullYear().toString()
   const month = searchParams.get('month') ?? (new Date().getMonth() + 1).toString()
+  const explicitStart = searchParams.get('start')
+  const explicitEnd = searchParams.get('end')
 
-  const startDate = `${year}-${String(month).padStart(2, '0')}-01`
-  const endMonth = parseInt(month) === 12
+  const startDate = explicitStart ?? `${year}-${String(month).padStart(2, '0')}-01`
+  const endMonth = explicitEnd ?? (parseInt(month) === 12
     ? `${parseInt(year) + 1}-01-01`
-    : `${year}-${String(parseInt(month) + 1).padStart(2, '0')}-01`
+    : `${year}-${String(parseInt(month) + 1).padStart(2, '0')}-01`)
 
   const { data, error } = await supabaseAdmin
     .from('transactions')

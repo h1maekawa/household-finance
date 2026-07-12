@@ -167,8 +167,10 @@ function processCardEmailsByQuery_(apiUrl, apiSecret, searchQuery, labelName, ma
         parsedData = parseRakutenBank_(body)
       } else if (from.includes('vpass.ne.jp') || subject.includes('三井住友カード') || subject.includes('Olive')) {
         parsedData = parseSmbcCard_(body)
+        if (parsedData && !Array.isArray(parsedData)) parsedData.cardIssuer = '三井住友カード'
       } else if (from.includes('rakuten-card.co.jp') || subject.includes('カード利用のお知らせ') || subject.includes('楽天カード')) {
         parsedData = parseRakutenCard_(body)
+        if (parsedData && !Array.isArray(parsedData)) parsedData.cardIssuer = '楽天カード'
       } else if (from.toLowerCase().includes('paypay') || subject.includes('PayPay')) {
         parsedData = parsePayPay_(body)
       }
@@ -194,6 +196,7 @@ function processCardEmailsByQuery_(apiUrl, apiSecret, searchQuery, labelName, ma
             kind: auto.kind,
             payment_method: item.paymentMethod,
             memo: item.memo || `${item.paymentMethod}自動連携 (${merchant})`,
+            card_issuer: item.cardIssuer || null,
             needs_review: needsReview,
             review_reason: needsReview ? `分類確認: ${merchant}` : null,
             external_id: itemExternalId,

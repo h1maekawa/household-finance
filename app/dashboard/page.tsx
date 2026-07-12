@@ -4,12 +4,11 @@ import useSWR from 'swr'
 import { format, addMonths, startOfMonth } from 'date-fns'
 import { ja } from 'date-fns/locale'
 import {
-  Cell, Pie, PieChart, ResponsiveContainer, Tooltip,
+  Area, AreaChart, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from 'recharts'
 import Link from 'next/link'
 import AlertBanner from '@/components/AlertBanner'
 import DebtsSummaryCard from '@/components/DebtsSummaryCard'
-import GmailImportStatusCard from '@/components/GmailImportStatusCard'
 import PaymentMethodSummaryCard from '@/components/PaymentMethodSummaryCard'
 import SignOutButton from '@/components/SignOutButton'
 import TransactionList from '@/components/TransactionList'
@@ -55,6 +54,7 @@ export default function DashboardPage() {
     fetcher
   )
   const { data: investments } = useSWR('/api/investments', fetcher)
+  const { data: cashflow } = useSWR('/api/cashflow', fetcher)
   const { data: scheduledPayments } = useSWR<ScheduledPayment[]>('/api/scheduled-payments', fetcher)
 
   const transactions = data?.transactions ?? []
@@ -78,6 +78,18 @@ export default function DashboardPage() {
   const topCategory = chartData[0]
 
   const recentFive = transactions.slice(0, 5)
+  const cashBalance = Number(cashflow?.currentBalance?.balance ?? 0)
+  const investmentValue = Number(investments?.summary?.investmentValue ?? 0)
+  const totalAssets = cashBalance + investmentValue
+  const assetChartData = Array.from({ length: 6 }).map((_, index) => {
+    const date = addMonths(month, index - 5)
+    return {
+      label: format(date, 'M月', { locale: ja }),
+      cash: cashBalance,
+      investment: investmentValue,
+      total: totalAssets,
+    }
+  })
 
   function fmt(v: number) {
     if (v >= 10000) return `${Math.floor(v / 10000)}万${v % 10000 > 0 ? `${v % 10000}` : ''}`
@@ -87,14 +99,18 @@ export default function DashboardPage() {
   return (
     <div className="max-w-xl mx-auto">
       {/* Header */}
-      <div className="bg-primary text-white px-4 pt-10 pb-6">
-        <div className="mb-3 flex justify-end">
+      <div className="bg-primary text-white px-4 pt-5 pb-4">
+        <div className="mb-3 flex items-center justify-between">
+          <div>
+            <p className="text-lg font-bold leading-none">Flow<span className="text-white/70">+</span></p>
+            <p className="mt-1 text-xs text-white/70">{format(new Date(), 'M月d日 EEEE', { locale: ja })}</p>
+          </div>
           <SignOutButton />
         </div>
-        <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center justify-between">
           <button
             onClick={() => setMonth(m => addMonths(m, -1))}
-            className="w-10 h-10 flex items-center justify-center rounded-full bg-white/20 text-white text-lg"
+            className="w-9 h-9 flex items-center justify-center rounded-full bg-white/20 text-white text-lg"
           >
             ‹
           </button>
@@ -103,17 +119,17 @@ export default function DashboardPage() {
           </h1>
           <button
             onClick={() => setMonth(m => addMonths(m, 1))}
-            className="w-10 h-10 flex items-center justify-center rounded-full bg-white/20 text-white text-lg"
+            className="w-9 h-9 flex items-center justify-center rounded-full bg-white/20 text-white text-lg"
           >
             ›
           </button>
         </div>
-        <div className="text-center">
-          <p className="text-white/70 text-sm mb-1">今月の支出</p>
+        <div className="mt-3 text-center">
+          <p className="text-white/70 text-xs mb-1">今月の支出</p>
           {!data ? (
             <div className="skeleton h-10 w-48 mx-auto" />
           ) : (
-            <p className="text-4xl font-bold">{summary.total.toLocaleString()}<span className="text-xl ml-1">円</span></p>
+            <p className="text-3xl font-bold">{summary.total.toLocaleString()}<span className="text-base ml-1">円</span></p>
           )}
         </div>
       </div>
@@ -142,10 +158,35 @@ export default function DashboardPage() {
 
         {activeTab === 'overview' ? (
           <>
+        <div className="card p-4">
+          <div className="mb-3 flex items-start justify-between gap-3">
+            <div>
+              <h2 className="text-base font-bold">資産サマリー</h2>
+              <p className="mt-1 text-xs text-muted">総資産・現金預金・投資評価額</p>
+            </div>
+            <Link href="/investments" className="shrink-0 text-xs font-bold text-primary">詳細</Link>
+          </div>
+          <div className="grid grid-cols-3 gap-2">
+            <AssetMini label="総資産" value={totalAssets} />
+            <AssetMini label="現金預金" value={cashBalance} />
+            <AssetMini label="投資評価額" value={investmentValue} />
+          </div>
+          <div className="mt-4 h-[190px]">
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={assetChartData}>
+                <XAxis dataKey="label" tick={{ fontSize: 10 }} />
+                <YAxis tick={{ fontSize: 10 }} width={42} tickFormatter={v => Number(v) >= 10000 ? `${Math.round(Number(v) / 10000)}万` : String(v)} />
+                <Tooltip formatter={(value, name) => [`${Number(value).toLocaleString()}円`, name === 'cash' ? '現金預金' : name === 'investment' ? '投資評価額' : '総資産']} />
+                <Area type="monotone" dataKey="cash" stackId="1" stroke="#1476B3" fill="#1476B3" fillOpacity={0.28} />
+                <Area type="monotone" dataKey="investment" stackId="1" stroke="#1FAE8C" fill="#1FAE8C" fillOpacity={0.28} />
+                <Area type="monotone" dataKey="total" stroke="#E2544B" fill="transparent" strokeWidth={2} />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+
         {/* 貸し借り・未納(一番最初に表示) */}
         <DebtsSummaryCard />
-
-        <GmailImportStatusCard />
 
         <PaymentMethodSummaryCard transactions={transactions} scheduledPayments={scheduledPayments ?? []} />
 
@@ -313,7 +354,7 @@ export default function DashboardPage() {
         <div>
           <div className="flex items-center justify-between mb-2">
             <h2 className="font-bold text-base">直近の取引</h2>
-            <Link href="/transactions" className="text-sm text-primary">すべて見る →</Link>
+            <Link href="/transactions" className="text-sm text-primary">収支で見る →</Link>
           </div>
 
           {!data ? (
@@ -333,8 +374,8 @@ export default function DashboardPage() {
             <div className="card flex flex-col items-center py-10 text-muted gap-2">
               <span className="text-4xl">📋</span>
               <p className="text-sm">まだデータがありません</p>
-              <Link href="/input" className="mt-2 px-4 py-2 rounded-xl bg-primary text-white text-sm font-medium">
-                入力する
+              <Link href="/transactions" className="mt-2 px-4 py-2 rounded-xl bg-primary text-white text-sm font-medium">
+                収支を開く
               </Link>
             </div>
           ) : (
@@ -415,7 +456,7 @@ export default function DashboardPage() {
 
         {/* Quick Add Button */}
         <Link
-          href="/input"
+          href="/transactions"
           className="fixed bottom-[calc(64px+env(safe-area-inset-bottom,0px)+16px)] right-4 w-14 h-14 rounded-full bg-primary text-white text-2xl flex items-center justify-center shadow-lg transition-base active:scale-95 lg:hidden"
         >
           ＋
@@ -436,5 +477,14 @@ function HistoryFilterChip({ label, active, onClick }: { label: string; active: 
     >
       {label}
     </button>
+  )
+}
+
+function AssetMini({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="min-w-0 rounded-xl bg-surface p-2.5">
+      <p className="truncate text-[11px] text-muted">{label}</p>
+      <p className="mt-1 truncate font-mono text-sm font-bold">{value.toLocaleString()}円</p>
+    </div>
   )
 }

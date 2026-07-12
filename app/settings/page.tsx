@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useToast } from '@/components/Toast'
 import { CATEGORIES } from '@/types/transaction'
+import GmailImportStatusCard from '@/components/GmailImportStatusCard'
 
 type SettingsResponse = {
   profile: {
@@ -18,6 +19,8 @@ type CreditCardSetting = {
   closing_day_int?: number | null
   payment_day_int?: number | null
   payment_month_offset?: number | null
+  card_type?: string | null
+  card_plan?: string | null
 }
 
 type CategoryRule = {
@@ -30,8 +33,34 @@ function toNumberInput(value: number | undefined) {
   return value ? String(value) : ''
 }
 
+const SETTING_TABS = [
+  { key: 'integrations', label: '連携・取込' },
+  { key: 'categories', label: 'カテゴリ管理' },
+  { key: 'assets', label: '資産・投資設定' },
+  { key: 'cards', label: 'カード設定' },
+  { key: 'display', label: '表示設定' },
+  { key: 'account', label: 'アカウント' },
+] as const
+
+type SettingTab = typeof SETTING_TABS[number]['key']
+
+const CARD_TYPES = [
+  { value: 'generic', label: '手動設定' },
+  { value: 'rakuten', label: '楽天カード' },
+  { value: 'smbc', label: '三井住友カード' },
+]
+
+const CARD_PLANS = [
+  { value: 'generic', label: '手動設定' },
+  { value: 'rakuten_standard', label: '楽天カード 通常' },
+  { value: 'rakuten_market', label: '楽天市場/ペイ/トラベル 暫定' },
+  { value: 'smbc_10th', label: '三井住友 10日プラン' },
+  { value: 'smbc_26th', label: '三井住友 26日プラン' },
+]
+
 export default function SettingsPage() {
   const { showToast } = useToast()
+  const [activeTab, setActiveTab] = useState<SettingTab>('integrations')
   const [initialBalance, setInitialBalance] = useState('')
   const [monthlyIncome, setMonthlyIncome] = useState('')
   const [incomeDay, setIncomeDay] = useState('25')
@@ -39,6 +68,8 @@ export default function SettingsPage() {
   const [cardName, setCardName] = useState('')
   const [closingDay, setClosingDay] = useState('31')
   const [paymentDay, setPaymentDay] = useState('27')
+  const [cardType, setCardType] = useState('generic')
+  const [cardPlan, setCardPlan] = useState('generic')
   const [savingCard, setSavingCard] = useState(false)
   const [categoryRules, setCategoryRules] = useState<CategoryRule[]>([])
   const [rulePattern, setRulePattern] = useState('')
@@ -132,6 +163,8 @@ export default function SettingsPage() {
           closing_day_int: Number(closingDay || 31),
           payment_day_int: Number(paymentDay || 27),
           payment_month_offset: 1,
+          card_type: cardType,
+          card_plan: cardPlan,
         }),
       })
       const data = await res.json()
@@ -139,6 +172,8 @@ export default function SettingsPage() {
       setCardName('')
       setClosingDay('31')
       setPaymentDay('27')
+      setCardType('generic')
+      setCardPlan('generic')
       await refreshCreditCards()
       showToast('カード設定を追加しました', 'success')
     } catch (err) {
@@ -238,9 +273,25 @@ export default function SettingsPage() {
     <div className="mx-auto max-w-xl px-4 py-8 lg:max-w-3xl lg:px-0">
       <div className="mb-5">
         <h1 className="text-xl font-bold">設定</h1>
-        <p className="mt-1 text-sm text-muted">初期残高や毎月の収入をあとから変更できます。</p>
+        <p className="mt-1 text-sm text-muted">連携、カード、カテゴリ、アカウント設定を管理できます。</p>
       </div>
 
+      <div className="mb-4 flex gap-2 overflow-x-auto">
+        {SETTING_TABS.map(tab => (
+          <button
+            key={tab.key}
+            type="button"
+            onClick={() => setActiveTab(tab.key)}
+            className={`shrink-0 rounded-full border px-3.5 py-2 text-xs font-bold transition-base ${
+              activeTab === tab.key ? 'border-primary bg-primary text-white' : 'border-border bg-card text-muted'
+            }`}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {activeTab === 'assets' && (
       <section className="card p-4">
         <h2 className="text-base font-bold">家計の初期値</h2>
         <p className="mt-1 text-xs leading-relaxed text-muted">
@@ -277,8 +328,10 @@ export default function SettingsPage() {
           {saving ? '保存中...' : '保存する'}
         </button>
       </section>
+      )}
 
-      <section className="card mt-4 p-4">
+      {activeTab === 'cards' && (
+      <section className="card p-4">
         <h2 className="text-base font-bold">カード引き落とし設定</h2>
         <p className="mt-1 text-xs leading-relaxed text-muted">
           取引履歴の支払い方法名と同じ名前で登録すると、キャッシュフロー予測に請求見込みが自動で入ります。
@@ -298,6 +351,22 @@ export default function SettingsPage() {
           <div className="grid grid-cols-2 gap-3">
             <DayInput label="締め日" value={closingDay} onChange={setClosingDay} disabled={savingCard} />
             <DayInput label="引き落とし日" value={paymentDay} onChange={setPaymentDay} disabled={savingCard} />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <SelectInput
+              label="カード種別"
+              value={cardType}
+              onChange={setCardType}
+              options={CARD_TYPES}
+              disabled={savingCard}
+            />
+            <SelectInput
+              label="支払プラン"
+              value={cardPlan}
+              onChange={setCardPlan}
+              options={CARD_PLANS}
+              disabled={savingCard}
+            />
           </div>
           <button
             type="button"
@@ -323,6 +392,9 @@ export default function SettingsPage() {
                   <p className="mt-0.5 text-xs text-muted">
                     {card.closing_day_int ?? 31}日締め / 翌月{card.payment_day_int ?? 27}日引き落とし
                   </p>
+                  <p className="mt-0.5 text-[11px] text-muted">
+                    {CARD_TYPES.find(item => item.value === (card.card_type ?? 'generic'))?.label ?? '手動設定'} / {CARD_PLANS.find(item => item.value === (card.card_plan ?? 'generic'))?.label ?? '手動設定'}
+                  </p>
                 </div>
                 <button
                   type="button"
@@ -336,8 +408,10 @@ export default function SettingsPage() {
           )}
         </div>
       </section>
+      )}
 
-      <section className="card mt-4 p-4">
+      {activeTab === 'categories' && (
+      <section className="card p-4">
         <h2 className="text-base font-bold">分類ルール</h2>
         <p className="mt-1 text-xs leading-relaxed text-muted">
           店名や明細に含まれる文字を登録すると、今後の自動取込と過去取引の再分類に使われます。
@@ -411,28 +485,28 @@ export default function SettingsPage() {
           )}
         </div>
       </section>
+      )}
 
-      <section className="card mt-4 p-4">
-        <h2 className="text-base font-bold">Pro機能</h2>
+      {activeTab === 'integrations' && (
+      <div className="flex flex-col gap-4">
+      <GmailImportStatusCard />
+
+      <section className="card p-4">
+        <h2 className="text-base font-bold">過去履歴の再分類</h2>
         <p className="mt-1 text-xs leading-relaxed text-muted">
-          Gmail自動取込や投資CSV取込などの高度な機能を使えます。
+          保存済みの取引に、カテゴリルールとカード発行会社の判定をまとめて反映します。
         </p>
-        <div className="mt-4 rounded-xl bg-surface p-3">
-          <p className="text-xs text-muted">現在の状態</p>
-          <p className="mt-1 text-sm font-bold">{billingActive ? '購入済み' : billingRequired ? '未購入' : '開発中は無料開放'}</p>
-        </div>
-        {!billingActive && billingRequired && (
-          <button
-            type="button"
-            onClick={handleCheckout}
-            className="mt-4 w-full rounded-2xl bg-primary py-3 font-bold text-white transition-base active:opacity-80"
-          >
-            買い切りで購入する
-          </button>
-        )}
+        <button
+          type="button"
+          onClick={handleRecategorize}
+          disabled={recategorizing}
+          className="mt-4 w-full rounded-2xl bg-primary py-3 font-bold text-white transition-base active:opacity-80 disabled:opacity-50"
+        >
+          {recategorizing ? '整理中...' : '過去履歴の再分類を実行'}
+        </button>
       </section>
 
-      <section className="card mt-4 p-4">
+      <section className="card p-4">
         <h2 className="text-base font-bold">GAS連携キー</h2>
         <p className="mt-1 text-xs leading-relaxed text-muted">
           Gmail取込用のキーです。発行後、この画面に一度だけ表示されます。
@@ -451,6 +525,43 @@ export default function SettingsPage() {
           </div>
         )}
       </section>
+      </div>
+      )}
+
+      {activeTab === 'account' && (
+      <section className="card p-4">
+        <h2 className="text-base font-bold">Pro機能</h2>
+        <p className="mt-1 text-xs leading-relaxed text-muted">
+          Gmail自動取込や投資CSV取込などの高度な機能を使えます。
+        </p>
+        <div className="mt-4 rounded-xl bg-surface p-3">
+          <p className="text-xs text-muted">現在の状態</p>
+          <p className="mt-1 text-sm font-bold">{billingActive ? '購入済み' : billingRequired ? '未購入' : '開発中は無料開放'}</p>
+        </div>
+        {!billingActive && billingRequired && (
+          <button
+            type="button"
+            onClick={handleCheckout}
+            className="mt-4 w-full rounded-2xl bg-primary py-3 font-bold text-white transition-base active:opacity-80"
+          >
+            買い切りで購入する
+          </button>
+        )}
+      </section>
+      )}
+
+      {activeTab === 'display' && (
+      <section className="card p-4">
+        <h2 className="text-base font-bold">表示設定</h2>
+        <p className="mt-1 text-xs leading-relaxed text-muted">
+          通貨・日付形式・テーマ・グラフ初期表示は今後ここにまとめます。
+        </p>
+        <div className="mt-4 rounded-xl bg-surface p-3">
+          <p className="text-xs text-muted">現在の表示</p>
+          <p className="mt-1 text-sm font-bold">日本円 / 日本式日付 / ライトテーマ</p>
+        </div>
+      </section>
+      )}
     </div>
   )
 }
@@ -511,6 +622,36 @@ function DayInput({
         />
         <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-sm text-muted">日</span>
       </span>
+    </label>
+  )
+}
+
+function SelectInput({
+  label,
+  value,
+  onChange,
+  options,
+  disabled,
+}: {
+  label: string
+  value: string
+  onChange: (value: string) => void
+  options: { value: string; label: string }[]
+  disabled: boolean
+}) {
+  return (
+    <label className="block">
+      <span className="mb-1.5 block text-xs text-muted">{label}</span>
+      <select
+        value={value}
+        disabled={disabled}
+        onChange={e => onChange(e.target.value)}
+        className="w-full rounded-xl border border-border bg-surface px-3.5 py-3 text-sm focus:border-primary focus:bg-card focus:outline-none disabled:opacity-60"
+      >
+        {options.map(option => (
+          <option key={option.value} value={option.value}>{option.label}</option>
+        ))}
+      </select>
     </label>
   )
 }

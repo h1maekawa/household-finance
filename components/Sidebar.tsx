@@ -4,9 +4,8 @@ import { usePathname } from 'next/navigation'
 
 const tabs = [
   { href: '/dashboard',    label: 'ホーム', icon: '🏠' },
-  { href: '/input',        label: '入力',   icon: '📝' },
-  { href: '/transactions', label: '履歴',   icon: '📊' },
-  { href: '/cashflow',     label: '予測',   icon: '💰' },
+  { href: '/transactions', label: '収支',   icon: '💴' },
+  { href: '/cashflow',     label: 'キャッシュフロー', icon: '💰' },
   { href: '/investments',  label: '投資',   icon: '💹' },
   { href: '/settings',     label: '設定',   icon: '⚙️' },
 ]

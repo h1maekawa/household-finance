@@ -9,6 +9,14 @@ type Body = {
   month?: number
 }
 
+function inferCardIssuer(tx: Transaction) {
+  const text = `${tx.payment_method} ${tx.memo ?? ''}`.toLowerCase()
+  if (text.includes('楽天カード') || text.includes('rakuten-card') || text.includes('rakutenpay')) return '楽天カード'
+  if (text.includes('三井住友') || text.includes('vpass') || text.includes('smbc')) return '三井住友カード'
+  if (text.includes('クレジットカード')) return '不明'
+  return tx.card_issuer ?? null
+}
+
 export async function POST(request: NextRequest) {
   const user = await getAuthenticatedUser(request)
   if (!user) return unauthorized()
@@ -48,11 +56,14 @@ export async function POST(request: NextRequest) {
   const transactions: Transaction[] = transactionsRes.data ?? []
   let updated = 0
   let review = 0
+  let issuerUpdated = 0
 
   for (const tx of transactions) {
     const decision = decideTransactionCategory(tx, rules)
+    const cardIssuer = inferCardIssuer(tx)
     const shouldUpdate =
       tx.category !== decision.category ||
+      (tx.card_issuer ?? null) !== cardIssuer ||
       Boolean(tx.needs_review) !== decision.needsReview ||
       (tx.review_reason ?? null) !== decision.reviewReason
 
@@ -62,6 +73,7 @@ export async function POST(request: NextRequest) {
       .from('transactions')
       .update({
         category: decision.category,
+        card_issuer: cardIssuer,
         needs_review: decision.needsReview,
         review_reason: decision.reviewReason,
         updated_at: new Date().toISOString(),
@@ -72,6 +84,7 @@ export async function POST(request: NextRequest) {
     if (!error) {
       updated += 1
       if (decision.needsReview) review += 1
+      if ((tx.card_issuer ?? null) !== cardIssuer) issuerUpdated += 1
     }
   }
 
@@ -79,5 +92,6 @@ export async function POST(request: NextRequest) {
     scanned: transactions.length,
     updated,
     review,
+    issuerUpdated,
   })
 }
