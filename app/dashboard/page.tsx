@@ -37,6 +37,21 @@ const CATEGORY_COLORS = [
   '#9B51E0',
 ]
 
+type AssetHistoryResponse = {
+  points: Array<{
+    label: string
+    month: string
+    cash: number
+    investment: number
+    total: number
+  }>
+  current: {
+    cash: number
+    investment: number
+    total: number
+  }
+}
+
 export default function DashboardPage() {
   const [month, setMonth] = useState(startOfMonth(new Date()))
   const [activeTab, setActiveTab] = useState<'overview' | 'history'>('overview')
@@ -52,6 +67,7 @@ export default function DashboardPage() {
     `/api/analysis/fixed-variable?year=${year}&month=${mo}`,
     fetcher
   )
+  const { data: assetHistory } = useSWR<AssetHistoryResponse>('/api/assets/history?months=6', fetcher)
   const { data: investments } = useSWR('/api/investments', fetcher)
   const { data: cashflow } = useSWR('/api/cashflow', fetcher)
 
@@ -76,18 +92,10 @@ export default function DashboardPage() {
   const topCategory = chartData[0]
 
   const recentFive = transactions.slice(0, 5)
-  const cashBalance = Number(cashflow?.currentBalance?.balance ?? 0)
-  const investmentValue = Number(investments?.summary?.investmentValue ?? 0)
+  const cashBalance = Number(assetHistory?.current.cash ?? cashflow?.currentBalance?.balance ?? 0)
+  const investmentValue = Number(assetHistory?.current.investment ?? investments?.summary?.investmentValue ?? 0)
   const totalAssets = cashBalance + investmentValue
-  const assetChartData = Array.from({ length: 6 }).map((_, index) => {
-    const date = addMonths(month, index - 5)
-    return {
-      label: format(date, 'M月', { locale: ja }),
-      cash: cashBalance,
-      investment: investmentValue,
-      total: totalAssets,
-    }
-  })
+  const assetChartData = assetHistory?.points ?? []
 
   function fmt(v: number) {
     if (v >= 10000) return `${Math.floor(v / 10000)}万${v % 10000 > 0 ? `${v % 10000}` : ''}`
@@ -185,34 +193,10 @@ export default function DashboardPage() {
 
         <DebtBalanceOverview />
 
-        {reviewCount > 0 && (
-          <Link href="/transactions" className="card border border-warning/30 p-4 block active:opacity-80">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <p className="text-sm font-bold">確認が必要な取引があります</p>
-                <p className="text-xs text-muted mt-1">金額を見ながらカテゴリやメモを入力できます</p>
-              </div>
-              <span className="rounded-full bg-warning/10 px-2.5 py-1 text-xs font-bold text-warning shrink-0">
-                {reviewCount}件
-              </span>
-            </div>
-          </Link>
-        )}
-
         {/* Alerts */}
         {analysis?.alerts?.length > 0 && (
           <AlertBanner alerts={analysis.alerts} />
         )}
-
-        <Link href="/settings" className="card p-4 block active:opacity-80">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <p className="text-sm font-bold">設定</p>
-              <p className="text-xs text-muted mt-1">初期残高・毎月の収入を変更できます</p>
-            </div>
-            <span className="text-primary text-sm font-bold shrink-0">開く →</span>
-          </div>
-        </Link>
 
         {/* Category Chart */}
         {chartData.length > 0 && (
@@ -284,6 +268,18 @@ export default function DashboardPage() {
                 ))}
               </div>
             </div>
+
+            {reviewCount > 0 && (
+              <Link href="/transactions" className="mt-4 flex items-center justify-between gap-3 rounded-xl border border-warning/30 bg-warning/5 px-3 py-3 active:opacity-80">
+                <div>
+                  <p className="text-sm font-bold">確認が必要な取引</p>
+                  <p className="mt-0.5 text-xs text-muted">カテゴリやメモを見直せます</p>
+                </div>
+                <span className="rounded-full bg-warning/10 px-2.5 py-1 text-xs font-bold text-warning shrink-0">
+                  {reviewCount}件
+                </span>
+              </Link>
+            )}
 
             {chartData.length > 5 && (
               <p className="mt-3 text-right text-xs text-muted">

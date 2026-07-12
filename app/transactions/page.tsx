@@ -109,6 +109,7 @@ export default function TransactionsPage() {
 
   const expenseTotal = transactions.filter(t => t.kind !== 'income').reduce((sum, t) => sum + t.amount, 0)
   const incomeTotal = transactions.filter(t => t.kind === 'income').reduce((sum, t) => sum + t.amount, 0)
+  const categoryTotal = allTransactions.filter(t => t.kind !== 'income').reduce((sum, t) => sum + t.amount, 0)
 
   const monthlyData = useMemo(() => {
     const map = new Map<string, { label: string; income: number; expense: number }>()
@@ -133,9 +134,11 @@ export default function TransactionsPage() {
       .map(([category, amount], index) => ({
         category,
         amount,
+        percentage: categoryTotal > 0 ? Math.round((amount / categoryTotal) * 100) : 0,
+        icon: CATEGORIES.find(c => c.name === category)?.icon ?? '📦',
         color: CATEGORY_COLORS[index % CATEGORY_COLORS.length],
       }))
-  }, [allTransactions])
+  }, [allTransactions, categoryTotal])
 
   const dailyData = useMemo(() => {
     const map = new Map<string, { label: string; income: number; expense: number }>()
@@ -210,7 +213,7 @@ export default function TransactionsPage() {
             <SummaryBox label="収入" value={incomeTotal} tone="success" />
           </div>
 
-          <div className="h-[230px]">
+          <div className={chartMode === 'category' ? 'grid gap-4 lg:grid-cols-[260px_1fr]' : 'h-[230px]'}>
             {!data ? (
               <div className="skeleton h-full w-full rounded-xl" />
             ) : chartMode === 'monthly' ? (
@@ -224,27 +227,64 @@ export default function TransactionsPage() {
                 </BarChart>
               </ResponsiveContainer>
             ) : categoryData.length > 0 ? (
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie
-                    data={categoryData}
-                    dataKey="amount"
-                    nameKey="category"
-                    innerRadius={54}
-                    outerRadius={86}
-                    paddingAngle={2}
-                    onClick={(_, index) => {
-                      const selected = categoryData[index]
-                      if (selected) setActiveCategory(selected.category)
-                    }}
-                  >
-                    {categoryData.map(d => (
-                      <Cell key={d.category} fill={d.color} />
-                    ))}
-                  </Pie>
-                  <Tooltip formatter={(value, name) => [`${Number(value).toLocaleString()}円`, name]} />
-                </PieChart>
-              </ResponsiveContainer>
+              <>
+                <div className="relative h-[220px]">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie
+                        data={categoryData}
+                        dataKey="amount"
+                        nameKey="category"
+                        innerRadius={54}
+                        outerRadius={86}
+                        paddingAngle={2}
+                        onClick={(_, index) => {
+                          const selected = categoryData[index]
+                          if (selected) setActiveCategory(selected.category)
+                        }}
+                      >
+                        {categoryData.map(d => (
+                          <Cell key={d.category} fill={d.color} />
+                        ))}
+                      </Pie>
+                      <Tooltip formatter={(value, name) => [`${Number(value).toLocaleString()}円`, name]} />
+                    </PieChart>
+                  </ResponsiveContainer>
+                  <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
+                    <span className="text-xs text-muted">支出</span>
+                    <span className="font-mono text-lg font-bold">
+                      {categoryTotal >= 10000 ? `${Math.round(categoryTotal / 10000)}万` : categoryTotal.toLocaleString()}
+                    </span>
+                    <span className="text-[10px] text-muted">円</span>
+                  </div>
+                </div>
+                <div className="flex min-w-0 flex-col gap-2">
+                  {categoryData.slice(0, 8).map(item => (
+                    <button
+                      type="button"
+                      key={item.category}
+                      onClick={() => setActiveCategory(item.category)}
+                      className={`rounded-xl border px-3 py-2 text-left transition-base active:opacity-80 ${
+                        activeCategory === item.category ? 'border-primary bg-primary/10' : 'border-border bg-surface'
+                      }`}
+                    >
+                      <div className="mb-1 flex items-center gap-2 text-xs">
+                        <span className="h-2.5 w-2.5 rounded-full shrink-0" style={{ backgroundColor: item.color }} />
+                        <span className="shrink-0">{item.icon}</span>
+                        <span className="min-w-0 flex-1 truncate font-bold">{item.category}</span>
+                        <span className="shrink-0 text-muted">{item.percentage}%</span>
+                      </div>
+                      <div className="h-2 overflow-hidden rounded-full bg-card">
+                        <div
+                          className="h-full rounded-full"
+                          style={{ width: `${Math.max(item.percentage, 3)}%`, backgroundColor: item.color }}
+                        />
+                      </div>
+                      <p className="mt-1 text-right font-mono text-xs font-bold">{item.amount.toLocaleString()}円</p>
+                    </button>
+                  ))}
+                </div>
+              </>
             ) : (
               <div className="flex h-full items-center justify-center text-sm text-muted">支出データがありません</div>
             )}

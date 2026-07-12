@@ -25,7 +25,7 @@ export async function GET(request: NextRequest) {
   const user = await getAuthenticatedUser(request)
   if (!user) return unauthorized()
 
-  const projectionDays = 45
+  const projectionDays = 90
   const [balanceRes, paymentsRes, profileRes, cardsRes, transactionsRes] = await Promise.all([
     supabaseAdmin
       .from('account_balance')

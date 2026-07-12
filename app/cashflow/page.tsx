@@ -8,6 +8,11 @@ import { useToast } from '@/components/Toast'
 
 const fetcher = (url: string) => fetch(url).then(r => r.json())
 
+function isImportedCardBill(name: string, memo?: string) {
+  const text = `${name} ${memo ?? ''}`.toLowerCase()
+  return text.includes('カード') || text.includes('card')
+}
+
 export default function CashflowPage() {
   const { showToast } = useToast()
   const { data, mutate } = useSWR<CashflowResponse>('/api/cashflow', fetcher)
@@ -24,6 +29,12 @@ export default function CashflowPage() {
 
   const minBalance = projected.length > 0 ? Math.min(...projected.map(d => d.balance)) : 0
   const negDays    = projected.filter(d => d.isNegative).length
+  const confirmedCardBills = payments.filter(payment =>
+    payment.source === 'gmail_bank' && Boolean(payment.scheduled_date) && isImportedCardBill(payment.name, payment.memo)
+  )
+  const upcomingCardBills = [...confirmedCardBills, ...generatedPayments]
+    .slice()
+    .sort((a, b) => String(a.scheduled_date ?? '').localeCompare(String(b.scheduled_date ?? '')))
 
   async function handleBalanceSave() {
     const amount = parseInt(newBalance)
@@ -108,7 +119,7 @@ export default function CashflowPage() {
           </div>
         ) : projected.length > 0 ? (
           <div className="card p-4">
-            <h2 className="font-bold text-base mb-3">30日間の残高推移</h2>
+            <h2 className="font-bold text-base mb-3">{projected.length}日間の残高推移</h2>
             <CashflowChart data={projected} />
           </div>
         ) : null}
@@ -135,6 +146,45 @@ export default function CashflowPage() {
                 <p className="mt-1 text-sm font-bold">{generatedPayments.reduce((sum, p) => sum + p.amount, 0).toLocaleString()}円</p>
                 <p className="mt-0.5 text-[11px] text-muted">{creditCards.length}件のカード設定</p>
               </div>
+            </div>
+          </div>
+        )}
+
+        {upcomingCardBills.length > 0 && (
+          <div className="card p-4">
+            <div className="mb-3 flex items-start justify-between gap-3">
+              <div>
+                <h2 className="font-bold text-base">カード引き落とし見込み</h2>
+                <p className="mt-1 text-xs leading-relaxed text-muted">
+                  取り込んだカード利用通知を月末締めでまとめ、翌月の引き落とし日に反映します。
+                </p>
+              </div>
+              <span className="shrink-0 rounded-full bg-primary/10 px-2.5 py-1 text-xs font-bold text-primary">
+                {upcomingCardBills.length}件
+              </span>
+            </div>
+            <div className="flex flex-col gap-2">
+              {upcomingCardBills.map(payment => (
+                <div key={payment.id} className="rounded-xl bg-surface px-3 py-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-bold">{payment.name}</p>
+                      <p className="mt-0.5 text-xs text-muted">
+                        {payment.scheduled_date?.replaceAll('-', '/')} 引き落とし
+                        <span className={`ml-1.5 rounded px-1.5 py-0.5 text-[10px] font-bold ${
+                          payment.generated ? 'bg-primary/10 text-primary' : 'bg-success/10 text-success'
+                        }`}>
+                          {payment.generated ? '見込み' : '確定'}
+                        </span>
+                      </p>
+                      {payment.memo && <p className="mt-1 text-[11px] text-muted">{payment.memo}</p>}
+                    </div>
+                    <p className="shrink-0 font-mono text-sm font-bold text-danger">
+                      -{payment.amount.toLocaleString()}円
+                    </p>
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
         )}

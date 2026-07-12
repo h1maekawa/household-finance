@@ -25,6 +25,7 @@ const DEFAULT_LABEL_NAME = 'kakeibo-processed'
 const DEFAULT_BACKFILL_LABEL_NAME = 'kakeibo-backfill-processed'
 const MAX_THREADS_PER_RUN = 30
 const MAX_BACKFILL_THREADS_PER_RUN = 100
+const MAX_ALL_IMPORT_MILLIS = 5 * 60 * 1000
 const MAX_BODY_LENGTH = 3000
 
 // =========================================================================
@@ -94,6 +95,52 @@ function backfillCardEmails() {
 }
 
 /**
+ * Gmail内の対象メールをできるだけまとめて取り込む。
+ * SEARCH_QUERY に newer_than:3d などが入っていても自動で外すため、
+ * BACKFILL_SEARCH_QUERY を別途作らなくても全期間の取り込みを開始できる。
+ *
+ * Apps Scriptには実行時間制限があるため、メールが多い場合は一度で全件終わらないことがある。
+ * その場合はログが「まだ残っています」と出るので、同じ関数をもう一度実行する。
+ * 登録済みメールはラベルと external_id で重複登録されない。
+ */
+function processAllCardEmails() {
+  const props = PropertiesService.getScriptProperties()
+  const apiUrl = props.getProperty('API_URL')
+  const apiSecret = props.getProperty('API_SECRET')
+  const baseSearchQuery = props.getProperty('SEARCH_QUERY')
+  const allSearchQuery = props.getProperty('ALL_IMPORT_SEARCH_QUERY') || props.getProperty('BACKFILL_SEARCH_QUERY') || stripRelativeDateQuery_(baseSearchQuery)
+  const labelName = props.getProperty('LABEL_NAME') || DEFAULT_LABEL_NAME
+  const startedAt = Date.now()
+  let totalProcessed = 0
+
+  while (Date.now() - startedAt < MAX_ALL_IMPORT_MILLIS) {
+    const processed = processCardEmailsByQuery_(apiUrl, apiSecret, allSearchQuery, labelName, MAX_BACKFILL_THREADS_PER_RUN)
+    totalProcessed += processed
+    if (processed === 0) break
+  }
+
+  Logger.log(`全期間取り込み: 今回処理したスレッド数 ${totalProcessed}件`)
+  if (Date.now() - startedAt >= MAX_ALL_IMPORT_MILLIS) {
+    Logger.log('Apps Scriptの実行時間制限に近いため一旦停止しました。残りがある場合は processAllCardEmails をもう一度実行してください。')
+  }
+}
+
+/**
+ * 初回セットアップ用。
+ * 1回実行するだけで、15分おきの通常取り込みトリガーを作成し、
+ * そのままGmail内の過去分もできるだけ一括取り込みする。
+ *
+ * メール件数が多い場合はApps Scriptの実行時間制限で途中停止するため、
+ * ログに「もう一度実行してください」と出たら processAllCardEmails か
+ * この関数を再実行する。
+ */
+function setupGmailImportAndBackfill() {
+  installTrigger()
+  processAllCardEmails()
+  Logger.log('初回セットアップを実行しました。通常取り込みトリガーの作成と、過去分の一括取り込みを開始済みです。')
+}
+
+/**
  * 過去取り込み用の検索条件で、Gmail上に何件見えているかだけ確認する。
  * 登録やラベル付けは行わない。
  */
@@ -128,16 +175,17 @@ function diagnoseBackfillEmails() {
 function processCardEmailsByQuery_(apiUrl, apiSecret, searchQuery, labelName, maxThreads) {
   if (!apiUrl || !apiSecret || !searchQuery) {
     Logger.log('スクリプトプロパティ(API_URL / API_SECRET / SEARCH_QUERY)が未設定です。プロジェクトの設定から追加してください。')
-    return
+    return 0
   }
 
   const processedLabel = getOrCreateLabel_(labelName)
   const fullQuery = `${searchQuery} -label:${labelName}`
   const threads = GmailApp.search(fullQuery, 0, maxThreads)
+  let completedThreads = 0
   Logger.log(`検索クエリ: ${fullQuery}`)
   Logger.log(`今回処理するスレッド数: ${threads.length}件`)
 
-  if (threads.length === 0) return
+  if (threads.length === 0) return 0
 
   for (const thread of threads) {
     const messages = thread.getMessages()
@@ -223,8 +271,11 @@ function processCardEmailsByQuery_(apiUrl, apiSecret, searchQuery, labelName, ma
     // 一部失敗した場合は次回また対象になり、再送を試みる。
     if (allSucceeded) {
       thread.addLabel(processedLabel)
+      completedThreads += 1
     }
   }
+
+  return completedThreads
 }
 
 function stripRelativeDateQuery_(query) {
