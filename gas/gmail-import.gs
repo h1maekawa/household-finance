@@ -413,6 +413,13 @@ function parseSmbcBankTransfer_(body) {
 function parseSmbcCard_(body) {
   const normalizedBody = normalizeText_(body)
 
+  if (normalizedBody.includes('お支払い日についてのご案内')) {
+    return {
+      skip: true,
+      reason: '三井住友カードの支払日案内メールは金額がないため、取引履歴から請求見込みを計算します',
+    }
+  }
+
   // パターン1: 新フォーマット
   const regex1 = /ご利用日時[:：]\s*([0-9]{4}\/[0-9]{1,2}\/[0-9]{1,2})[^\n]*\n([^\n]+?)\s+([\d,]+)\s*円/
   const match1 = normalizedBody.match(regex1)
@@ -469,13 +476,13 @@ function cleanMerchantName_(value) {
 function parseRakutenCard_(body) {
   const normalizedBody = normalizeText_(body)
 
-  const paymentAmountRegex = /(?:確定|お支払い金額)[\s\S]{0,80}?(\d{1,3}(?:,\d{3})*|\d+)\s*円/
-  const paymentDateRegex = /お支払い日\s*(\d{4})\/(\d{1,2})\/(\d{1,2})/
+  const paymentAmountRegex = /(?:合計お支払(?:い)?予定金額|お支払(?:い)?予定金額|お支払(?:い)?金額|確定)[\s\S]{0,120}?(\d{1,3}(?:,\d{3})*|\d+)\s*円/
+  const paymentDateRegex = /お支払(?:い)?日\s*(\d{4})\/(\d{1,2})\/(\d{1,2})/
   const cardRegex = /ご利用カード\s*([^\r\n]+)/
   const paymentAmountMatch = normalizedBody.match(paymentAmountRegex)
   const paymentDateMatch = normalizedBody.match(paymentDateRegex)
 
-  if (paymentAmountMatch && paymentDateMatch && normalizedBody.includes('お支払い金額')) {
+  if (paymentAmountMatch && paymentDateMatch && /お支払(?:い)?/.test(normalizedBody)) {
     const y = paymentDateMatch[1]
     const m = String(paymentDateMatch[2]).padStart(2, '0')
     const d = String(paymentDateMatch[3]).padStart(2, '0')

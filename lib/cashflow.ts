@@ -23,6 +23,12 @@ function normalizeName(value: string) {
   return value.toLowerCase().replace(/\s+/g, '').replace(/[（）()]/g, '')
 }
 
+function cardMatchesTransaction(tx: Transaction, normalizedCardName: string) {
+  const paymentMethod = normalizeName(tx.payment_method ?? '')
+  const cardIssuer = normalizeName(tx.card_issuer ?? '')
+  return paymentMethod === normalizedCardName || cardIssuer === normalizedCardName
+}
+
 function numberOrDefault(value: unknown, fallback: number) {
   const parsed = Number(value)
   return Number.isFinite(parsed) ? parsed : fallback
@@ -95,7 +101,7 @@ export function buildGeneratedCreditPayments(
       // 1. Filter transactions matching the card
       const cardTx = transactions.filter(tx => {
         if (tx.kind === 'income') return false
-        return normalizeName(tx.payment_method) === normalizedCardName
+        return cardMatchesTransaction(tx, normalizedCardName)
       })
 
       // 2. Group transactions by their computed payment date
@@ -174,7 +180,7 @@ export function buildGeneratedCreditPayments(
         const amount = transactions
           .filter(tx => {
             if (tx.kind === 'income') return false
-            if (normalizeName(tx.payment_method) !== normalizedCardName) return false
+            if (!cardMatchesTransaction(tx, normalizedCardName)) return false
             const txDate = parseISO(tx.date)
             return isWithinBillingPeriod(txDate, periodStart, periodEnd)
           })
