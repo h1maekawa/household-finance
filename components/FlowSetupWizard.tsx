@@ -163,6 +163,13 @@ function LoginScreen({
         カード利用通知メールから支出を自動記録します。<br />
         ログインしないと家計簿データにはアクセスできません。
       </p>
+      <div className="mt-4 rounded-[12px] border border-[#F0B429]/30 bg-[#F0B429]/10 px-3.5 py-3 text-[11px] leading-6 text-[#6B5A1E]">
+        <p className="font-bold">スマホでログインできない場合</p>
+        <p className="mt-1">
+          Gmail・LINE・ChatGPTなどのアプリ内ブラウザではGoogleログインがブロックされることがあります。
+          URLをSafariまたはChromeで直接開いてからログインしてください。
+        </p>
+      </div>
     </div>
   )
 }

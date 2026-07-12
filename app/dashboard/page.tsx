@@ -8,6 +8,7 @@ import {
 } from 'recharts'
 import Link from 'next/link'
 import AlertBanner from '@/components/AlertBanner'
+import CreditCardMonthlyPrompt from '@/components/CreditCardMonthlyPrompt'
 import DebtBalanceOverview from '@/components/DebtBalanceOverview'
 import SignOutButton from '@/components/SignOutButton'
 import TransactionList from '@/components/TransactionList'
@@ -95,6 +96,7 @@ export default function DashboardPage() {
 
   return (
     <div className="max-w-xl mx-auto">
+      <CreditCardMonthlyPrompt />
       {/* Header */}
       <div className="bg-primary text-white px-4 pt-5 pb-4">
         <div className="mb-3 flex items-center justify-between">
