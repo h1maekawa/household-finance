@@ -1,7 +1,14 @@
 'use client'
 import {
-  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer, ReferenceLine,
+  Area,
+  CartesianGrid,
+  Line,
+  LineChart,
+  ReferenceLine,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
 } from 'recharts'
 import { DailyBalance } from '@/types/cashflow'
 import { format, parseISO } from 'date-fns'
@@ -23,24 +30,31 @@ export default function CashflowChart({ data }: Props) {
   }))
 
   return (
-    <ResponsiveContainer width="100%" height={220}>
-      <LineChart data={chartData} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
-        <CartesianGrid strokeDasharray="3 3" stroke="#E6EAEF" />
-        <XAxis dataKey="date" tick={{ fontSize: 10 }} interval={4} />
-        <YAxis tickFormatter={fmt} tick={{ fontSize: 10 }} width={40} />
+    <ResponsiveContainer width="100%" height={260}>
+      <LineChart data={chartData} margin={{ top: 12, right: 18, left: 2, bottom: 6 }}>
+        <CartesianGrid strokeDasharray="3 3" stroke="#D8DEE8" />
+        <XAxis dataKey="date" tick={{ fontSize: 11, fill: '#6B7280' }} interval={4} tickMargin={8} />
+        <YAxis tickFormatter={fmt} tick={{ fontSize: 11, fill: '#6B7280' }} width={44} />
         <Tooltip
           formatter={(value) => [`${Number(value).toLocaleString()}円`, '残高予測']}
           labelFormatter={label => `${label}`}
-          contentStyle={{ fontSize: 12, borderRadius: 8 }}
+          contentStyle={{ fontSize: 12, borderRadius: 12, borderColor: '#D8DEE8' }}
         />
         <ReferenceLine y={0} stroke="#E2544B" strokeDasharray="4 4" />
+        <Area
+          type="monotone"
+          dataKey="balance"
+          stroke="none"
+          fill="#1476B3"
+          fillOpacity={0.08}
+        />
         <Line
           type="monotone"
           dataKey="balance"
           stroke="#1476B3"
-          strokeWidth={2}
+          strokeWidth={3}
           dot={false}
-          activeDot={{ r: 4 }}
+          activeDot={{ r: 5, strokeWidth: 2 }}
         />
       </LineChart>
     </ResponsiveContainer>

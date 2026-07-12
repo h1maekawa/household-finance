@@ -4,15 +4,13 @@ import useSWR from 'swr'
 import { format, addMonths, startOfMonth } from 'date-fns'
 import { ja } from 'date-fns/locale'
 import {
-  Area, AreaChart, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis,
+  Bar, BarChart, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from 'recharts'
 import Link from 'next/link'
 import AlertBanner from '@/components/AlertBanner'
-import DebtsSummaryCard from '@/components/DebtsSummaryCard'
-import PaymentMethodSummaryCard from '@/components/PaymentMethodSummaryCard'
+import DebtBalanceOverview from '@/components/DebtBalanceOverview'
 import SignOutButton from '@/components/SignOutButton'
 import TransactionList from '@/components/TransactionList'
-import { ScheduledPayment } from '@/types/cashflow'
 import { TransactionsResponse } from '@/types/transaction'
 import { CATEGORIES, INCOME_CATEGORIES } from '@/types/transaction'
 
@@ -55,7 +53,6 @@ export default function DashboardPage() {
   )
   const { data: investments } = useSWR('/api/investments', fetcher)
   const { data: cashflow } = useSWR('/api/cashflow', fetcher)
-  const { data: scheduledPayments } = useSWR<ScheduledPayment[]>('/api/scheduled-payments', fetcher)
 
   const transactions = data?.transactions ?? []
   const summary      = data?.summary ?? { total: 0, expense_total: 0, income_total: 0, by_category: {} }
@@ -173,22 +170,18 @@ export default function DashboardPage() {
           </div>
           <div className="mt-4 h-[190px]">
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={assetChartData}>
+              <BarChart data={assetChartData}>
                 <XAxis dataKey="label" tick={{ fontSize: 10 }} />
                 <YAxis tick={{ fontSize: 10 }} width={42} tickFormatter={v => Number(v) >= 10000 ? `${Math.round(Number(v) / 10000)}万` : String(v)} />
                 <Tooltip formatter={(value, name) => [`${Number(value).toLocaleString()}円`, name === 'cash' ? '現金預金' : name === 'investment' ? '投資評価額' : '総資産']} />
-                <Area type="monotone" dataKey="cash" stackId="1" stroke="#1476B3" fill="#1476B3" fillOpacity={0.28} />
-                <Area type="monotone" dataKey="investment" stackId="1" stroke="#1FAE8C" fill="#1FAE8C" fillOpacity={0.28} />
-                <Area type="monotone" dataKey="total" stroke="#E2544B" fill="transparent" strokeWidth={2} />
-              </AreaChart>
+                <Bar dataKey="cash" stackId="asset" fill="#1476B3" radius={[0, 0, 4, 4]} />
+                <Bar dataKey="investment" stackId="asset" fill="#1FAE8C" radius={[4, 4, 0, 0]} />
+              </BarChart>
             </ResponsiveContainer>
           </div>
         </div>
 
-        {/* 貸し借り・未納(一番最初に表示) */}
-        <DebtsSummaryCard />
-
-        <PaymentMethodSummaryCard transactions={transactions} scheduledPayments={scheduledPayments ?? []} />
+        <DebtBalanceOverview />
 
         {reviewCount > 0 && (
           <Link href="/transactions" className="card border border-warning/30 p-4 block active:opacity-80">
@@ -218,29 +211,6 @@ export default function DashboardPage() {
             <span className="text-primary text-sm font-bold shrink-0">開く →</span>
           </div>
         </Link>
-
-        {/* Investment Assets */}
-        {investments?.summary && (
-          <Link href="/investments" className="card p-4 block active:opacity-80">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <p className="text-xs text-muted mb-1">資産合計</p>
-                <p className="text-2xl font-bold">
-                  {investments.summary.investmentValue.toLocaleString()}
-                  <span className="text-sm font-normal text-muted ml-1">円</span>
-                </p>
-                <p className="text-xs text-muted mt-1">保有銘柄の時価総額(自動更新)</p>
-              </div>
-              <div className="text-right shrink-0">
-                <p className={`text-sm font-bold ${investments.summary.dayPnl >= 0 ? 'text-success' : 'text-danger'}`}>
-                  {investments.summary.dayPnl >= 0 ? '+' : ''}
-                  {investments.summary.dayPnl.toLocaleString()}円
-                </p>
-                <p className="text-xs text-muted mt-1">本日の投資損益</p>
-              </div>
-            </div>
-          </Link>
-        )}
 
         {/* Category Chart */}
         {chartData.length > 0 && (
@@ -354,7 +324,7 @@ export default function DashboardPage() {
         <div>
           <div className="flex items-center justify-between mb-2">
             <h2 className="font-bold text-base">直近の取引</h2>
-            <Link href="/transactions" className="text-sm text-primary">収支で見る →</Link>
+            <Link href="/transactions" className="text-sm text-primary">詳細 →</Link>
           </div>
 
           {!data ? (

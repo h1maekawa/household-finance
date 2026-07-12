@@ -21,9 +21,11 @@ import {
   YAxis,
 } from 'recharts'
 import { TransactionsResponse, CATEGORIES, INCOME_CATEGORIES } from '@/types/transaction'
+import { ScheduledPayment } from '@/types/cashflow'
 import TransactionList from '@/components/TransactionList'
 import TransactionForm from '@/components/TransactionForm'
 import ChatInput from '@/components/ChatInput'
+import PaymentMethodSummaryCard from '@/components/PaymentMethodSummaryCard'
 
 const fetcher = (url: string) => fetch(url).then(r => r.json())
 
@@ -32,10 +34,10 @@ type ChartMode = 'monthly' | 'category'
 type InputMode = 'form' | 'chat'
 
 const PERIODS: { key: PeriodKey; label: string }[] = [
+  { key: 'year', label: '過去1年' },
+  { key: 'threeMonths', label: '過去3ヶ月' },
   { key: 'thisMonth', label: '今月' },
   { key: 'lastMonth', label: '先月' },
-  { key: 'threeMonths', label: '過去3ヶ月' },
-  { key: 'year', label: '過去1年' },
 ]
 
 const CATEGORY_COLORS = [
@@ -92,6 +94,7 @@ export default function TransactionsPage() {
     `/api/transactions?start=${start}&end=${end}`,
     fetcher
   )
+  const { data: scheduledPayments } = useSWR<ScheduledPayment[]>('/api/scheduled-payments', fetcher)
 
   const allTransactions = useMemo(() => data?.transactions ?? [], [data?.transactions])
   const issuerOptions = useMemo(() => {
@@ -108,15 +111,15 @@ export default function TransactionsPage() {
   const incomeTotal = transactions.filter(t => t.kind === 'income').reduce((sum, t) => sum + t.amount, 0)
 
   const monthlyData = useMemo(() => {
-    const map = new Map<string, { month: string; income: number; expense: number }>()
+    const map = new Map<string, { label: string; income: number; expense: number }>()
     for (const tx of allTransactions) {
       const key = monthKey(tx.date)
-      const entry = map.get(key) ?? { month: key, income: 0, expense: 0 }
+      const entry = map.get(key) ?? { label: key, income: 0, expense: 0 }
       if (tx.kind === 'income') entry.income += tx.amount
       else entry.expense += tx.amount
       map.set(key, entry)
     }
-    return Array.from(map.values()).sort((a, b) => a.month.localeCompare(b.month))
+    return Array.from(map.values()).sort((a, b) => a.label.localeCompare(b.label))
   }, [allTransactions])
 
   const categoryData = useMemo(() => {
@@ -132,6 +135,18 @@ export default function TransactionsPage() {
         amount,
         color: CATEGORY_COLORS[index % CATEGORY_COLORS.length],
       }))
+  }, [allTransactions])
+
+  const dailyData = useMemo(() => {
+    const map = new Map<string, { label: string; income: number; expense: number }>()
+    for (const tx of allTransactions) {
+      const key = tx.date.slice(5).replace('-', '/')
+      const entry = map.get(key) ?? { label: key, income: 0, expense: 0 }
+      if (tx.kind === 'income') entry.income += tx.amount
+      else entry.expense += tx.amount
+      map.set(key, entry)
+    }
+    return Array.from(map.values())
   }, [allTransactions])
 
   return (
@@ -200,8 +215,8 @@ export default function TransactionsPage() {
               <div className="skeleton h-full w-full rounded-xl" />
             ) : chartMode === 'monthly' ? (
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={monthlyData}>
-                  <XAxis dataKey="month" tick={{ fontSize: 10 }} />
+                <BarChart data={period === 'thisMonth' ? dailyData : monthlyData}>
+                  <XAxis dataKey="label" tick={{ fontSize: 10 }} interval={period === 'thisMonth' ? 3 : 0} />
                   <YAxis tick={{ fontSize: 10 }} width={42} tickFormatter={v => Number(v) >= 10000 ? `${Math.round(Number(v) / 10000)}万` : String(v)} />
                   <Tooltip formatter={(value, name) => [`${Number(value).toLocaleString()}円`, name === 'income' ? '収入' : '支出']} />
                   <Bar dataKey="income" fill="#1FAE8C" radius={[4, 4, 0, 0]} />
@@ -235,6 +250,8 @@ export default function TransactionsPage() {
             )}
           </div>
         </section>
+
+        <PaymentMethodSummaryCard transactions={allTransactions} scheduledPayments={scheduledPayments ?? []} />
 
         <div className="flex gap-2 overflow-x-auto">
           <FilterChip label="すべて" active={activeCategory === null} onClick={() => setActiveCategory(null)} />

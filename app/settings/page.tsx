@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { useToast } from '@/components/Toast'
 import { CATEGORIES } from '@/types/transaction'
 import GmailImportStatusCard from '@/components/GmailImportStatusCard'
+import { ScheduledPayment } from '@/types/cashflow'
 
 type SettingsResponse = {
   profile: {
@@ -58,6 +59,8 @@ const CARD_PLANS = [
   { value: 'smbc_26th', label: '三井住友 26日プラン' },
 ]
 
+const BANK_ACCOUNTS = ['楽天銀行', '三井住友銀行', '住信SBIネット銀行']
+
 export default function SettingsPage() {
   const { showToast } = useToast()
   const [activeTab, setActiveTab] = useState<SettingTab>('integrations')
@@ -81,6 +84,7 @@ export default function SettingsPage() {
   const [billingActive, setBillingActive] = useState(false)
   const [billingRequired, setBillingRequired] = useState(false)
   const [newGasSecret, setNewGasSecret] = useState('')
+  const [scheduledPayments, setScheduledPayments] = useState<ScheduledPayment[]>([])
 
   useEffect(() => {
     let mounted = true
@@ -118,6 +122,13 @@ export default function SettingsPage() {
       .then(res => res.json())
       .then((data: CategoryRule[]) => {
         if (mounted) setCategoryRules(Array.isArray(data) ? data : [])
+      })
+      .catch(() => undefined)
+
+    fetch('/api/scheduled-payments')
+      .then(res => res.json())
+      .then((data: ScheduledPayment[]) => {
+        if (mounted) setScheduledPayments(Array.isArray(data) ? data : [])
       })
       .catch(() => undefined)
 
@@ -269,6 +280,26 @@ export default function SettingsPage() {
     }
   }
 
+  async function refreshScheduledPayments() {
+    const res = await fetch('/api/scheduled-payments')
+    const data = await res.json()
+    if (res.ok) setScheduledPayments(Array.isArray(data) ? data : [])
+  }
+
+  async function handlePaymentBankChange(payment: ScheduledPayment, bankAccount: string) {
+    const res = await fetch(`/api/scheduled-payments/${payment.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ bank_account: bankAccount || null }),
+    })
+    if (res.ok) {
+      await refreshScheduledPayments()
+      showToast('引き落とし口座を保存しました', 'success')
+    } else {
+      showToast('引き落とし口座を保存できませんでした', 'error')
+    }
+  }
+
   return (
     <div className="mx-auto max-w-xl px-4 py-8 lg:max-w-3xl lg:px-0">
       <div className="mb-5">
@@ -292,6 +323,7 @@ export default function SettingsPage() {
       </div>
 
       {activeTab === 'assets' && (
+      <div className="flex flex-col gap-4">
       <section className="card p-4">
         <h2 className="text-base font-bold">家計の初期値</h2>
         <p className="mt-1 text-xs leading-relaxed text-muted">
@@ -328,6 +360,45 @@ export default function SettingsPage() {
           {saving ? '保存中...' : '保存する'}
         </button>
       </section>
+      <section className="card p-4">
+        <h2 className="text-base font-bold">固定費の引き落とし管理</h2>
+        <p className="mt-1 text-xs leading-relaxed text-muted">
+          固定費ごとに引き落とし日と利用口座を確認・設定できます。
+        </p>
+        <div className="mt-4 overflow-hidden rounded-2xl border border-border">
+          {scheduledPayments.length === 0 ? (
+            <div className="px-4 py-5 text-center text-sm text-muted">固定費の登録はまだありません</div>
+          ) : (
+            scheduledPayments.map((payment, index) => (
+              <div
+                key={payment.id}
+                className={`grid gap-3 px-4 py-3 ${index < scheduledPayments.length - 1 ? 'border-b border-border' : ''}`}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-bold">{payment.name}</p>
+                    <p className="mt-0.5 text-xs text-muted">
+                      {payment.scheduled_date ?? `毎月${payment.due_day}日`} / {payment.amount.toLocaleString()}円
+                    </p>
+                  </div>
+                  <span className="shrink-0 rounded-full bg-surface px-2.5 py-1 text-[11px] text-muted">{payment.category}</span>
+                </div>
+                <select
+                  value={payment.bank_account ?? ''}
+                  onChange={event => handlePaymentBankChange(payment, event.target.value)}
+                  className="w-full rounded-xl border border-border bg-surface px-3.5 py-2.5 text-sm focus:border-primary focus:bg-card focus:outline-none"
+                >
+                  <option value="">口座未設定</option>
+                  {BANK_ACCOUNTS.map(account => (
+                    <option key={account} value={account}>{account}</option>
+                  ))}
+                </select>
+              </div>
+            ))
+          )}
+        </div>
+      </section>
+      </div>
       )}
 
       {activeTab === 'cards' && (
