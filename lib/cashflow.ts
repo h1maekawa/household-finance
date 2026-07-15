@@ -26,7 +26,12 @@ function normalizeName(value: string) {
 function cardMatchesTransaction(tx: Transaction, normalizedCardName: string) {
   const paymentMethod = normalizeName(tx.payment_method ?? '')
   const cardIssuer = normalizeName(tx.card_issuer ?? '')
-  return paymentMethod === normalizedCardName || cardIssuer === normalizedCardName
+  return (
+    paymentMethod === normalizedCardName ||
+    cardIssuer === normalizedCardName ||
+    (cardIssuer.length > 0 && normalizedCardName.includes(cardIssuer)) ||
+    (cardIssuer.length > 0 && cardIssuer.includes(normalizedCardName))
+  )
 }
 
 function numberOrDefault(value: unknown, fallback: number) {

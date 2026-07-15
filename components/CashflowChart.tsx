@@ -36,7 +36,7 @@ export default function CashflowChart({ data }: Props) {
         <XAxis dataKey="date" tick={{ fontSize: 11, fill: '#6B7280' }} interval={4} tickMargin={8} />
         <YAxis tickFormatter={fmt} tick={{ fontSize: 11, fill: '#6B7280' }} width={44} />
         <Tooltip
-          formatter={(value) => [`${Number(value).toLocaleString()}円`, '残高予測']}
+          formatter={(value) => [`${Number(value).toLocaleString()}円`, '預貯金予測']}
           labelFormatter={label => `${label}`}
           contentStyle={{ fontSize: 12, borderRadius: 12, borderColor: '#D8DEE8' }}
         />

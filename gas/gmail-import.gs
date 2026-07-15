@@ -559,14 +559,14 @@ function parseRakutenCard_(body) {
       date: match1[1].replace(/\//g, '-'),
       amount: parseInt(match1[3].replace(/,/g, ''), 10),
       merchant: match1[2].trim(),
-      paymentMethod: 'クレジットカード',
+      paymentMethod: '楽天カード',
     }
   }
 
-  // パターン2: 旧フォーマット
-  const dateRegex = /利用日.*?([0-9]{4}\/[0-9]{1,2}\/[0-9]{1,2})/
-  const amountRegex = /利用金額.*?([\d,]+)\s*円/
-  const merchantRegex = /利用先.*?([^\r\n]+)/
+  // パターン2: 旧フォーマットや改行の多いフォーマット
+  const dateRegex = /(?:ご利用日|利用日|利用日時|ご利用日時)[\s\S]{0,80}?([0-9]{4}[\/年.-][0-9]{1,2}[\/月.-][0-9]{1,2})/
+  const amountRegex = /(?:ご利用金額|利用金額|ご利用額|利用額|金額)[\s\S]{0,80}?(\d{1,3}(?:,\d{3})*|\d+)\s*円/
+  const merchantRegex = /(?:ご利用先|利用先|ご利用店名|利用店名|加盟店名|ショップ名)[\s:：]*([^\r\n]+)/
 
   const dMatch = normalizedBody.match(dateRegex)
   const aMatch = normalizedBody.match(amountRegex)
@@ -574,10 +574,10 @@ function parseRakutenCard_(body) {
 
   if (dMatch && aMatch) {
     return {
-      date: dMatch[1].replace(/\//g, '-'),
+      date: normalizeDate_(dMatch[1]),
       amount: parseInt(aMatch[1].replace(/,/g, ''), 10),
       merchant: mMatch ? mMatch[1].trim() : '楽天カード利用',
-      paymentMethod: 'クレジットカード',
+      paymentMethod: '楽天カード',
     }
   }
   return null

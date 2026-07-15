@@ -27,8 +27,21 @@ export default function CashflowPage() {
   const creditCards = data?.creditCards ?? []
   const profile = data?.profile
 
+  const currentCash = Number(current?.balance ?? 0)
   const minBalance = projected.length > 0 ? Math.min(...projected.map(d => d.balance)) : 0
   const negDays    = projected.filter(d => d.isNegative).length
+  const totalOutflow = projected.reduce((sum, day) => {
+    return sum + day.payments
+      .filter(payment => payment.type !== 'income')
+      .reduce((daySum, payment) => daySum + payment.amount, 0)
+  }, 0)
+  const totalIncome = projected.reduce((sum, day) => {
+    return sum + day.payments
+      .filter(payment => payment.type === 'income')
+      .reduce((daySum, payment) => daySum + payment.amount, 0)
+  }, 0)
+  const additionalCashNeeded = Math.max(0, -minBalance)
+  const usableCashAfterProjection = projected.length > 0 ? projected[projected.length - 1].balance : currentCash
   const confirmedCardBills = payments.filter(payment =>
     payment.source === 'gmail_bank' && Boolean(payment.scheduled_date) && isImportedCardBill(payment.name, payment.memo)
   )
@@ -62,11 +75,14 @@ export default function CashflowPage() {
     <div className="max-w-xl mx-auto">
       {/* Header */}
       <div className="bg-primary text-white px-4 pt-10 pb-6">
-        <h1 className="text-xl font-bold mb-4">キャッシュフロー予測</h1>
+        <h1 className="text-xl font-bold mb-1">預貯金キャッシュフロー</h1>
+        <p className="mb-4 text-xs leading-relaxed text-white/70">
+          投資資産は含めず、支払いに使える預貯金だけで不足しないかを確認します。
+        </p>
 
         {/* Balance */}
         <div className="bg-white/10 rounded-2xl p-4">
-          <p className="text-white/70 text-xs mb-1">現在の口座残高</p>
+          <p className="text-white/70 text-xs mb-1">現在の預貯金</p>
           {editingBalance ? (
             <div className="flex gap-2">
               <input
@@ -103,11 +119,50 @@ export default function CashflowPage() {
       </div>
 
       <div className="flex flex-col gap-4 px-4 pt-4">
+        {data && (
+          <div className="card p-4">
+            <div className="mb-3">
+              <h2 className="text-base font-bold">必要な預貯金</h2>
+              <p className="mt-1 text-xs leading-relaxed text-muted">
+                今後{projected.length}日間の支払い予定を、預貯金だけで払えるかを見ます。
+              </p>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className={`rounded-xl p-3 ${additionalCashNeeded > 0 ? 'bg-danger/10' : 'bg-success/10'}`}>
+                <p className="text-[11px] text-muted">追加で必要な預貯金</p>
+                <p className={`mt-1 text-lg font-bold ${additionalCashNeeded > 0 ? 'text-danger' : 'text-success'}`}>
+                  {additionalCashNeeded.toLocaleString()}円
+                </p>
+                <p className="mt-0.5 text-[11px] text-muted">
+                  {additionalCashNeeded > 0 ? 'この金額を補えば不足を回避' : '現時点では不足見込みなし'}
+                </p>
+              </div>
+              <div className="rounded-xl bg-surface p-3">
+                <p className="text-[11px] text-muted">予測後の預貯金</p>
+                <p className={`mt-1 text-lg font-bold ${usableCashAfterProjection < 0 ? 'text-danger' : 'text-foreground'}`}>
+                  {usableCashAfterProjection.toLocaleString()}円
+                </p>
+                <p className="mt-0.5 text-[11px] text-muted">投資評価額は含みません</p>
+              </div>
+              <div className="rounded-xl bg-surface p-3">
+                <p className="text-[11px] text-muted">期間内の支払い予定</p>
+                <p className="mt-1 text-sm font-bold text-danger">-{totalOutflow.toLocaleString()}円</p>
+                <p className="mt-0.5 text-[11px] text-muted">カード・固定費・手動予定</p>
+              </div>
+              <div className="rounded-xl bg-surface p-3">
+                <p className="text-[11px] text-muted">期間内の入金予定</p>
+                <p className="mt-1 text-sm font-bold text-success">+{totalIncome.toLocaleString()}円</p>
+                <p className="mt-0.5 text-[11px] text-muted">給与などの固定収入</p>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Alerts */}
         {negDays > 0 && (
           <div className="flex items-start gap-3 px-4 py-3 rounded-xl bg-danger/10 text-danger border border-danger/20 text-sm font-medium">
             <span className="text-base mt-0.5">⚠</span>
-            <p>今後30日間で残高がマイナスになる日が <strong>{negDays}日</strong> あります（最小: {minBalance.toLocaleString()}円）</p>
+            <p>今後{projected.length}日間で預貯金がマイナスになる日が <strong>{negDays}日</strong> あります（最小: {minBalance.toLocaleString()}円）</p>
           </div>
         )}
 
@@ -119,7 +174,8 @@ export default function CashflowPage() {
           </div>
         ) : projected.length > 0 ? (
           <div className="card p-4">
-            <h2 className="font-bold text-base mb-3">{projected.length}日間の残高推移</h2>
+            <h2 className="font-bold text-base mb-1">{projected.length}日間の預貯金推移</h2>
+            <p className="mb-3 text-xs text-muted">支払い予定を反映した、口座残高ベースの予測です。</p>
             <CashflowChart data={projected} />
           </div>
         ) : null}

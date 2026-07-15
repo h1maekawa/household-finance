@@ -281,7 +281,21 @@ export async function POST(request: NextRequest) {
     // external_id の重複(23505: unique_violation)は「既に取り込み済み」として
     // エラーではなく成功扱いで返す。GAS側はこれを見てラベルを付ければよい。
     if (error.code === '23505') {
-      return Response.json({ duplicate: true }, { status: 200 })
+      const patch: Record<string, unknown> = { updated_at: new Date().toISOString() }
+      if (fields.card_issuer) patch.card_issuer = fields.card_issuer
+      if (['楽天カード', '三井住友カード'].includes(fields.payment_method)) {
+        patch.payment_method = fields.payment_method
+      }
+
+      if (externalId && Object.keys(patch).length > 1) {
+        await supabaseAdmin
+          .from('transactions')
+          .update(patch)
+          .eq('user_id', targetUserId)
+          .eq('external_id', externalId)
+      }
+
+      return Response.json({ duplicate: true, repaired: Object.keys(patch).length > 1 }, { status: 200 })
     }
     return Response.json({ error: error.message }, { status: 500 })
   }
