@@ -2,9 +2,16 @@ import { NextRequest } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
 import { getAuthenticatedUser, unauthorized } from '@/lib/auth'
 import { requireActiveEntitlement } from '@/lib/entitlements'
+import { pickAllowed } from '@/lib/patch'
 import { StockHoldingInput } from '@/types/stock'
 
 type Context = { params: Promise<{ id: string }> }
+
+const PATCHABLE_FIELDS = [
+  'ticker', 'name', 'market', 'shares', 'average_cost',
+  'broker_current_value', 'broker_gain_loss', 'broker_gain_loss_rate',
+  'broker_current_price', 'broker_price_currency', 'broker_fx_rate', 'broker_snapshot_at',
+] as const satisfies readonly (keyof StockHoldingInput)[]
 
 export async function PATCH(request: NextRequest, { params }: Context) {
   const user = await getAuthenticatedUser(request)
@@ -13,10 +20,11 @@ export async function PATCH(request: NextRequest, { params }: Context) {
 
   const { id } = await params
   const body: Partial<StockHoldingInput> = await request.json()
+  const patch = pickAllowed<StockHoldingInput, keyof StockHoldingInput>(body, PATCHABLE_FIELDS)
 
   const { data, error } = await supabaseAdmin
     .from('stock_holdings')
-    .update({ ...body, updated_at: new Date().toISOString() })
+    .update({ ...patch, updated_at: new Date().toISOString() })
     .eq('id', id)
     .eq('user_id', user.id)
     .select()

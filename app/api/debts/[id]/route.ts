@@ -2,9 +2,14 @@
 import { NextRequest } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
 import { getAuthenticatedUser, unauthorized } from '@/lib/auth'
+import { pickAllowed } from '@/lib/patch'
 import { DebtInput } from '@/types/debt'
 
 type Context = { params: Promise<{ id: string }> }
+
+const PATCHABLE_FIELDS = [
+  'direction', 'counterparty', 'amount', 'date', 'due_date', 'memo', 'is_settled',
+] as const satisfies readonly (keyof DebtInput)[]
 
 export async function PATCH(request: NextRequest, { params }: Context) {
   const user = await getAuthenticatedUser(request)
@@ -12,10 +17,11 @@ export async function PATCH(request: NextRequest, { params }: Context) {
 
   const { id } = await params
   const body: Partial<DebtInput> = await request.json()
+  const patch = pickAllowed<DebtInput, keyof DebtInput>(body, PATCHABLE_FIELDS)
 
   const { data, error } = await supabaseAdmin
     .from('debts')
-    .update({ ...body, updated_at: new Date().toISOString() })
+    .update({ ...patch, updated_at: new Date().toISOString() })
     .eq('id', id)
     .eq('user_id', user.id)
     .select()

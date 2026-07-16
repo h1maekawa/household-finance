@@ -15,6 +15,7 @@
 // 必要な環境変数:
 //   GAS_IMPORT_SECRET  … GAS側と共有するランダムな秘密文字列
 //   GAS_IMPORT_USER_ID … 取り込んだ取引を紐づける Supabase の auth.users.id
+import { timingSafeEqual } from 'crypto'
 import { NextRequest } from 'next/server'
 import { getAuthenticatedUser, unauthorized } from '@/lib/auth'
 import { requireActiveEntitlement } from '@/lib/entitlements'
@@ -48,11 +49,17 @@ async function resolveImportUserId(request: NextRequest): Promise<string | null>
     return data.user_id
   }
 
-  if (process.env.GAS_IMPORT_SECRET && process.env.GAS_IMPORT_USER_ID && provided === process.env.GAS_IMPORT_SECRET) {
+  if (process.env.GAS_IMPORT_SECRET && process.env.GAS_IMPORT_USER_ID && secretsMatch(provided, process.env.GAS_IMPORT_SECRET)) {
     return process.env.GAS_IMPORT_USER_ID
   }
 
   return null
+}
+
+function secretsMatch(a: string, b: string): boolean {
+  const bufA = Buffer.from(a)
+  const bufB = Buffer.from(b)
+  return bufA.length === bufB.length && timingSafeEqual(bufA, bufB)
 }
 
 function normalizeCategory(category: string | undefined, kind: Kind): string {
