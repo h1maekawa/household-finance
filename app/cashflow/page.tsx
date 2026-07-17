@@ -1,6 +1,7 @@
 'use client'
 import { useState } from 'react'
 import useSWR from 'swr'
+import { isLastDayOfMonth, parseISO } from 'date-fns'
 import { CashflowResponse } from '@/types/cashflow'
 import CashflowChart from '@/components/CashflowChart'
 import ScheduledPaymentList from '@/components/ScheduledPaymentList'
@@ -22,6 +23,7 @@ export default function CashflowPage() {
 
   const current = data?.currentBalance
   const projected = data?.projectedDays ?? []
+  const monthEndProjected = projected.filter(day => isLastDayOfMonth(parseISO(day.date)))
   const payments  = data?.scheduledPayments ?? []
   const generatedPayments = data?.generatedPayments ?? []
   const creditCards = data?.creditCards ?? []
@@ -172,11 +174,11 @@ export default function CashflowPage() {
             <div className="skeleton h-5 w-32 rounded mb-3" />
             <div className="skeleton h-48 w-full rounded-xl" />
           </div>
-        ) : projected.length > 0 ? (
+        ) : monthEndProjected.length > 0 ? (
           <div className="card p-4">
-            <h2 className="font-bold text-base mb-1">{projected.length}日間の預貯金推移</h2>
-            <p className="mb-3 text-xs text-muted">支払い予定を反映した、口座残高ベースの予測です。</p>
-            <CashflowChart data={projected} />
+            <h2 className="font-bold text-base mb-1">月末時点の預貯金推移</h2>
+            <p className="mb-3 text-xs text-muted">今後{projected.length}日間の支払い予定を反映した、月末時点の口座残高予測です。</p>
+            <CashflowChart data={monthEndProjected} />
           </div>
         ) : null}
 

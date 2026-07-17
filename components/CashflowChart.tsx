@@ -33,7 +33,7 @@ export default function CashflowChart({ data }: Props) {
     <ResponsiveContainer width="100%" height={260}>
       <LineChart data={chartData} margin={{ top: 12, right: 18, left: 2, bottom: 6 }}>
         <CartesianGrid strokeDasharray="3 3" stroke="#D8DEE8" />
-        <XAxis dataKey="date" tick={{ fontSize: 11, fill: '#6B7280' }} interval={4} tickMargin={8} />
+        <XAxis dataKey="date" tick={{ fontSize: 11, fill: '#6B7280' }} interval={0} tickMargin={8} />
         <YAxis tickFormatter={fmt} tick={{ fontSize: 11, fill: '#6B7280' }} width={44} />
         <Tooltip
           formatter={(value) => [`${Number(value).toLocaleString()}円`, '預貯金予測']}
