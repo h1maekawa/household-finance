@@ -1,9 +1,9 @@
 'use client'
 import { useState } from 'react'
 import useSWR from 'swr'
-import { isLastDayOfMonth, parseISO } from 'date-fns'
+import { addMonths, endOfMonth, format, isWithinInterval, parseISO, startOfMonth } from 'date-fns'
+import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { CashflowResponse } from '@/types/cashflow'
-import CashflowChart from '@/components/CashflowChart'
 import ScheduledPaymentList from '@/components/ScheduledPaymentList'
 import { useToast } from '@/components/Toast'
 
@@ -14,42 +14,80 @@ function isImportedCardBill(name: string, memo?: string) {
   return text.includes('カード') || text.includes('card')
 }
 
+function formatAxis(value: number) {
+  if (Math.abs(value) >= 10000) return `${Math.round(value / 10000)}万`
+  return value.toLocaleString()
+}
+
 export default function CashflowPage() {
   const { showToast } = useToast()
   const { data, mutate } = useSWR<CashflowResponse>('/api/cashflow', fetcher)
+  const { data: investments } = useSWR('/api/investments', fetcher)
   const [editingBalance, setEditingBalance] = useState(false)
   const [newBalance, setNewBalance] = useState('')
   const [saving, setSaving] = useState(false)
 
   const current = data?.currentBalance
   const projected = data?.projectedDays ?? []
-  const monthEndProjected = projected.filter(day => isLastDayOfMonth(parseISO(day.date)))
   const payments  = data?.scheduledPayments ?? []
   const generatedPayments = data?.generatedPayments ?? []
   const creditCards = data?.creditCards ?? []
   const profile = data?.profile
 
+  const targetMonthStart = startOfMonth(addMonths(new Date(), 1))
+  const targetNextMonthStart = startOfMonth(addMonths(targetMonthStart, 1))
+  const targetRangeEnd = endOfMonth(targetNextMonthStart)
+  const focusedProjected = projected.filter(day => {
+    const date = parseISO(day.date)
+    return isWithinInterval(date, { start: targetMonthStart, end: targetRangeEnd })
+  })
+  const investmentValue = Number(investments?.summary?.investmentValue ?? 0)
   const currentCash = Number(current?.balance ?? 0)
-  const minBalance = projected.length > 0 ? Math.min(...projected.map(d => d.balance)) : 0
-  const negDays    = projected.filter(d => d.isNegative).length
-  const totalOutflow = projected.reduce((sum, day) => {
+  const minBalance = focusedProjected.length > 0 ? Math.min(...focusedProjected.map(d => d.balance)) : 0
+  const negDays    = focusedProjected.filter(d => d.isNegative).length
+  const totalOutflow = focusedProjected.reduce((sum, day) => {
     return sum + day.payments
       .filter(payment => payment.type !== 'income')
       .reduce((daySum, payment) => daySum + payment.amount, 0)
   }, 0)
-  const totalIncome = projected.reduce((sum, day) => {
+  const totalIncome = focusedProjected.reduce((sum, day) => {
     return sum + day.payments
       .filter(payment => payment.type === 'income')
       .reduce((daySum, payment) => daySum + payment.amount, 0)
   }, 0)
   const additionalCashNeeded = Math.max(0, -minBalance)
-  const usableCashAfterProjection = projected.length > 0 ? projected[projected.length - 1].balance : currentCash
+  const usableCashAfterProjection = focusedProjected.length > 0 ? focusedProjected[focusedProjected.length - 1].balance : currentCash
   const confirmedCardBills = payments.filter(payment =>
     payment.source === 'gmail_bank' && Boolean(payment.scheduled_date) && isImportedCardBill(payment.name, payment.memo)
   )
   const upcomingCardBills = [...confirmedCardBills, ...generatedPayments]
     .slice()
+    .filter(payment => {
+      if (!payment.scheduled_date) return false
+      const date = parseISO(payment.scheduled_date)
+      return isWithinInterval(date, { start: targetMonthStart, end: targetRangeEnd })
+    })
     .sort((a, b) => String(a.scheduled_date ?? '').localeCompare(String(b.scheduled_date ?? '')))
+  const monthlyChartData = [targetMonthStart, targetNextMonthStart].map(monthStart => {
+    const monthEnd = endOfMonth(monthStart)
+    const days = focusedProjected.filter(day => {
+      const date = parseISO(day.date)
+      return isWithinInterval(date, { start: monthStart, end: monthEnd })
+    })
+    const endingCash = days.length > 0 ? days[days.length - 1].balance : currentCash
+    const expense = days.reduce((sum, day) => {
+      return sum + day.payments
+        .filter(payment => payment.type !== 'income')
+        .reduce((daySum, payment) => daySum + payment.amount, 0)
+    }, 0)
+
+    return {
+      month: format(monthStart, 'M月'),
+      totalAssets: Math.max(Math.round(endingCash + investmentValue), 0),
+      cash: Math.max(Math.round(endingCash), 0),
+      expense,
+    }
+  })
 
   async function handleBalanceSave() {
     const amount = parseInt(newBalance)
@@ -126,7 +164,7 @@ export default function CashflowPage() {
             <div className="mb-3">
               <h2 className="text-base font-bold">必要な預貯金</h2>
               <p className="mt-1 text-xs leading-relaxed text-muted">
-                今後{projected.length}日間の支払い予定を、預貯金だけで払えるかを見ます。
+                {format(targetMonthStart, 'M月')}と{format(targetNextMonthStart, 'M月')}の支払い予定を、預貯金だけで払えるかを見ます。
               </p>
             </div>
             <div className="grid grid-cols-2 gap-3">
@@ -164,7 +202,7 @@ export default function CashflowPage() {
         {negDays > 0 && (
           <div className="flex items-start gap-3 px-4 py-3 rounded-xl bg-danger/10 text-danger border border-danger/20 text-sm font-medium">
             <span className="text-base mt-0.5">⚠</span>
-            <p>今後{projected.length}日間で預貯金がマイナスになる日が <strong>{negDays}日</strong> あります（最小: {minBalance.toLocaleString()}円）</p>
+            <p>{format(targetMonthStart, 'M月')}〜{format(targetNextMonthStart, 'M月')}で預貯金がマイナスになる日が <strong>{negDays}日</strong> あります（最小: {minBalance.toLocaleString()}円）</p>
           </div>
         )}
 
@@ -174,11 +212,43 @@ export default function CashflowPage() {
             <div className="skeleton h-5 w-32 rounded mb-3" />
             <div className="skeleton h-48 w-full rounded-xl" />
           </div>
-        ) : monthEndProjected.length > 0 ? (
+        ) : monthlyChartData.length > 0 ? (
           <div className="card p-4">
-            <h2 className="font-bold text-base mb-1">月末時点の預貯金推移</h2>
-            <p className="mb-3 text-xs text-muted">今後{projected.length}日間の支払い予定を反映した、月末時点の口座残高予測です。</p>
-            <CashflowChart data={monthEndProjected} />
+            <h2 className="font-bold text-base mb-1">
+              {format(targetMonthStart, 'M月')}・{format(targetNextMonthStart, 'M月')}の月別見通し
+            </h2>
+            <p className="mb-3 text-xs leading-relaxed text-muted">
+              各月末時点の総資産・現預貯金と、その月に支払う予定額を並べています。
+            </p>
+            <div className="h-[280px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={monthlyChartData} margin={{ top: 12, right: 12, left: 0, bottom: 8 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#D8DEE8" />
+                  <XAxis dataKey="month" tick={{ fontSize: 12, fill: '#6B7280' }} tickMargin={8} />
+                  <YAxis tickFormatter={value => formatAxis(Number(value))} tick={{ fontSize: 11, fill: '#6B7280' }} width={46} />
+                  <Tooltip
+                    formatter={(value, name) => {
+                      const labels: Record<string, string> = {
+                        totalAssets: '総資産',
+                        cash: '現預貯金',
+                        expense: '支出',
+                      }
+                      return [`${Number(value).toLocaleString()}円`, labels[String(name)] ?? String(name)]
+                    }}
+                    contentStyle={{ fontSize: 12, borderRadius: 12, borderColor: '#D8DEE8' }}
+                  />
+                  <Legend formatter={value => ({ totalAssets: '総資産', cash: '現預貯金', expense: '支出' }[String(value)] ?? String(value))} />
+                  <Bar dataKey="totalAssets" fill="#1476B3" radius={[5, 5, 0, 0]} />
+                  <Bar dataKey="cash" fill="#1FAE8C" radius={[5, 5, 0, 0]} />
+                  <Bar dataKey="expense" fill="#E2544B" radius={[5, 5, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+            <div className="mt-3 grid grid-cols-3 gap-2">
+              <LegendTile label="総資産" color="#1476B3" />
+              <LegendTile label="現預貯金" color="#1FAE8C" />
+              <LegendTile label="支出" color="#E2544B" />
+            </div>
           </div>
         ) : null}
 
@@ -248,11 +318,11 @@ export default function CashflowPage() {
         )}
 
         {/* Timeline */}
-        {projected.some(d => d.payments.length > 0) && (
+        {focusedProjected.some(d => d.payments.length > 0) && (
           <div className="card p-4">
             <h2 className="font-bold text-base mb-3">入出金スケジュール</h2>
             <div className="flex flex-col gap-2 max-h-64 overflow-y-auto">
-              {projected
+              {focusedProjected
                 .filter(d => d.payments.length > 0)
                 .map(d => (
                   <div key={d.date}
@@ -288,6 +358,15 @@ export default function CashflowPage() {
           <ScheduledPaymentList payments={payments} onMutate={() => mutate()} />
         )}
       </div>
+    </div>
+  )
+}
+
+function LegendTile({ label, color }: { label: string; color: string }) {
+  return (
+    <div className="flex items-center justify-center gap-1.5 rounded-lg bg-surface px-2 py-2">
+      <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: color }} />
+      <span className="text-[11px] font-bold text-muted">{label}</span>
     </div>
   )
 }
