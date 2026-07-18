@@ -22,6 +22,7 @@ import { requireActiveEntitlement } from '@/lib/entitlements'
 import { hashImportSecret } from '@/lib/import-secrets'
 import { isSupabaseConfigured, supabaseAdmin } from '@/lib/supabase'
 import { parseChatInput } from '@/lib/gemini'
+import { getMergedCategories } from '@/lib/categories'
 import { decideCategory, MerchantRule } from '@/lib/category-rules'
 import { CATEGORIES, INCOME_CATEGORIES, Kind } from '@/types/transaction'
 
@@ -62,9 +63,16 @@ function secretsMatch(a: string, b: string): boolean {
   return bufA.length === bufB.length && timingSafeEqual(bufA, bufB)
 }
 
-function normalizeCategory(category: string | undefined, kind: Kind): string {
+function normalizeCategory(
+  category: string | undefined,
+  kind: Kind,
+  extraNames: { expense: string[]; income: string[] } = { expense: [], income: [] }
+): string {
   const list = kind === 'income' ? INCOME_CATEGORIES : CATEGORIES
-  const names = list.map(c => c.name) as string[]
+  const names = [
+    ...(list.map(c => c.name) as string[]),
+    ...(kind === 'income' ? extraNames.income : extraNames.expense),
+  ]
   if (category && names.includes(category)) return category
   return kind === 'income' ? 'その他収入' : 'その他'
 }
@@ -158,6 +166,12 @@ export async function POST(request: NextRequest) {
 
   const externalId: string | undefined = body.external_id
   const merchantRules = await getMerchantRules(targetUserId)
+  // カスタムカテゴリ(チャットボット追加分)も取り込み時の有効カテゴリとして扱う
+  const mergedCategories = await getMergedCategories(targetUserId)
+  const customNames = {
+    expense: mergedCategories.expense.map(c => c.name),
+    income: mergedCategories.income.map(c => c.name),
+  }
 
   if (body.import_target === 'scheduled_payment') {
     if (!body.date || !body.amount) {
@@ -172,7 +186,7 @@ export async function POST(request: NextRequest) {
     const fields: ScheduledImportFields = {
       date: body.date,
       amount: Number(body.amount),
-      category: normalizeCategory(categoryDecision.category, 'expense'),
+      category: normalizeCategory(categoryDecision.category, 'expense', customNames),
       name: String(body.name || body.merchant || '口座引落予定'),
       memo: body.memo ?? '',
     }
@@ -224,7 +238,7 @@ export async function POST(request: NextRequest) {
     fields = {
       date: body.date,
       amount: Number(body.amount),
-      category: normalizeCategory(categoryDecision.category, kind),
+      category: normalizeCategory(categoryDecision.category, kind, customNames),
       kind,
       payment_method: body.payment_method || (kind === 'income' ? '口座振込' : '現金'),
       memo: body.memo ?? '',
@@ -238,7 +252,7 @@ export async function POST(request: NextRequest) {
     const trimmedText = body.text.slice(0, 4000)
 
     try {
-      const parsed = await parseChatInput(trimmedText)
+      const parsed = await parseChatInput(trimmedText, { expense: mergedCategories.expense, income: mergedCategories.income })
 
       // confidenceが低い(金額やカテゴリが不明瞭)ものは自動登録せずスキップする。
       // 誤った金額が家計簿に紛れ込むより、取りこぼす方が安全という判断。
@@ -256,7 +270,7 @@ export async function POST(request: NextRequest) {
       fields = {
         date: parsed.date,
         amount: parsed.amount,
-        category: normalizeCategory(categoryDecision.category, kind),
+        category: normalizeCategory(categoryDecision.category, kind, customNames),
         kind,
         payment_method: parsed.payment_method,
         memo: parsed.memo,

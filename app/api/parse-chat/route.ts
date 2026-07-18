@@ -1,6 +1,7 @@
 // app/api/parse-chat/route.ts
 import { NextRequest } from 'next/server'
-import { parseChatInput } from '@/lib/gemini'
+import { parseAssistantInput } from '@/lib/gemini'
+import { getMergedCategories } from '@/lib/categories'
 import { getAuthenticatedUser, unauthorized } from '@/lib/auth'
 
 export async function POST(request: NextRequest) {
@@ -14,8 +15,14 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const parsed = await parseChatInput(text)
-    return Response.json({ parsed, confidence: parsed.confidence })
+    const merged = await getMergedCategories(user.id)
+    const result = await parseAssistantInput(text, { expense: merged.expense, income: merged.income })
+
+    if (result.type === 'add_category') {
+      return Response.json({ type: 'add_category', category: result.category })
+    }
+    // 後方互換: 従来のレスポンス形 (parsed / confidence) を維持しつつ type を付与
+    return Response.json({ type: 'transaction', parsed: result.parsed, confidence: result.parsed.confidence })
   } catch (err) {
     const message = err instanceof Error ? err.message : '解析に失敗しました'
     return Response.json({ error: message }, { status: 500 })

@@ -1,8 +1,11 @@
 'use client'
 import { useState } from 'react'
+import useSWR from 'swr'
 import { format } from 'date-fns'
-import { CATEGORIES, INCOME_CATEGORIES, PAYMENT_METHODS, TransactionInput } from '@/types/transaction'
+import { CATEGORIES, INCOME_CATEGORIES, PAYMENT_METHODS, TransactionInput, Category } from '@/types/transaction'
 import { useToast } from '@/components/Toast'
+
+const fetcher = (url: string) => fetch(url).then(r => r.json())
 
 interface Props {
   onSuccess?: () => void
@@ -22,8 +25,11 @@ export default function TransactionForm({ onSuccess }: Props) {
   const { showToast } = useToast()
   const [form, setForm] = useState<TransactionInput>(empty())
   const [loading, setLoading] = useState(false)
+  const { data: categories } = useSWR<{ expense: Category[]; income: Category[] }>('/api/categories', fetcher)
   const isIncome = form.kind === 'income'
-  const categoryOptions = isIncome ? INCOME_CATEGORIES : CATEGORIES
+  const categoryOptions: readonly Category[] = isIncome
+    ? (categories?.income ?? INCOME_CATEGORIES)
+    : (categories?.expense ?? CATEGORIES)
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()

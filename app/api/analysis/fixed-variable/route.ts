@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
 import { getAuthenticatedUser, unauthorized } from '@/lib/auth'
-import { FIXED_CATEGORIES } from '@/types/transaction'
+import { getMergedCategories } from '@/lib/categories'
 
 export async function GET(request: NextRequest) {
   const user = await getAuthenticatedUser(request)
@@ -54,7 +54,9 @@ export async function GET(request: NextRequest) {
 
   if (curRes.error) return Response.json({ error: curRes.error.message }, { status: 500 })
 
-  const fixedSet = new Set<string>(FIXED_CATEGORIES as unknown as string[])
+  // 既定の固定費カテゴリ + カスタムカテゴリで固定費指定されたもの
+  const merged = await getMergedCategories(user.id)
+  const fixedSet = new Set<string>(merged.fixedNames)
 
   function split(rows: { category: string; amount: number }[]) {
     let fixed = 0; let variable = 0
