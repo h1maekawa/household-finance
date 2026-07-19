@@ -1,7 +1,7 @@
 'use client'
 import { useEffect, useState } from 'react'
 import { ScheduledPayment, ScheduledPaymentInput } from '@/types/cashflow'
-import { CATEGORIES } from '@/types/transaction'
+import { useCategories } from '@/lib/useCategories'
 import { useToast } from '@/components/Toast'
 
 interface Props {
@@ -123,6 +123,7 @@ function PaymentModal({
   onClose: () => void
   onSave: (body: ScheduledPaymentInput) => void
 }) {
+  const { expense } = useCategories()
   const [form, setForm] = useState<ScheduledPaymentInput>(
     initial
       ? { name: initial.name, amount: initial.amount, due_day: initial.due_day, category: initial.category, type: initial.type === 'credit' ? 'credit' : 'fixed', is_active: initial.is_active, memo: initial.memo }
@@ -200,7 +201,7 @@ function PaymentModal({
               <label className="text-xs text-muted mb-1 block">カテゴリ</label>
               <select value={form.category} onChange={e => setForm(f => ({ ...f, category: e.target.value }))}
                 className="w-full rounded-xl border border-border px-3 py-3 text-sm bg-surface focus:border-primary focus:bg-card focus:outline-none">
-                {CATEGORIES.map(c => <option key={c.name} value={c.name}>{c.icon} {c.name}</option>)}
+                {expense.map(c => <option key={c.name} value={c.name}>{c.icon} {c.name}</option>)}
               </select>
             </div>
             <div>

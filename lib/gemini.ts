@@ -59,6 +59,8 @@ const ASSISTANT_PROMPT = `あなたは家計簿アプリの操作アシスタン
 1. "transaction" — 支出や収入の記録（例：「コーヒー 500円 現金」「給料 30万円入った」）
 2. "add_category" — カテゴリ（項目）の追加指示
    （例：「支出の項目にサブスクを追加して」「カテゴリに『ペット』を作って」「収入カテゴリに副業を追加」）
+3. "remove_category" — カテゴリ（項目）の削除指示
+   （例：「カテゴリ『テスト』を削除して」「支出の項目からペットを消して」）
 
 ## intent: "transaction" の場合の出力スキーマ
 
@@ -92,6 +94,14 @@ const ASSISTANT_PROMPT = `あなたは家計簿アプリの操作アシスタン
 - kind はユーザーが収入の項目と明言しない限り "expense"
 - is_fixed は家賃・サブスク・保険のような毎月定額の固定費なら true、それ以外は false
 - icon はカテゴリ内容に最も合う絵文字を1つ選ぶ（例：ペット→🐕 サブスク→🔁 美容→💇）
+
+## intent: "remove_category" の場合の出力スキーマ
+
+{
+  "intent": "remove_category",
+  "name": "カテゴリ名（引用符は除く）",
+  "kind": "expense" | "income"
+}
 
 必ずJSON形式のみで返答してください。余分なテキストやコードブロックは不要です。
 
@@ -154,9 +164,15 @@ export interface ParsedCategoryAdd {
   is_fixed: boolean
 }
 
+export interface ParsedCategoryRemove {
+  name: string
+  kind: Kind
+}
+
 export type AssistantParseResult =
   | { type: 'transaction'; parsed: ParsedTransaction }
   | { type: 'add_category'; category: ParsedCategoryAdd }
+  | { type: 'remove_category'; category: ParsedCategoryRemove }
 
 /**
  * チャットボット用の解析。取引の記録に加えて
@@ -164,6 +180,15 @@ export type AssistantParseResult =
  */
 export async function parseAssistantInput(text: string, lists: CategoryLists = DEFAULT_LISTS): Promise<AssistantParseResult> {
   const raw = await generateJson(buildPrompt(ASSISTANT_PROMPT, text, lists))
+
+  if (raw.intent === 'remove_category') {
+    const name = String(raw.name ?? '').replace(/[「」『』"']/g, '').trim()
+    if (!name) throw new Error('削除するカテゴリ名を読み取れませんでした')
+    return {
+      type: 'remove_category',
+      category: { name, kind: raw.kind === 'income' ? 'income' : 'expense' },
+    }
+  }
 
   if (raw.intent === 'add_category') {
     const name = String(raw.name ?? '').replace(/[「」『』"']/g, '').trim()

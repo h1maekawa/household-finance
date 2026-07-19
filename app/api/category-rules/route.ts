@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server'
 import { getAuthenticatedUser, unauthorized } from '@/lib/auth'
 import { supabaseAdmin } from '@/lib/supabase'
-import { CATEGORIES } from '@/types/transaction'
+import { getMergedCategories } from '@/lib/categories'
 
 type RuleBody = {
   merchant_pattern?: string
@@ -9,8 +9,9 @@ type RuleBody = {
   payment_method?: string | null
 }
 
-function isValidCategory(category: string) {
-  return (CATEGORIES.map(c => c.name) as string[]).includes(category)
+async function isValidCategory(userId: string, category: string) {
+  const merged = await getMergedCategories(userId)
+  return [...merged.expense, ...merged.income].some(c => c.name === category)
 }
 
 export async function GET(request: NextRequest) {
@@ -38,7 +39,7 @@ export async function POST(request: NextRequest) {
   const merchantPattern = String(body.merchant_pattern ?? '').trim()
   const category = String(body.category ?? '').trim()
 
-  if (!merchantPattern || !isValidCategory(category)) {
+  if (!merchantPattern || !(await isValidCategory(user.id, category))) {
     return Response.json({ error: '分類したい文字とカテゴリを選んでください' }, { status: 400 })
   }
 

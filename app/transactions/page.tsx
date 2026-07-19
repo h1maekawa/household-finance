@@ -20,7 +20,8 @@ import {
   XAxis,
   YAxis,
 } from 'recharts'
-import { TransactionsResponse, CATEGORIES, INCOME_CATEGORIES } from '@/types/transaction'
+import { TransactionsResponse } from '@/types/transaction'
+import { useCategories } from '@/lib/useCategories'
 import { ScheduledPayment } from '@/types/cashflow'
 import TransactionList from '@/components/TransactionList'
 import TransactionForm from '@/components/TransactionForm'
@@ -79,6 +80,7 @@ function monthKey(date: string) {
 }
 
 export default function TransactionsPage() {
+  const { expense: expenseCategories, income: incomeCategories, iconOf } = useCategories()
   const [period, setPeriod] = useState<PeriodKey>('thisMonth')
   const [chartMode, setChartMode] = useState<ChartMode>('monthly')
   const [activeCategory, setActiveCategory] = useState<string | null>(null)
@@ -135,7 +137,7 @@ export default function TransactionsPage() {
         category,
         amount,
         percentage: categoryTotal > 0 ? Math.round((amount / categoryTotal) * 100) : 0,
-        icon: CATEGORIES.find(c => c.name === category)?.icon ?? '📦',
+        icon: iconOf(category),
         color: CATEGORY_COLORS[index % CATEGORY_COLORS.length],
       }))
   }, [allTransactions, categoryTotal])
@@ -295,7 +297,7 @@ export default function TransactionsPage() {
 
         <div className="flex gap-2 overflow-x-auto">
           <FilterChip label="すべて" active={activeCategory === null} onClick={() => setActiveCategory(null)} />
-          {[...CATEGORIES, ...INCOME_CATEGORIES].map(c => (
+          {[...expenseCategories, ...incomeCategories].map(c => (
             <FilterChip
               key={c.name}
               label={`${c.icon} ${c.name}`}

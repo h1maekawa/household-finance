@@ -13,15 +13,7 @@ import DebtBalanceOverview from '@/components/DebtBalanceOverview'
 import SignOutButton from '@/components/SignOutButton'
 import TransactionList from '@/components/TransactionList'
 import { TransactionsResponse } from '@/types/transaction'
-import { CATEGORIES, INCOME_CATEGORIES } from '@/types/transaction'
-
-function categoryIcon(category: string) {
-  return (
-    CATEGORIES.find(c => c.name === category)?.icon ??
-    INCOME_CATEGORIES.find(c => c.name === category)?.icon ??
-    '📦'
-  )
-}
+import { useCategories } from '@/lib/useCategories'
 
 const fetcher = (url: string) => fetch(url).then(r => r.json())
 
@@ -53,6 +45,7 @@ type AssetHistoryResponse = {
 }
 
 export default function DashboardPage() {
+  const { expense: expenseCategories, iconOf } = useCategories()
   const [month, setMonth] = useState(startOfMonth(new Date()))
   const [activeTab, setActiveTab] = useState<'overview' | 'history'>('overview')
   const [activeCategory, setActiveCategory] = useState<string | null>(null)
@@ -86,7 +79,7 @@ export default function DashboardPage() {
       category,
       amount,
       percentage: categoryTotal > 0 ? Math.round((amount / categoryTotal) * 100) : 0,
-      icon: CATEGORIES.find(c => c.name === category)?.icon ?? '📦',
+      icon: iconOf(category),
       color: CATEGORY_COLORS[index % CATEGORY_COLORS.length],
     }))
   const topCategory = chartData[0]
@@ -349,7 +342,7 @@ export default function DashboardPage() {
           ) : (
             <div className="card overflow-hidden">
               {recentFive.map((tx, i) => {
-                const icon = categoryIcon(tx.category)
+                const icon = iconOf(tx.category)
                 const isIncome = tx.kind === 'income'
                 return (
                   <div key={tx.id}
@@ -393,7 +386,7 @@ export default function DashboardPage() {
                 active={activeCategory === null}
                 onClick={() => setActiveCategory(null)}
               />
-              {CATEGORIES.map(c => (
+              {expenseCategories.map(c => (
                 <HistoryFilterChip
                   key={c.name}
                   label={`${c.icon} ${c.name}`}

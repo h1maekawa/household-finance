@@ -1,7 +1,7 @@
 'use client'
 import { useState } from 'react'
-import useSWR from 'swr'
-import { ParsedTransaction, CATEGORIES, INCOME_CATEGORIES, PAYMENT_METHODS, TransactionInput, Category, Kind } from '@/types/transaction'
+import { ParsedTransaction, PAYMENT_METHODS, TransactionInput, Category, Kind } from '@/types/transaction'
+import { useCategories } from '@/lib/useCategories'
 import { useToast } from '@/components/Toast'
 
 interface Props {
@@ -15,19 +15,13 @@ interface PendingCategoryAdd {
   is_fixed: boolean
 }
 
-interface CategoriesResponse {
-  expense: Category[]
-  income: Category[]
-}
-
-const fetcher = (url: string) => fetch(url).then(r => r.json())
-
 export default function ChatInput({ onSuccess }: Props) {
   const { showToast } = useToast()
-  const { data: categories, mutate: mutateCategories } = useSWR<CategoriesResponse>('/api/categories', fetcher)
+  const { expense, income, mutate: mutateCategories } = useCategories()
   const [text, setText] = useState('')
   const [parsed, setParsed] = useState<ParsedTransaction | null>(null)
   const [pendingCategory, setPendingCategory] = useState<PendingCategoryAdd | null>(null)
+  const [pendingRemoval, setPendingRemoval] = useState<{ name: string; kind: Kind } | null>(null)
   const [parsing, setParsing] = useState(false)
   const [saving, setSaving] = useState(false)
 
@@ -44,10 +38,18 @@ export default function ChatInput({ onSuccess }: Props) {
       if (!res.ok) throw new Error(data.error)
       if (data.type === 'add_category') {
         setParsed(null)
+        setPendingRemoval(null)
         setPendingCategory(data.category)
         return
       }
+      if (data.type === 'remove_category') {
+        setParsed(null)
+        setPendingCategory(null)
+        setPendingRemoval(data.category)
+        return
+      }
       setPendingCategory(null)
+      setPendingRemoval(null)
       setParsed(data.parsed)
       if (data.parsed.confidence === 'low') {
         showToast('確認が必要な項目があります', 'warning')
@@ -111,15 +113,32 @@ export default function ChatInput({ onSuccess }: Props) {
     }
   }
 
+  async function handleRemoveCategory() {
+    if (!pendingRemoval) return
+    setSaving(true)
+    try {
+      const params = new URLSearchParams({ name: pendingRemoval.name, kind: pendingRemoval.kind })
+      const res = await fetch(`/api/categories?${params}`, { method: 'DELETE' })
+      if (!res.ok) throw new Error((await res.json()).error)
+      showToast(`カテゴリ「${pendingRemoval.name}」を削除しました`, 'success')
+      setText('')
+      setPendingRemoval(null)
+      mutateCategories()
+      onSuccess?.()
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : '削除に失敗しました', 'error')
+    } finally {
+      setSaving(false)
+    }
+  }
+
   function handleEdit(field: keyof ParsedTransaction, value: string | number) {
     if (!parsed) return
     setParsed({ ...parsed, [field]: value })
   }
 
   const isIncome = parsed?.kind === 'income'
-  const categoryOptions: readonly Category[] = isIncome
-    ? (categories?.income ?? INCOME_CATEGORIES)
-    : (categories?.expense ?? CATEGORIES)
+  const categoryOptions: readonly Category[] = isIncome ? income : expense
   const catIcon = categoryOptions.find(c => c.name === parsed?.category)?.icon ?? '📦'
 
   return (
@@ -131,7 +150,7 @@ export default function ChatInput({ onSuccess }: Props) {
         </label>
         <textarea
           value={text}
-          onChange={e => { setText(e.target.value); setParsed(null); setPendingCategory(null) }}
+          onChange={e => { setText(e.target.value); setParsed(null); setPendingCategory(null); setPendingRemoval(null) }}
           placeholder={'例：\n・カフェ 500円 現金\n・電車代 230円 Suica\n・支出の項目に「サブスク」を追加して'}
           rows={4}
           className="w-full rounded-xl border border-border px-4 py-3 text-base bg-card focus:outline-none focus:ring-2 focus:ring-primary resize-none"
@@ -145,6 +164,39 @@ export default function ChatInput({ onSuccess }: Props) {
       >
         {parsing ? '解析中...' : '✨ AIで解析'}
       </button>
+
+      {/* Category removal proposal */}
+      {pendingRemoval && (
+        <div className="card p-4 flex flex-col gap-3">
+          <div className="flex items-center gap-2">
+            <span className="text-2xl">🗑️</span>
+            <h3 className="font-bold text-lg">カテゴリを削除しますか？</h3>
+          </div>
+          <div className="rounded-xl bg-surface p-3 text-sm">
+            <p>
+              <span className="text-muted">項目名：</span>
+              <span className="font-bold">{pendingRemoval.name}</span>
+              <span className="text-muted">（{pendingRemoval.kind === 'income' ? '収入' : '支出'}カテゴリ）</span>
+            </p>
+            <p className="text-muted text-xs mt-1">※チャットで追加したカテゴリのみ削除できます。登録済みの取引はそのまま残ります。</p>
+          </div>
+          <div className="flex gap-2">
+            <button
+              onClick={() => setPendingRemoval(null)}
+              className="flex-1 py-3 rounded-xl border border-border text-foreground font-medium transition-base active:bg-surface"
+            >
+              キャンセル
+            </button>
+            <button
+              onClick={handleRemoveCategory}
+              disabled={saving}
+              className="flex-1 py-3 rounded-xl bg-danger text-white font-bold transition-base active:opacity-80 disabled:opacity-50"
+            >
+              {saving ? '削除中...' : '🗑️ 削除する'}
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Category add proposal */}
       {pendingCategory && (

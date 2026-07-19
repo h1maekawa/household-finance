@@ -53,3 +53,36 @@ export async function POST(request: NextRequest) {
 
   return Response.json({ category: data }, { status: 201 })
 }
+
+export async function DELETE(request: NextRequest) {
+  const user = await getAuthenticatedUser(request)
+  if (!user) return unauthorized()
+
+  const { searchParams } = new URL(request.url)
+  const name = String(searchParams.get('name') ?? '').trim()
+  const kind = searchParams.get('kind') === 'income' ? 'income' : 'expense'
+
+  if (!name) {
+    return Response.json({ error: '削除するカテゴリ名を指定してください' }, { status: 400 })
+  }
+
+  const { data, error } = await supabaseAdmin
+    .from('custom_categories')
+    .delete()
+    .eq('user_id', user.id)
+    .eq('kind', kind)
+    .eq('name', name)
+    .select()
+
+  if (error) {
+    return Response.json({ error: error.message }, { status: 500 })
+  }
+  if (!data || data.length === 0) {
+    return Response.json(
+      { error: `「${name}」は削除できません（チャットで追加したカテゴリのみ削除できます）` },
+      { status: 404 }
+    )
+  }
+
+  return Response.json({ success: true })
+}

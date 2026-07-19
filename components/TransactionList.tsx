@@ -2,7 +2,8 @@
 import { useEffect, useState, useRef } from 'react'
 import { format, parseISO } from 'date-fns'
 import { ja } from 'date-fns/locale'
-import { Transaction, TransactionInput, CATEGORIES, INCOME_CATEGORIES, PAYMENT_METHODS } from '@/types/transaction'
+import { Transaction, TransactionInput, PAYMENT_METHODS, Category } from '@/types/transaction'
+import { useCategories } from '@/lib/useCategories'
 import { DebtDirection } from '@/types/debt'
 import { useToast } from '@/components/Toast'
 
@@ -24,14 +25,6 @@ const CATEGORY_TONE: Record<string, { bg: string; text: string }> = {
   'その他収入': { bg: 'bg-[#E3F5F0]', text: 'text-[#1FAE8C]' },
 }
 const DEFAULT_TONE = { bg: 'bg-[#F0F3F7]', text: 'text-[#8891A0]' }
-
-function categoryIcon(category: string): string {
-  return (
-    CATEGORIES.find(c => c.name === category)?.icon ??
-    INCOME_CATEGORIES.find(c => c.name === category)?.icon ??
-    '📦'
-  )
-}
 
 function groupByDate(txs: Transaction[]): [string, Transaction[]][] {
   const map = new Map<string, Transaction[]>()
@@ -165,7 +158,8 @@ function SwipeableRow({
   const [isDragging, setIsDragging] = useState(false)
   const startX  = useRef(0)
 
-  const catIcon = categoryIcon(tx.category)
+  const { iconOf } = useCategories()
+  const catIcon = iconOf(tx.category)
   const tone = CATEGORY_TONE[tx.category] ?? DEFAULT_TONE
   const isIncome = tx.kind === 'income'
 
@@ -238,8 +232,9 @@ function EditModal({
   const [debtAmount, setDebtAmount] = useState(tx.amount)
   const [creatingDebt, setCreatingDebt] = useState(false)
 
+  const { expense, income } = useCategories()
   const isIncome = form.kind === 'income'
-  const categoryOptions = isIncome ? INCOME_CATEGORIES : CATEGORIES
+  const categoryOptions: readonly Category[] = isIncome ? income : expense
 
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {

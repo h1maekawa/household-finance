@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { useToast } from '@/components/Toast'
-import { CATEGORIES } from '@/types/transaction'
+import { useCategories } from '@/lib/useCategories'
 import GmailImportStatusCard from '@/components/GmailImportStatusCard'
 import { ScheduledPayment } from '@/types/cashflow'
 
@@ -62,6 +62,7 @@ const CARD_PLANS = [
 const BANK_ACCOUNTS = ['楽天銀行', '三井住友銀行', '住信SBIネット銀行']
 
 export default function SettingsPage() {
+  const { expense: expenseCategories } = useCategories()
   const { showToast } = useToast()
   const [activeTab, setActiveTab] = useState<SettingTab>('integrations')
   const [initialBalance, setInitialBalance] = useState('')
@@ -506,7 +507,7 @@ export default function SettingsPage() {
               onChange={e => setRuleCategory(e.target.value)}
               className="w-full rounded-xl border border-border bg-surface px-3.5 py-3 text-sm focus:border-primary focus:bg-card focus:outline-none"
             >
-              {CATEGORIES.map(category => (
+              {expenseCategories.map(category => (
                 <option key={category.name} value={category.name}>{category.icon} {category.name}</option>
               ))}
             </select>

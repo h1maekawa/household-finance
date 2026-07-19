@@ -18,8 +18,8 @@ export async function POST(request: NextRequest) {
     const merged = await getMergedCategories(user.id)
     const result = await parseAssistantInput(text, { expense: merged.expense, income: merged.income })
 
-    if (result.type === 'add_category') {
-      return Response.json({ type: 'add_category', category: result.category })
+    if (result.type === 'add_category' || result.type === 'remove_category') {
+      return Response.json({ type: result.type, category: result.category })
     }
     // 後方互換: 従来のレスポンス形 (parsed / confidence) を維持しつつ type を付与
     return Response.json({ type: 'transaction', parsed: result.parsed, confidence: result.parsed.confidence })
