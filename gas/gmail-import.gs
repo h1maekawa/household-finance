@@ -29,7 +29,7 @@ const MAX_ALL_IMPORT_MILLIS = 5 * 60 * 1000
 const MAX_BODY_LENGTH = 3000
 
 // =========================================================================
-// カテゴリ自動マッピング辞書
+// カテゴリ候補マッピング辞書（アプリでは未分類で登録し、候補としてのみ保持）
 // キーワードにマッチしたら { category, kind } を返す。
 // 「給与・賞与」系だけ収入(income)、それ以外は支出(expense)として扱う。
 // カテゴリ名はアプリ側の types/transaction.ts の CATEGORIES / INCOME_CATEGORIES
@@ -53,7 +53,7 @@ function normalizeText_(text) {
 }
 
 function getAutoCategory_(merchantName) {
-  if (!merchantName) return { category: 'その他', kind: 'expense' }
+  if (!merchantName) return { category: '未分類', kind: 'expense' }
   const norm = normalizeText_(merchantName).toLowerCase().replace(/[\s　]/g, '')
   for (const item of CATEGORY_MAP) {
     for (const kw of item.keywords) {
@@ -62,7 +62,7 @@ function getAutoCategory_(merchantName) {
       }
     }
   }
-  return { category: 'その他', kind: 'expense' }
+  return { category: '未分類', kind: 'expense' }
 }
 
 // =========================================================================

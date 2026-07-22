@@ -1,7 +1,7 @@
 'use client'
 import { useState } from 'react'
 import useSWR from 'swr'
-import { addMonths, endOfMonth, format, isWithinInterval, parseISO, startOfMonth } from 'date-fns'
+import { addMonths, endOfMonth, format, isAfter, isWithinInterval, parseISO, startOfDay, startOfMonth } from 'date-fns'
 import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { CashflowResponse } from '@/types/cashflow'
 import ScheduledPaymentList from '@/components/ScheduledPaymentList'
@@ -34,12 +34,35 @@ export default function CashflowPage() {
   const creditCards = data?.creditCards ?? []
   const profile = data?.profile
 
-  const targetMonthStart = startOfMonth(addMonths(new Date(), 1))
+  // 表示の起点となる月は「今月のカード引き落とし日を過ぎたか」で決める。
+  // - 今月の引き落とし日が未到来 → 今月を起点（例: 7/27前なら 7月・8月）
+  // - 今月の引き落としが全て完了 → 翌月を起点（例: 7/27後なら 8月・9月）
+  // ※ 以前は翌月始まり固定で今月分が表示されず、単純に今月始まりにすると
+  //   引き落とし日を過ぎても今月が残り続けていた。
+  const today = startOfDay(new Date())
+  const thisMonthStart = startOfMonth(today)
+  const thisMonthEnd = endOfMonth(thisMonthStart)
+  const confirmedCardBills = payments.filter(payment =>
+    payment.source === 'gmail_bank' && Boolean(payment.scheduled_date) && isImportedCardBill(payment.name, payment.memo)
+  )
+  // 今月内に予定されているカード引き落とし日のうち、最も遅い日を求める
+  const thisMonthCardDebits = [...confirmedCardBills, ...generatedPayments]
+    .map(payment => payment.scheduled_date)
+    .filter((date): date is string => Boolean(date))
+    .map(date => parseISO(date))
+    .filter(date => isWithinInterval(date, { start: thisMonthStart, end: thisMonthEnd }))
+  const lastThisMonthDebit = thisMonthCardDebits.length > 0
+    ? new Date(Math.max(...thisMonthCardDebits.map(date => date.getTime())))
+    : null
+  const targetMonthStart = lastThisMonthDebit && isAfter(today, lastThisMonthDebit)
+    ? startOfMonth(addMonths(thisMonthStart, 1))
+    : thisMonthStart
   const targetNextMonthStart = startOfMonth(addMonths(targetMonthStart, 1))
   const targetRangeEnd = endOfMonth(targetNextMonthStart)
+  const rangeStart = isAfter(targetMonthStart, today) ? targetMonthStart : today
   const focusedProjected = projected.filter(day => {
     const date = parseISO(day.date)
-    return isWithinInterval(date, { start: targetMonthStart, end: targetRangeEnd })
+    return isWithinInterval(date, { start: rangeStart, end: targetRangeEnd })
   })
   const investmentValue = Number(investments?.summary?.investmentValue ?? 0)
   const currentCash = Number(current?.balance ?? 0)
@@ -57,15 +80,12 @@ export default function CashflowPage() {
   }, 0)
   const additionalCashNeeded = Math.max(0, -minBalance)
   const usableCashAfterProjection = focusedProjected.length > 0 ? focusedProjected[focusedProjected.length - 1].balance : currentCash
-  const confirmedCardBills = payments.filter(payment =>
-    payment.source === 'gmail_bank' && Boolean(payment.scheduled_date) && isImportedCardBill(payment.name, payment.memo)
-  )
   const upcomingCardBills = [...confirmedCardBills, ...generatedPayments]
     .slice()
     .filter(payment => {
       if (!payment.scheduled_date) return false
       const date = parseISO(payment.scheduled_date)
-      return isWithinInterval(date, { start: targetMonthStart, end: targetRangeEnd })
+      return isWithinInterval(date, { start: rangeStart, end: targetRangeEnd })
     })
     .sort((a, b) => String(a.scheduled_date ?? '').localeCompare(String(b.scheduled_date ?? '')))
   const monthlyChartData = [targetMonthStart, targetNextMonthStart].map(monthStart => {
@@ -164,7 +184,7 @@ export default function CashflowPage() {
             <div className="mb-3">
               <h2 className="text-base font-bold">必要な預貯金</h2>
               <p className="mt-1 text-xs leading-relaxed text-muted">
-                {format(targetMonthStart, 'M月')}と{format(targetNextMonthStart, 'M月')}の支払い予定を、預貯金だけで払えるかを見ます。
+                {format(targetMonthStart, 'M月')}（本日以降）と{format(targetNextMonthStart, 'M月')}の支払い予定を、預貯金だけで払えるかを見ます。
               </p>
             </div>
             <div className="grid grid-cols-2 gap-3">

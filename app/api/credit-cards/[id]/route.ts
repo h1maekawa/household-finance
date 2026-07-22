@@ -17,6 +17,7 @@ type CreditCardBody = {
   payment_month_offset?: number
   card_type?: string
   card_plan?: string
+  bank_account?: string | null
 }
 
 function normalizeDay(value: unknown) {
@@ -55,6 +56,7 @@ function toPatch(body: CreditCardBody) {
     payment_month_offset: paymentMonthOffset,
     card_type: cardType,
     card_plan: cardPlan,
+    bank_account: String(body.bank_account ?? '').trim() || null,
     updated_at: new Date().toISOString(),
   }
 }

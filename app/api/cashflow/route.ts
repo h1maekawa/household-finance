@@ -14,11 +14,20 @@ function normalizeName(value: string) {
   return value.toLowerCase().replace(/\s+/g, '').replace(/[（）()]/g, '')
 }
 
-function isBankCardDebit(payment: ScheduledPayment) {
+function isConfirmedCardDebit(payment: ScheduledPayment) {
   const text = normalizeName(`${payment.name} ${payment.memo ?? ''}`)
   return payment.source === 'gmail_bank' &&
     Boolean(payment.scheduled_date) &&
-    (text.includes('カード') || text.includes('card'))
+    (text.includes('カード') || text.includes('card') || text.includes('三井住友') || text.includes('楽天'))
+}
+
+function confirmedPaymentMatchesGenerated(confirmed: ScheduledPayment, generated: ScheduledPayment) {
+  if (!isConfirmedCardDebit(confirmed) || confirmed.scheduled_date !== generated.scheduled_date) return false
+  const issuerKey = (value: string) => normalizeName(value).replace(/銀行|カード|引き落とし|引落|請求|見込み/g, '')
+  const confirmedName = issuerKey(`${confirmed.name} ${confirmed.memo ?? ''}`)
+  const generatedName = issuerKey(generated.name)
+  return Boolean(confirmedName && generatedName) &&
+    (confirmedName.includes(generatedName) || generatedName.includes(confirmedName))
 }
 
 export async function GET(request: NextRequest) {
@@ -76,14 +85,8 @@ export async function GET(request: NextRequest) {
   const scheduledPayments: ScheduledPayment[] = paymentsRes.data ?? []
   const creditCards: CreditCardSetting[] = cardsRes.data ?? []
   const transactions: Transaction[] = transactionsRes.data ?? []
-  const bankCardDebitDates = new Set(
-    scheduledPayments
-      .filter(isBankCardDebit)
-      .map(payment => payment.scheduled_date)
-      .filter(Boolean)
-  )
   const generatedPayments = buildGeneratedCreditPayments(transactions, creditCards, projectionDays)
-    .filter(payment => !bankCardDebitDates.has(payment.scheduled_date))
+    .filter(payment => !scheduledPayments.some(confirmed => confirmedPaymentMatchesGenerated(confirmed, payment)))
   const profile = profileRes.data ?? {
     initial_balance: balanceRes.data?.balance ?? 0,
     monthly_income: 0,

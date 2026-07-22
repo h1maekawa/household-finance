@@ -62,7 +62,7 @@ export async function POST(request: NextRequest) {
     const decision = decideTransactionCategory(tx, rules)
     const cardIssuer = inferCardIssuer(tx)
     const shouldUpdate =
-      tx.category !== decision.category ||
+      tx.auto_category !== decision.category ||
       (tx.card_issuer ?? null) !== cardIssuer ||
       Boolean(tx.needs_review) !== decision.needsReview ||
       (tx.review_reason ?? null) !== decision.reviewReason
@@ -72,7 +72,8 @@ export async function POST(request: NextRequest) {
     const { error } = await supabaseAdmin
       .from('transactions')
       .update({
-        category: decision.category,
+        // Suggestions never overwrite a user's category choice.
+        auto_category: decision.category,
         card_issuer: cardIssuer,
         needs_review: decision.needsReview,
         review_reason: decision.reviewReason,

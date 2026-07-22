@@ -5,6 +5,7 @@ import { useToast } from '@/components/Toast'
 import { useCategories } from '@/lib/useCategories'
 import GmailImportStatusCard from '@/components/GmailImportStatusCard'
 import { ScheduledPayment } from '@/types/cashflow'
+import { CARD_PAYMENT_RULES, CardPlan } from '@/lib/card-payment-rules'
 
 type SettingsResponse = {
   profile: {
@@ -22,12 +23,7 @@ type CreditCardSetting = {
   payment_month_offset?: number | null
   card_type?: string | null
   card_plan?: string | null
-}
-
-type CategoryRule = {
-  id: string
-  merchant_pattern: string
-  category: string
+  bank_account?: string | null
 }
 
 function toNumberInput(value: number | undefined) {
@@ -61,8 +57,22 @@ const CARD_PLANS = [
 
 const BANK_ACCOUNTS = ['楽天銀行', '三井住友銀行', '住信SBIネット銀行']
 
+/** 実際に請求計算へ適用される締め日・支払日を表示用に整形する */
+function describeCardRule(card: CreditCardSetting) {
+  const plan = (card.card_plan || 'generic') as CardPlan
+  const rule = CARD_PAYMENT_RULES[plan]
+  if (plan !== 'generic' && rule?.supported) {
+    const closing = rule.closingDay === 'end_of_month' ? '月末' : `${rule.closingDay}日`
+    const monthLabel = rule.paymentMonthOffset === 1 ? '翌月' : `${rule.paymentMonthOffset}ヶ月後`
+    return `${closing}締め / ${monthLabel}${rule.paymentDay}日引き落とし`
+  }
+  const offset = card.payment_month_offset ?? 1
+  const monthLabel = offset === 1 ? '翌月' : `${offset}ヶ月後`
+  return `${card.closing_day_int ?? 31}日締め / ${monthLabel}${card.payment_day_int ?? 27}日引き落とし`
+}
+
 export default function SettingsPage() {
-  const { expense: expenseCategories } = useCategories()
+  const { expense: expenseCategories, mutate: refreshCategories } = useCategories()
   const { showToast } = useToast()
   const [activeTab, setActiveTab] = useState<SettingTab>('integrations')
   const [initialBalance, setInitialBalance] = useState('')
@@ -74,11 +84,8 @@ export default function SettingsPage() {
   const [paymentDay, setPaymentDay] = useState('27')
   const [cardType, setCardType] = useState('generic')
   const [cardPlan, setCardPlan] = useState('generic')
+  const [cardBankAccount, setCardBankAccount] = useState('')
   const [savingCard, setSavingCard] = useState(false)
-  const [categoryRules, setCategoryRules] = useState<CategoryRule[]>([])
-  const [rulePattern, setRulePattern] = useState('')
-  const [ruleCategory, setRuleCategory] = useState('その他')
-  const [savingRule, setSavingRule] = useState(false)
   const [recategorizing, setRecategorizing] = useState(false)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -86,6 +93,9 @@ export default function SettingsPage() {
   const [billingRequired, setBillingRequired] = useState(false)
   const [newGasSecret, setNewGasSecret] = useState('')
   const [scheduledPayments, setScheduledPayments] = useState<ScheduledPayment[]>([])
+  const [newCategoryName, setNewCategoryName] = useState('')
+  const [newCategoryIcon, setNewCategoryIcon] = useState('📦')
+  const [savingCategory, setSavingCategory] = useState(false)
 
   useEffect(() => {
     let mounted = true
@@ -116,13 +126,6 @@ export default function SettingsPage() {
       .then(res => res.json())
       .then((data: CreditCardSetting[]) => {
         if (mounted) setCreditCards(Array.isArray(data) ? data : [])
-      })
-      .catch(() => undefined)
-
-    fetch('/api/category-rules')
-      .then(res => res.json())
-      .then((data: CategoryRule[]) => {
-        if (mounted) setCategoryRules(Array.isArray(data) ? data : [])
       })
       .catch(() => undefined)
 
@@ -177,6 +180,7 @@ export default function SettingsPage() {
           payment_month_offset: 1,
           card_type: cardType,
           card_plan: cardPlan,
+          bank_account: cardBankAccount || null,
         }),
       })
       const data = await res.json()
@@ -186,6 +190,7 @@ export default function SettingsPage() {
       setPaymentDay('27')
       setCardType('generic')
       setCardPlan('generic')
+      setCardBankAccount('')
       await refreshCreditCards()
       showToast('カード設定を追加しました', 'success')
     } catch (err) {
@@ -205,42 +210,35 @@ export default function SettingsPage() {
     }
   }
 
-  async function refreshCategoryRules() {
-    const res = await fetch('/api/category-rules')
-    const data = await res.json()
-    if (res.ok) setCategoryRules(Array.isArray(data) ? data : [])
-  }
-
-  async function handleAddRule() {
-    setSavingRule(true)
+  async function handleAddCategory() {
+    setSavingCategory(true)
     try {
-      const res = await fetch('/api/category-rules', {
+      const res = await fetch('/api/categories', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          merchant_pattern: rulePattern,
-          category: ruleCategory,
-        }),
+        body: JSON.stringify({ name: newCategoryName, icon: newCategoryIcon, kind: 'expense' }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error)
-      setRulePattern('')
-      await refreshCategoryRules()
-      showToast('分類ルールを追加しました', 'success')
+      setNewCategoryName('')
+      setNewCategoryIcon('📦')
+      await refreshCategories()
+      showToast('カテゴリを追加しました', 'success')
     } catch (err) {
-      showToast(err instanceof Error ? err.message : '分類ルールを保存できませんでした', 'error')
+      showToast(err instanceof Error ? err.message : 'カテゴリを追加できませんでした', 'error')
     } finally {
-      setSavingRule(false)
+      setSavingCategory(false)
     }
   }
 
-  async function handleDeleteRule(id: string) {
-    const res = await fetch(`/api/category-rules/${id}`, { method: 'DELETE' })
+  async function handleDeleteCategory(name: string) {
+    const res = await fetch(`/api/categories?name=${encodeURIComponent(name)}&kind=expense`, { method: 'DELETE' })
     if (res.ok) {
-      await refreshCategoryRules()
-      showToast('分類ルールを削除しました')
+      await refreshCategories()
+      showToast('カテゴリを削除しました')
     } else {
-      showToast('分類ルールを削除できませんでした', 'error')
+      const data = await res.json()
+      showToast(data.error ?? '既定カテゴリは削除できません', 'warning')
     }
   }
 
@@ -250,9 +248,9 @@ export default function SettingsPage() {
       const res = await fetch('/api/transactions/recategorize', { method: 'POST' })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error)
-      showToast(`${data.updated ?? 0}件を再分類しました`, 'success')
+      showToast(`${data.updated ?? 0}件の補助情報を更新しました`, 'success')
     } catch (err) {
-      showToast(err instanceof Error ? err.message : '再分類できませんでした', 'error')
+      showToast(err instanceof Error ? err.message : '補助情報を更新できませんでした', 'error')
     } finally {
       setRecategorizing(false)
     }
@@ -440,6 +438,13 @@ export default function SettingsPage() {
               disabled={savingCard}
             />
           </div>
+          <SelectInput
+            label="引き落とし口座"
+            value={cardBankAccount}
+            onChange={setCardBankAccount}
+            options={[{ value: '', label: '口座未設定' }, ...BANK_ACCOUNTS.map(account => ({ value: account, label: account }))]}
+            disabled={savingCard}
+          />
           <button
             type="button"
             onClick={handleAddCard}
@@ -462,11 +467,12 @@ export default function SettingsPage() {
                 <div>
                   <p className="text-sm font-bold">{card.name}</p>
                   <p className="mt-0.5 text-xs text-muted">
-                    {card.closing_day_int ?? 31}日締め / 翌月{card.payment_day_int ?? 27}日引き落とし
+                    {describeCardRule(card)}
                   </p>
                   <p className="mt-0.5 text-[11px] text-muted">
                     {CARD_TYPES.find(item => item.value === (card.card_type ?? 'generic'))?.label ?? '手動設定'} / {CARD_PLANS.find(item => item.value === (card.card_plan ?? 'generic'))?.label ?? '手動設定'}
                   </p>
+                  <p className="mt-0.5 text-[11px] text-muted">引き落とし口座: {card.bank_account || '未設定'}</p>
                 </div>
                 <button
                   type="button"
@@ -484,77 +490,56 @@ export default function SettingsPage() {
 
       {activeTab === 'categories' && (
       <section className="card p-4">
-        <h2 className="text-base font-bold">分類ルール</h2>
+        <h2 className="text-base font-bold">カテゴリ管理</h2>
         <p className="mt-1 text-xs leading-relaxed text-muted">
-          店名や明細に含まれる文字を登録すると、今後の自動取込と過去取引の再分類に使われます。
+          新しい支出は「未分類」で保存されます。取引一覧で分類すると、その選択が常に優先されます。
         </p>
 
         <div className="mt-4 grid gap-3">
-          <label className="block">
-            <span className="mb-1.5 block text-xs text-muted">含まれる文字</span>
+          <div className="grid grid-cols-[80px_1fr] gap-3">
             <input
               type="text"
-              value={rulePattern}
-              onChange={e => setRulePattern(e.target.value)}
-              placeholder="例：楽天モバイル、ジブラルタ、ドトール"
+              value={newCategoryIcon}
+              onChange={e => setNewCategoryIcon(e.target.value)}
+              aria-label="カテゴリのアイコン"
+              maxLength={4}
+              className="w-full rounded-xl border border-border bg-surface px-3.5 py-3 text-center text-sm focus:border-primary focus:bg-card focus:outline-none"
+            />
+            <input
+              type="text"
+              value={newCategoryName}
+              onChange={e => setNewCategoryName(e.target.value)}
+              placeholder="例：ペット、教育費"
+              maxLength={10}
               className="w-full rounded-xl border border-border bg-surface px-3.5 py-3 text-sm focus:border-primary focus:bg-card focus:outline-none"
             />
-          </label>
-          <label className="block">
-            <span className="mb-1.5 block text-xs text-muted">カテゴリ</span>
-            <select
-              value={ruleCategory}
-              onChange={e => setRuleCategory(e.target.value)}
-              className="w-full rounded-xl border border-border bg-surface px-3.5 py-3 text-sm focus:border-primary focus:bg-card focus:outline-none"
-            >
-              {expenseCategories.map(category => (
-                <option key={category.name} value={category.name}>{category.icon} {category.name}</option>
-              ))}
-            </select>
-          </label>
-          <div className="grid grid-cols-2 gap-3">
-            <button
-              type="button"
-              onClick={handleAddRule}
-              disabled={savingRule || !rulePattern.trim()}
-              className="rounded-2xl bg-primary py-3 font-bold text-white transition-base active:opacity-80 disabled:opacity-50"
-            >
-              {savingRule ? '保存中...' : 'ルール追加'}
-            </button>
-            <button
-              type="button"
-              onClick={handleRecategorize}
-              disabled={recategorizing}
-              className="rounded-2xl bg-surface py-3 font-bold text-foreground transition-base active:opacity-80 disabled:opacity-50"
-            >
-              {recategorizing ? '整理中...' : '過去分に反映'}
-            </button>
           </div>
+          <button
+            type="button"
+            onClick={handleAddCategory}
+            disabled={savingCategory || !newCategoryName.trim()}
+            className="rounded-2xl bg-primary py-3 font-bold text-white transition-base active:opacity-80 disabled:opacity-50"
+          >
+            {savingCategory ? '保存中...' : 'カテゴリを追加'}
+          </button>
         </div>
 
         <div className="mt-4 overflow-hidden rounded-2xl border border-border">
-          {categoryRules.length === 0 ? (
-            <div className="px-4 py-5 text-center text-sm text-muted">追加した分類ルールはまだありません</div>
-          ) : (
-            categoryRules.map((rule, index) => (
+          {expenseCategories.map((category, index) => (
               <div
-                key={rule.id}
-                className={`flex items-center justify-between gap-3 px-4 py-3 ${index < categoryRules.length - 1 ? 'border-b border-border' : ''}`}
+                key={category.name}
+                className={`flex items-center justify-between gap-3 px-4 py-3 ${index < expenseCategories.length - 1 ? 'border-b border-border' : ''}`}
               >
-                <div>
-                  <p className="text-sm font-bold">{rule.merchant_pattern}</p>
-                  <p className="mt-0.5 text-xs text-muted">{rule.category}</p>
-                </div>
+                <p className="text-sm font-bold">{category.icon} {category.name}</p>
                 <button
                   type="button"
-                  onClick={() => handleDeleteRule(rule.id)}
+                  onClick={() => handleDeleteCategory(category.name)}
                   className="shrink-0 text-xs font-bold text-danger"
                 >
                   削除
                 </button>
               </div>
-            ))
-          )}
+            ))}
         </div>
       </section>
       )}
@@ -564,9 +549,9 @@ export default function SettingsPage() {
       <GmailImportStatusCard />
 
       <section className="card p-4">
-        <h2 className="text-base font-bold">過去履歴の再分類</h2>
+        <h2 className="text-base font-bold">過去履歴の補助情報を更新</h2>
         <p className="mt-1 text-xs leading-relaxed text-muted">
-          保存済みの取引に、カテゴリルールとカード発行会社の判定をまとめて反映します。
+          手動カテゴリは変更せず、カード発行会社と将来利用するカテゴリ候補だけを更新します。
         </p>
         <button
           type="button"
@@ -574,7 +559,7 @@ export default function SettingsPage() {
           disabled={recategorizing}
           className="mt-4 w-full rounded-2xl bg-primary py-3 font-bold text-white transition-base active:opacity-80 disabled:opacity-50"
         >
-          {recategorizing ? '整理中...' : '過去履歴の再分類を実行'}
+          {recategorizing ? '更新中...' : '補助情報を更新'}
         </button>
       </section>
 

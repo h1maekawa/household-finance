@@ -14,7 +14,7 @@ interface Props {
 const empty = (): TransactionInput => ({
   date: format(new Date(), 'yyyy-MM-dd'),
   amount: 0,
-  category: '',
+  category: '未分類',
   payment_method: '',
   memo: '',
   source: 'manual',
@@ -33,7 +33,6 @@ export default function TransactionForm({ onSuccess }: Props) {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    if (!form.category)       { showToast('カテゴリを選択してください', 'warning'); return }
     if (!form.payment_method) { showToast('支払方法を選択してください', 'warning'); return }
     if (!form.amount || form.amount <= 0) { showToast('金額を入力してください', 'warning'); return }
 
@@ -63,7 +62,7 @@ export default function TransactionForm({ onSuccess }: Props) {
           <button
             key={k}
             type="button"
-            onClick={() => setForm(f => ({ ...f, kind: k, category: '' }))}
+            onClick={() => setForm(f => ({ ...f, kind: k, category: k === 'income' ? 'その他収入' : '未分類' }))}
             className={`py-2 rounded-lg text-sm font-medium transition-base ${
               form.kind === k ? 'bg-card shadow-sm text-foreground' : 'text-muted'
             }`}

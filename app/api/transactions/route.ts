@@ -59,10 +59,19 @@ export async function POST(request: NextRequest) {
   if (!user) return unauthorized()
 
   const body: TransactionInput = await request.json()
+  const kind = body.kind ?? 'expense'
+  const selectedCategory = String(body.manual_category ?? body.category ?? '').trim()
+  const category = selectedCategory || (kind === 'income' ? 'その他収入' : '未分類')
 
   const { data, error } = await supabaseAdmin
     .from('transactions')
-    .insert([{ ...body, kind: body.kind ?? 'expense', user_id: user.id }])
+    .insert([{
+      ...body,
+      kind,
+      category,
+      manual_category: selectedCategory || null,
+      user_id: user.id,
+    }])
     .select()
     .single()
 

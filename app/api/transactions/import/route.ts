@@ -91,6 +91,8 @@ interface ImportFields {
   date: string
   amount: number
   category: string
+  manual_category?: string | null
+  auto_category?: string | null
   kind: Kind
   payment_method: string
   memo?: string
@@ -226,7 +228,7 @@ export async function POST(request: NextRequest) {
 
   let fields: ImportFields
 
-  if (body.date && body.amount && body.category) {
+  if (body.date && body.amount) {
     // --- モードA: GAS側で既に正規表現パース済み ---
     const kind: Kind = body.kind === 'income' ? 'income' : 'expense'
     const categoryDecision = decideCategory({
@@ -238,13 +240,15 @@ export async function POST(request: NextRequest) {
     fields = {
       date: body.date,
       amount: Number(body.amount),
-      category: normalizeCategory(categoryDecision.category, kind, customNames),
+      category: kind === 'income' ? 'その他収入' : '未分類',
+      manual_category: null,
+      auto_category: normalizeCategory(categoryDecision.category, kind, customNames),
       kind,
       payment_method: body.payment_method || (kind === 'income' ? '口座振込' : '現金'),
       memo: body.memo ?? '',
       card_issuer: normalizeIssuer(body.card_issuer),
-      needs_review: categoryDecision.needsReview || Boolean(body.needs_review),
-      review_reason: categoryDecision.reviewReason ?? body.review_reason ?? null,
+      needs_review: kind === 'expense' || Boolean(body.needs_review),
+      review_reason: kind === 'expense' ? 'カテゴリを選択してください' : body.review_reason ?? null,
     }
   } else if (typeof body.text === 'string' && body.text.trim()) {
     // --- モードB: Geminiにフォールバック ---
@@ -270,20 +274,22 @@ export async function POST(request: NextRequest) {
       fields = {
         date: parsed.date,
         amount: parsed.amount,
-        category: normalizeCategory(categoryDecision.category, kind, customNames),
+        category: kind === 'income' ? 'その他収入' : '未分類',
+        manual_category: null,
+        auto_category: normalizeCategory(categoryDecision.category, kind, customNames),
         kind,
         payment_method: parsed.payment_method,
         memo: parsed.memo,
         card_issuer: normalizeIssuer(body.card_issuer),
-        needs_review: categoryDecision.needsReview || parsed.category === 'その他' || parsed.category === 'その他収入',
-        review_reason: categoryDecision.reviewReason ?? (parsed.category === 'その他' || parsed.category === 'その他収入' ? 'AI解析後のカテゴリ確認' : null),
+        needs_review: kind === 'expense',
+        review_reason: kind === 'expense' ? 'カテゴリを選択してください' : null,
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : '解析に失敗しました'
       return Response.json({ error: message }, { status: 500 })
     }
   } else {
-    return Response.json({ error: 'date/amount/category か text のいずれかが必要です' }, { status: 400 })
+    return Response.json({ error: 'date/amount か text のいずれかが必要です' }, { status: 400 })
   }
 
   const { data, error } = await supabaseAdmin

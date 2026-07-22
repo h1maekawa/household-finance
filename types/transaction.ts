@@ -8,6 +8,8 @@ export interface Transaction {
   date: string           // YYYY-MM-DD
   amount: number         // 円
   category: string
+  manual_category?: string | null
+  auto_category?: string | null
   payment_method: string
   memo?: string
   source: Source
@@ -24,6 +26,8 @@ export interface TransactionInput {
   date: string
   amount: number
   category: string
+  manual_category?: string | null
+  auto_category?: string | null
   payment_method: string
   memo?: string
   source: Source
@@ -62,13 +66,18 @@ export interface Category {
 }
 
 export const CATEGORIES = [
+  { name: '未分類',    icon: '❔' },
   { name: '食費',      icon: '🍚' },
+  { name: '住宅費',    icon: '🏠' },
   { name: '住居費',    icon: '🏠' },
   { name: '交通費',    icon: '🚃' },
   { name: '日用品',    icon: '🧴' },
   { name: '外食',      icon: '🍜' },
   { name: 'カフェ',    icon: '☕' },
   { name: '娯楽',      icon: '🎮' },
+  { name: '美容',      icon: '💇' },
+  { name: '健康',      icon: '🩺' },
+  { name: 'タバコ',    icon: '🚬' },
   { name: '医療',      icon: '💊' },
   { name: '保険',      icon: '🛡️' },
   { name: '通信費',    icon: '📱' },

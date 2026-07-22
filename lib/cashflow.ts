@@ -101,8 +101,13 @@ export function buildGeneratedCreditPayments(
     const cardPlan = (card.card_plan || 'generic') as CardPlan
     const rule = CARD_PAYMENT_RULES[cardPlan]
     const normalizedCardName = normalizeName(card.name)
+    // カードプランが設定されていれば、closing_day_int / payment_day_int が入っていても
+    // プランのルール（締め日・支払日）を優先する。
+    // ※ 以前は legacy カラムが入っているとプランが無視され、
+    //    SMBC 10日プラン等の締め日が正しく計算されなかった。
+    const usePlanRule = cardPlan !== 'generic' && Boolean(rule?.supported)
 
-    if (cardPlan !== 'generic' && rule && rule.supported) {
+    if (usePlanRule) {
       // 1. Filter transactions matching the card
       const cardTx = transactions.filter(tx => {
         if (tx.kind === 'income') return false
@@ -157,6 +162,7 @@ export function buildGeneratedCreditPayments(
           type: 'credit',
           is_active: true,
           memo: memoStr,
+          bank_account: card.bank_account ?? null,
           scheduled_date: key,
           generated: true,
           source: 'credit_card',
@@ -178,7 +184,9 @@ export function buildGeneratedCreditPayments(
         const monthOffset = numberOrDefault(card.payment_month_offset, 1)
 
         const closingDate = getCardClosingDate(rawPaymentDate, closingDay, monthOffset)
-        const previousClosingDate = addMonths(closingDate, -1)
+        // 前サイクルの締め日も同じクランプ規則で算出する。
+        // ※ addMonths(closingDate, -1) だと 2/28 → 1/28 となり、1/29〜1/31 が二重集計されていた。
+        const previousClosingDate = getCardClosingDate(rawPaymentDate, closingDay, monthOffset + 1)
         const periodStart = addDays(previousClosingDate, 1)
         const periodEnd = closingDate
 
@@ -203,6 +211,7 @@ export function buildGeneratedCreditPayments(
           type: 'credit',
           is_active: true,
           memo: `${format(periodStart, 'M/d')}〜${format(periodEnd, 'M/d')} 利用分`,
+          bank_account: card.bank_account ?? null,
           scheduled_date: scheduledDate,
           generated: true,
           source: 'credit_card',
