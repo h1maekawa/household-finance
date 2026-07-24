@@ -63,17 +63,35 @@ export async function POST(request: NextRequest) {
   const selectedCategory = String(body.manual_category ?? body.category ?? '').trim()
   const category = selectedCategory || (kind === 'income' ? 'その他収入' : '未分類')
 
-  const { data, error } = await supabaseAdmin
-    .from('transactions')
-    .insert([{
-      ...body,
-      kind,
-      category,
-      manual_category: selectedCategory || null,
-      user_id: user.id,
-    }])
-    .select()
-    .single()
+  const record: Record<string, unknown> = {
+    ...body,
+    kind,
+    category,
+    manual_category: selectedCategory || null,
+    user_id: user.id,
+  }
+
+  // マイグレーション017（manual_category/auto_category 列の追加）が
+  // まだSupabaseに適用されていない環境でも保存できるようにする。
+  // 未知の列でPostgRESTが弾いた場合は、その列を落として1回だけ再挿入する。
+  const OPTIONAL_COLUMNS = ['manual_category', 'auto_category']
+  async function insertResilient() {
+    let attempt = { ...record }
+    for (let i = 0; i <= OPTIONAL_COLUMNS.length; i++) {
+      const res = await supabaseAdmin.from('transactions').insert([attempt]).select().single()
+      if (!res.error) return res
+      // 「列が見つからない」系エラー（PGRST204 / 42703）のときだけ、該当列を落として再試行
+      const missing = OPTIONAL_COLUMNS.find(
+        col => col in attempt && res.error!.message.includes(col)
+      )
+      if (!missing) return res
+      attempt = { ...attempt }
+      delete attempt[missing]
+    }
+    return supabaseAdmin.from('transactions').insert([attempt]).select().single()
+  }
+
+  const { data, error } = await insertResilient()
 
   if (error) {
     return Response.json({ error: error.message }, { status: 500 })
