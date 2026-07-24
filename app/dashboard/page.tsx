@@ -8,6 +8,9 @@ import {
 } from 'recharts'
 import Link from 'next/link'
 import AlertBanner from '@/components/AlertBanner'
+import BudgetCard from '@/components/BudgetCard'
+import CoachCard from '@/components/CoachCard'
+import GoalCard from '@/components/GoalCard'
 import CreditCardMonthlyPrompt from '@/components/CreditCardMonthlyPrompt'
 import DebtBalanceOverview from '@/components/DebtBalanceOverview'
 import SignOutButton from '@/components/SignOutButton'
@@ -158,6 +161,11 @@ export default function DashboardPage() {
 
         {activeTab === 'overview' ? (
           <>
+        {/* 今日: コーチの一言 → 今月あと使える額 → 目標進捗(習慣ループの中心) */}
+        <CoachCard />
+        <BudgetCard />
+        <GoalCard />
+
         <div className="card p-4">
           <div className="mb-3 flex items-start justify-between gap-3">
             <div>
