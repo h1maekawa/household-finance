@@ -6,12 +6,14 @@ const tabs = [
   { href: '/dashboard',    label: 'ホーム', icon: '🏠' },
   { href: '/transactions', label: '収支',   icon: '💴' },
   { href: '/cashflow',     label: 'キャッシュフロー', icon: '💰' },
+  { href: '/accounts',     label: '口座',   icon: '🏦' },
   { href: '/investments',  label: '投資',   icon: '💹' },
   { href: '/settings',     label: '設定',   icon: '⚙️' },
 ]
 
 // デスクトップ幅(lg以上)でのみ表示するサイドナビ。
-// モバイルでは BottomNav が同じタブ構成を担当する。
+// モバイルでは BottomNav が担当するが、そちらは画面幅の都合で5タブに抑えているため、
+// 「口座」はサイドバーにだけ置く(モバイルからは設定画面のリンクで到達できる)。
 export default function Sidebar() {
   const pathname = usePathname()
 
