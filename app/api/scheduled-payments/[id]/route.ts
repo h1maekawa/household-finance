@@ -1,37 +1,26 @@
 import { NextRequest } from 'next/server'
-import { supabaseAdmin } from '@/lib/supabase'
 import { getAuthenticatedUser, unauthorized } from '@/lib/auth'
-import { pickAllowed } from '@/lib/patch'
-import { ScheduledPaymentInput } from '@/types/cashflow'
+import {
+  deleteScheduledPayment,
+  updateScheduledPayment,
+} from '@/lib/repositories/scheduled-payments'
 
 type Context = { params: Promise<{ id: string }> }
-
-const PATCHABLE_FIELDS = [
-  'name', 'amount', 'due_day', 'category', 'type', 'is_active', 'memo',
-  'bank_account', 'last_paid_month', 'scheduled_date', 'external_id',
-] as const satisfies readonly (keyof ScheduledPaymentInput)[]
 
 export async function PATCH(request: NextRequest, { params }: Context) {
   const user = await getAuthenticatedUser(request)
   if (!user) return unauthorized()
 
   const { id } = await params
-  const body: Partial<ScheduledPaymentInput> = await request.json()
-  const patch = pickAllowed<ScheduledPaymentInput, keyof ScheduledPaymentInput>(body, PATCHABLE_FIELDS)
+  const body = await request.json().catch(() => ({})) as Record<string, unknown>
 
-  const { data, error } = await supabaseAdmin
-    .from('scheduled_payments')
-    .update(patch)
-    .eq('id', id)
-    .eq('user_id', user.id)
-    .select()
-    .single()
-
-  if (error) {
-    return Response.json({ error: error.message }, { status: 500 })
+  try {
+    // 書き込み可能な列の絞り込みはリポジトリ(pickWritableFields)が担う
+    const payment = await updateScheduledPayment(user.id, id, body)
+    return Response.json(payment)
+  } catch (error) {
+    return Response.json({ error: (error as Error).message }, { status: 500 })
   }
-
-  return Response.json(data)
 }
 
 export async function DELETE(request: NextRequest, { params }: Context) {
@@ -40,15 +29,10 @@ export async function DELETE(request: NextRequest, { params }: Context) {
 
   const { id } = await params
 
-  const { error } = await supabaseAdmin
-    .from('scheduled_payments')
-    .delete()
-    .eq('id', id)
-    .eq('user_id', user.id)
-
-  if (error) {
-    return Response.json({ error: error.message }, { status: 500 })
+  try {
+    await deleteScheduledPayment(user.id, id)
+    return Response.json({ success: true })
+  } catch (error) {
+    return Response.json({ error: (error as Error).message }, { status: 500 })
   }
-
-  return Response.json({ success: true })
 }

@@ -84,29 +84,50 @@ alter table life_goals enable row level security;
 alter table ai_insights enable row level security;
 alter table ai_user_memory enable row level security;
 
+-- create policy に if not exists は無いので、drop → create で再実行可能にする。
+drop policy if exists "budgets_select_own" on budgets;
 create policy "budgets_select_own" on budgets for select using (auth.uid() = user_id);
+drop policy if exists "budgets_insert_own" on budgets;
 create policy "budgets_insert_own" on budgets for insert with check (auth.uid() = user_id);
+drop policy if exists "budgets_update_own" on budgets;
 create policy "budgets_update_own" on budgets for update using (auth.uid() = user_id);
+drop policy if exists "budgets_delete_own" on budgets;
 create policy "budgets_delete_own" on budgets for delete using (auth.uid() = user_id);
 
+drop policy if exists "budget_categories_select_own" on budget_categories;
 create policy "budget_categories_select_own" on budget_categories for select using (auth.uid() = user_id);
+drop policy if exists "budget_categories_insert_own" on budget_categories;
 create policy "budget_categories_insert_own" on budget_categories for insert with check (auth.uid() = user_id);
+drop policy if exists "budget_categories_update_own" on budget_categories;
 create policy "budget_categories_update_own" on budget_categories for update using (auth.uid() = user_id);
+drop policy if exists "budget_categories_delete_own" on budget_categories;
 create policy "budget_categories_delete_own" on budget_categories for delete using (auth.uid() = user_id);
 
+drop policy if exists "life_goals_select_own" on life_goals;
 create policy "life_goals_select_own" on life_goals for select using (auth.uid() = user_id);
+drop policy if exists "life_goals_insert_own" on life_goals;
 create policy "life_goals_insert_own" on life_goals for insert with check (auth.uid() = user_id);
+drop policy if exists "life_goals_update_own" on life_goals;
 create policy "life_goals_update_own" on life_goals for update using (auth.uid() = user_id);
+drop policy if exists "life_goals_delete_own" on life_goals;
 create policy "life_goals_delete_own" on life_goals for delete using (auth.uid() = user_id);
 
+drop policy if exists "ai_insights_select_own" on ai_insights;
 create policy "ai_insights_select_own" on ai_insights for select using (auth.uid() = user_id);
+drop policy if exists "ai_insights_insert_own" on ai_insights;
 create policy "ai_insights_insert_own" on ai_insights for insert with check (auth.uid() = user_id);
+drop policy if exists "ai_insights_update_own" on ai_insights;
 create policy "ai_insights_update_own" on ai_insights for update using (auth.uid() = user_id);
+drop policy if exists "ai_insights_delete_own" on ai_insights;
 create policy "ai_insights_delete_own" on ai_insights for delete using (auth.uid() = user_id);
 
+drop policy if exists "ai_user_memory_select_own" on ai_user_memory;
 create policy "ai_user_memory_select_own" on ai_user_memory for select using (auth.uid() = user_id);
+drop policy if exists "ai_user_memory_insert_own" on ai_user_memory;
 create policy "ai_user_memory_insert_own" on ai_user_memory for insert with check (auth.uid() = user_id);
+drop policy if exists "ai_user_memory_update_own" on ai_user_memory;
 create policy "ai_user_memory_update_own" on ai_user_memory for update using (auth.uid() = user_id);
+drop policy if exists "ai_user_memory_delete_own" on ai_user_memory;
 create policy "ai_user_memory_delete_own" on ai_user_memory for delete using (auth.uid() = user_id);
 
 grant all on budgets to authenticated;

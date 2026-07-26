@@ -105,3 +105,32 @@ export function nextBusinessDay(date: Date): Date {
   }
   return result
 }
+
+/**
+ * 指定日が土日祝の場合、前営業日へシフトして返す。
+ * 一部の収納代行・給与支払いは翌営業日ではなく前営業日に寄せるため用意している。
+ */
+export function previousBusinessDay(date: Date): Date {
+  let result = new Date(date)
+  let tries = 0
+  while ((isWeekend(result) || isJapaneseHoliday(result)) && tries < 7) {
+    result = new Date(result.getFullYear(), result.getMonth(), result.getDate() - 1)
+    tries++
+  }
+  return result
+}
+
+/** 営業日補正ルール。'none' は補正しない（既存データの既定値） */
+export type BusinessDayRule = 'none' | 'next' | 'previous'
+
+/**
+ * ルールに従って営業日補正を適用する。
+ *
+ * ※ 祝日データは2027年までしか無い（ファイル冒頭の注記）。それ以降の日付は
+ *   土日補正のみが効き、祝日は素通りする。内閣府の告示が出たら HOLIDAY_SET に追記すること。
+ */
+export function adjustBusinessDay(date: Date, rule: BusinessDayRule): Date {
+  if (rule === 'next') return nextBusinessDay(date)
+  if (rule === 'previous') return previousBusinessDay(date)
+  return date
+}

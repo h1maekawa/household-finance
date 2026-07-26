@@ -49,14 +49,23 @@ create index if not exists transactions_user_category_date_idx
 alter table accounts enable row level security;
 alter table account_balances enable row level security;
 
+-- create policy に if not exists は無いので、drop → create で再実行可能にする。
+drop policy if exists "accounts_select_own" on accounts;
 create policy "accounts_select_own" on accounts for select using (auth.uid() = user_id);
+drop policy if exists "accounts_insert_own" on accounts;
 create policy "accounts_insert_own" on accounts for insert with check (auth.uid() = user_id);
+drop policy if exists "accounts_update_own" on accounts;
 create policy "accounts_update_own" on accounts for update using (auth.uid() = user_id);
+drop policy if exists "accounts_delete_own" on accounts;
 create policy "accounts_delete_own" on accounts for delete using (auth.uid() = user_id);
 
+drop policy if exists "account_balances_select_own" on account_balances;
 create policy "account_balances_select_own" on account_balances for select using (auth.uid() = user_id);
+drop policy if exists "account_balances_insert_own" on account_balances;
 create policy "account_balances_insert_own" on account_balances for insert with check (auth.uid() = user_id);
+drop policy if exists "account_balances_update_own" on account_balances;
 create policy "account_balances_update_own" on account_balances for update using (auth.uid() = user_id);
+drop policy if exists "account_balances_delete_own" on account_balances;
 create policy "account_balances_delete_own" on account_balances for delete using (auth.uid() = user_id);
 
 grant all on accounts to authenticated;

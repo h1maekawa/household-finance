@@ -8,7 +8,9 @@ import { getBudget, ensureBudget, listBudgetCategories } from '@/lib/repositorie
 import { listAccountsWithBalances } from '@/lib/repositories/accounts'
 import { listGoals } from '@/lib/repositories/goals'
 import { computeBudget, allocateCategoryBudgets } from './budget-engine'
-import { buildUpcomingDebits, type DebitSource } from './upcoming-debits'
+import { loadFxRates } from '@/lib/repositories/fx-rates'
+import { buildUpcomingDebits } from './upcoming-debits'
+import { toDebitSources } from './fixed-costs'
 import { yen } from './money'
 import type {
   BudgetInput,
@@ -17,6 +19,7 @@ import type {
   BudgetTransaction,
   CategoryBudget,
 } from '@/types/budget'
+import type { CreditCardSetting, ScheduledPayment } from '@/types/cashflow'
 
 export function monthStart(month: string): string {
   return `${month}-01`
@@ -142,28 +145,40 @@ export async function loadBudget(
   }
 }
 
-/** コーチ用: 引き落とし予定(固定費 + カード請求見込み)を口座付きで組み立てる */
+/**
+ * コーチ用: 引き落とし予定(固定費 + カード請求見込み)を口座付きで組み立てる。
+ *
+ * 日付・金額・口座の解決は lib/services/fixed-costs.ts の純関数に委譲する。
+ * ここを通すことで、営業日補正・契約期間・外貨換算・カード払いの付け替えが
+ * コーチのコメントにもそのまま効く。
+ */
 export async function loadUpcomingDebits(userId: string, today: string, horizonDays = 14) {
   const supabase = await createSupabaseServerClient()
-  const { data, error } = await supabase
-    .from('scheduled_payments')
-    .select('id, name, amount, due_day, type, is_active, scheduled_date, debit_account_id')
-    .eq('user_id', userId)
 
-  if (error) throw new Error(error.message)
+  const [paymentsResult, cardsResult, fx] = await Promise.all([
+    supabase
+      .from('scheduled_payments')
+      .select(
+        'id, name, amount, due_day, category, type, is_active, memo, scheduled_date, ' +
+        'debit_account_id, payment_method, credit_card_id, start_date, end_date, ' +
+        'recurrence, business_day_rule, currency, foreign_amount, created_at'
+      )
+      .eq('user_id', userId),
+    supabase
+      .from('credit_cards')
+      .select('id, name, closing_day, payment_day, closing_day_int, payment_day_int, ' +
+        'payment_month_offset, card_plan, debit_account_id, created_at')
+      .eq('user_id', userId),
+    loadFxRates(),
+  ])
 
-  const sources: DebitSource[] = (data ?? []).map(row => ({
-    id: row.id,
-    name: row.name,
-    amount: yen(row.amount),
-    due_day: Number(row.due_day),
-    scheduled_date: row.scheduled_date ?? null,
-    is_active: row.is_active ?? true,
-    type: (row.type ?? 'fixed') as DebitSource['type'],
-    debit_account_id: row.debit_account_id ?? null,
-  }))
+  if (paymentsResult.error) throw new Error(paymentsResult.error.message)
 
-  return buildUpcomingDebits(sources, { today, horizonDays })
+  const payments = (paymentsResult.data ?? []) as unknown as ScheduledPayment[]
+  // credit_cards の取得失敗はコーチ全体を落とすほどではない(カード払いの付け替えが効かなくなるだけ)
+  const cards = (cardsResult.error ? [] : cardsResult.data ?? []) as unknown as CreditCardSetting[]
+
+  return buildUpcomingDebits(toDebitSources(payments, cards, today, fx), { today, horizonDays })
 }
 
 export async function loadCoachInputs(userId: string, month: string, today: string) {

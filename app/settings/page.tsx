@@ -1,11 +1,13 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import Link from 'next/link'
 import { useToast } from '@/components/Toast'
 import { useCategories } from '@/lib/useCategories'
+import { useAccounts } from '@/lib/useAccounts'
 import GmailImportStatusCard from '@/components/GmailImportStatusCard'
-import { ScheduledPayment } from '@/types/cashflow'
-import { CARD_PAYMENT_RULES, CardPlan } from '@/lib/card-payment-rules'
+import type { ScheduledPayment } from '@/types/cashflow'
+import { CARD_PAYMENT_RULES, type CardPlan } from '@/lib/card-payment-rules'
 
 type SettingsResponse = {
   profile: {
@@ -55,8 +57,6 @@ const CARD_PLANS = [
   { value: 'smbc_26th', label: '三井住友 26日プラン' },
 ]
 
-const BANK_ACCOUNTS = ['楽天銀行', '三井住友銀行', '住信SBIネット銀行']
-
 /** 実際に請求計算へ適用される締め日・支払日を表示用に整形する */
 function describeCardRule(card: CreditCardSetting) {
   const plan = (card.card_plan || 'generic') as CardPlan
@@ -74,6 +74,7 @@ function describeCardRule(card: CreditCardSetting) {
 export default function SettingsPage() {
   const { expense: expenseCategories, mutate: refreshCategories } = useCategories()
   const { showToast } = useToast()
+  const { accounts } = useAccounts()
   const [activeTab, setActiveTab] = useState<SettingTab>('integrations')
   const [initialBalance, setInitialBalance] = useState('')
   const [monthlyIncome, setMonthlyIncome] = useState('')
@@ -180,7 +181,8 @@ export default function SettingsPage() {
           payment_month_offset: 1,
           card_type: cardType,
           card_plan: cardPlan,
-          bank_account: cardBankAccount || null,
+          debit_account_id: cardBankAccount || null,
+          bank_account: accounts.find(a => a.id === cardBankAccount)?.name ?? null,
         }),
       })
       const data = await res.json()
@@ -285,11 +287,19 @@ export default function SettingsPage() {
     if (res.ok) setScheduledPayments(Array.isArray(data) ? data : [])
   }
 
-  async function handlePaymentBankChange(payment: ScheduledPayment, bankAccount: string) {
+  /**
+   * 引き落とし口座は debit_account_id(FK) が真実。bank_account(text) は
+   * 既存データとの互換のため表示名を併せて書いておくだけ。
+   */
+  async function handlePaymentBankChange(payment: ScheduledPayment, accountId: string) {
+    const account = accounts.find(a => a.id === accountId)
     const res = await fetch(`/api/scheduled-payments/${payment.id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ bank_account: bankAccount || null }),
+      body: JSON.stringify({
+        debit_account_id: accountId || null,
+        bank_account: account?.name ?? null,
+      }),
     })
     if (res.ok) {
       await refreshScheduledPayments()
@@ -360,10 +370,22 @@ export default function SettingsPage() {
         </button>
       </section>
       <section className="card p-4">
-        <h2 className="text-base font-bold">固定費の引き落とし管理</h2>
-        <p className="mt-1 text-xs leading-relaxed text-muted">
-          固定費ごとに引き落とし日と利用口座を確認・設定できます。
-        </p>
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h2 className="text-base font-bold">固定費の引き落とし管理</h2>
+            <p className="mt-1 text-xs leading-relaxed text-muted">
+              固定費ごとに引き落とし日と利用口座を確認・設定できます。
+            </p>
+          </div>
+          <Link href="/accounts" className="shrink-0 text-sm font-medium text-primary">
+            口座管理
+          </Link>
+        </div>
+        {accounts.length === 0 && (
+          <p className="mt-2 text-xs text-warning">
+            口座がまだ登録されていません。「口座管理」から登録すると引落口座を選べます。
+          </p>
+        )}
         <div className="mt-4 overflow-hidden rounded-2xl border border-border">
           {scheduledPayments.length === 0 ? (
             <div className="px-4 py-5 text-center text-sm text-muted">固定費の登録はまだありません</div>
@@ -383,13 +405,14 @@ export default function SettingsPage() {
                   <span className="shrink-0 rounded-full bg-surface px-2.5 py-1 text-[11px] text-muted">{payment.category}</span>
                 </div>
                 <select
-                  value={payment.bank_account ?? ''}
+                  value={payment.debit_account_id ?? ''}
                   onChange={event => handlePaymentBankChange(payment, event.target.value)}
+                  aria-label={`${payment.name}の引き落とし口座`}
                   className="w-full rounded-xl border border-border bg-surface px-3.5 py-2.5 text-sm focus:border-primary focus:bg-card focus:outline-none"
                 >
                   <option value="">口座未設定</option>
-                  {BANK_ACCOUNTS.map(account => (
-                    <option key={account} value={account}>{account}</option>
+                  {accounts.map(account => (
+                    <option key={account.id} value={account.id}>{account.name}</option>
                   ))}
                 </select>
               </div>
@@ -442,7 +465,10 @@ export default function SettingsPage() {
             label="引き落とし口座"
             value={cardBankAccount}
             onChange={setCardBankAccount}
-            options={[{ value: '', label: '口座未設定' }, ...BANK_ACCOUNTS.map(account => ({ value: account, label: account }))]}
+            options={[
+              { value: '', label: '口座未設定' },
+              ...accounts.map(account => ({ value: account.id, label: account.name })),
+            ]}
             disabled={savingCard}
           />
           <button

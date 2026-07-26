@@ -7,8 +7,9 @@ import {
   getCashflowFetchStart,
   projectCashflow,
 } from '@/lib/cashflow'
-import { CreditCardSetting, ScheduledPayment } from '@/types/cashflow'
-import { Transaction } from '@/types/transaction'
+import { loadFxRates } from '@/lib/repositories/fx-rates'
+import type { CreditCardSetting, ScheduledPayment } from '@/types/cashflow'
+import type { Transaction } from '@/types/transaction'
 
 function normalizeName(value: string) {
   return value.toLowerCase().replace(/\s+/g, '').replace(/[（）()]/g, '')
@@ -93,6 +94,8 @@ export async function GET(request: NextRequest) {
     income_day: 25,
   }
   const currentBalance = balanceRes.data?.balance ?? 0
+  // 外貨建て固定費(ジブラルタ生命 105 USD 等)を円換算するためのレート
+  const fxRates = await loadFxRates()
   const projectedDays = projectCashflow(
     currentBalance,
     [...scheduledPayments, ...generatedPayments],
@@ -100,6 +103,9 @@ export async function GET(request: NextRequest) {
     {
       monthlyIncome: profile.monthly_income ?? 0,
       incomeDay: profile.income_day ?? 25,
+      // カード払いの固定費をカードの支払日・引落口座へ付け替えるために渡す
+      creditCards,
+      fxRates,
     }
   )
 

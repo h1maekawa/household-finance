@@ -14,6 +14,8 @@ const protectedPaths = [
   '/input',
   '/assets',
   '/settings',
+  '/accounts',
+  '/onboarding',
 ]
 
 export async function proxy(request: NextRequest) {

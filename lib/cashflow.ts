@@ -1,13 +1,32 @@
 // lib/cashflow.ts
-import { ScheduledPayment, DailyBalance, CreditCardSetting } from '@/types/cashflow'
-import { Transaction } from '@/types/transaction'
+import type { ScheduledPayment, DailyBalance, CreditCardSetting } from '@/types/cashflow'
+import type { Transaction } from '@/types/transaction'
 import { format, addDays, addMonths, getDaysInMonth, isAfter, isBefore, parseISO } from 'date-fns'
-import { CardPlan, CARD_PAYMENT_RULES, calcPaymentDate, isRakutenMarketTx } from './card-payment-rules'
+// CardPlan は型なので `type` を付ける。付けないと node --test の型ストリップが
+// 実行時の named import を残してしまい、モジュール解決に失敗する。
+import {
+  CARD_PAYMENT_RULES,
+  calcPaymentDate,
+  isRakutenMarketTx,
+  type CardPlan,
+} from './card-payment-rules'
 import { nextBusinessDay } from './holiday-jp'
+import {
+  resolveAmountYen,
+  resolveDueDate,
+  resolveMonthlyDebits,
+  type FxRates,
+} from './services/fixed-costs'
 
 type CashflowOptions = {
   monthlyIncome?: number
   incomeDay?: number
+  /** 外貨建て固定費の円換算に使うレート表。未指定なら円建てとして扱う */
+  fxRates?: FxRates
+  /** 予測の起点。既定は実行時の「今日」。テストから固定できるようにしている */
+  today?: Date
+  /** カード払いの固定費を、カードの支払日・引落口座へ付け替えるために使う */
+  creditCards?: CreditCardSetting[]
 }
 
 function clampDay(year: number, monthIndex: number, day: number) {
@@ -224,6 +243,52 @@ export function buildGeneratedCreditPayments(
   return result
 }
 
+/**
+ * 予測期間にかかる各月について固定費を解決し、日付 → 支払い のインデックスを作る。
+ *
+ * ここで lib/services/fixed-costs.ts を通すことで、予測に
+ * 営業日補正・契約期間・外貨換算・カード払いの付け替えが一度に効く。
+ * 前月ぶんも解決するのは、前月に利用したカード払いの固定費が
+ * 当月に引き落とされるため。
+ */
+function buildPaymentIndex(
+  payments: ScheduledPayment[],
+  cards: CreditCardSetting[],
+  today: Date,
+  days: number,
+  fx: FxRates
+): Map<string, { payment: ScheduledPayment; amount: number }[]> {
+  const index = new Map<string, { payment: ScheduledPayment; amount: number }[]>()
+  const push = (date: string, entry: { payment: ScheduledPayment; amount: number }) => {
+    const list = index.get(date) ?? []
+    list.push(entry)
+    index.set(date, list)
+  }
+
+  const byId = new Map(payments.map(p => [p.id, p]))
+  const months = new Set<string>()
+  for (let i = -1; i <= Math.ceil(days / 28) + 1; i++) {
+    months.add(format(addMonths(today, i), 'yyyy-MM'))
+  }
+
+  for (const month of months) {
+    // 支出: カード払いの付け替えを含めて解決する
+    for (const debit of resolveMonthlyDebits(payments, cards, month, fx)) {
+      const payment = byId.get(debit.id)
+      if (payment) push(debit.date, { payment, amount: debit.amount })
+    }
+
+    // 収入: resolveMonthlyDebits の対象外なので個別に解決する
+    for (const payment of payments) {
+      if (payment.type !== 'income' || !payment.is_active) continue
+      const date = resolveDueDate(payment, month)
+      if (date) push(date, { payment, amount: resolveAmountYen(payment, fx) })
+    }
+  }
+
+  return index
+}
+
 export function projectCashflow(
   currentBalance: number,
   scheduledPayments: ScheduledPayment[],
@@ -231,12 +296,21 @@ export function projectCashflow(
   options: CashflowOptions = {}
 ): DailyBalance[] {
   const result: DailyBalance[] = []
-  const today = new Date()
+  const today = options.today ?? new Date()
   let balance = currentBalance
 
   const activePayments = scheduledPayments.filter((p) => p.is_active)
   const incomeDay = Math.min(Math.max(Number(options.incomeDay ?? 25), 1), 31)
   const monthlyIncome = Math.max(Math.round(Number(options.monthlyIncome ?? 0)), 0)
+  const fx = options.fxRates ?? {}
+
+  const paymentIndex = buildPaymentIndex(
+    activePayments,
+    options.creditCards ?? [],
+    today,
+    days,
+    fx
+  )
 
   for (let i = 0; i < days; i++) {
     const date = addDays(today, i)
@@ -244,11 +318,11 @@ export function projectCashflow(
     const dayOfMonth = date.getDate()
     const daysInMonth = getDaysInMonth(date)
 
-    const paymentsForDay = activePayments.filter((payment) => {
-      if (payment.scheduled_date) return payment.scheduled_date === dateStr
-      const effectiveDueDay = Math.min(payment.due_day, daysInMonth)
-      return effectiveDueDay === dayOfMonth
-    })
+    const resolvedForDay = paymentIndex.get(dateStr) ?? []
+    // 円換算後の金額を反映した支払いを表示する(外貨建て固定費は原資産額ではなく円で見せる)
+    const paymentsForDay: ScheduledPayment[] = resolvedForDay.map(
+      ({ payment, amount }) => (amount === payment.amount ? payment : { ...payment, amount })
+    )
 
     const effectiveIncomeDay = Math.min(incomeDay, daysInMonth)
     if (monthlyIncome > 0 && dayOfMonth === effectiveIncomeDay) {

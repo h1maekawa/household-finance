@@ -16,6 +16,7 @@ type CreditCardBody = {
   card_type?: string
   card_plan?: string
   bank_account?: string | null
+  debit_account_id?: string | null
 }
 
 function normalizeDay(value: unknown) {
@@ -56,6 +57,8 @@ function toRow(body: CreditCardBody, userId: string) {
     card_type: cardType,
     card_plan: cardPlan,
     bank_account: String(body.bank_account ?? '').trim() || null,
+    // 引き落とし口座の真実は FK 側。カード払いの固定費をこの口座に付け替える
+    debit_account_id: body.debit_account_id || null,
     updated_at: new Date().toISOString(),
   }
 }
@@ -86,11 +89,23 @@ export async function POST(request: NextRequest) {
     return Response.json({ error: 'カード名・締め日・引き落とし日を入力してください' }, { status: 400 })
   }
 
-  const { data, error } = await supabaseAdmin
+  let { data, error } = await supabaseAdmin
     .from('credit_cards')
     .insert([row])
     .select()
     .single()
+
+  // migration 018 が未適用の環境では debit_account_id 列が無く、PostgREST が
+  // insert 全体を弾く。その列だけ落として1回再試行する。
+  if (error?.message.includes('debit_account_id')) {
+    const fallback = { ...row }
+    delete (fallback as Partial<typeof row>).debit_account_id
+    ;({ data, error } = await supabaseAdmin
+      .from('credit_cards')
+      .insert([fallback])
+      .select()
+      .single())
+  }
 
   if (error) {
     return Response.json({ error: error.message }, { status: 500 })

@@ -7,17 +7,6 @@ import { isSupabaseConfigured } from '@/lib/supabase'
 import { createSupabaseBrowserClient } from '@/lib/supabase/client'
 import { useToast } from '@/components/Toast'
 
-const fixedCosts = [
-  { name: '家賃', amount: '80,000', day: '毎月25日' },
-  { name: '携帯', amount: '9,000', day: '毎月15日' },
-  { name: 'サブスク', amount: '1,980', day: '毎月1日' },
-]
-
-const cards = [
-  { name: '楽天カード', closing: '月末', payment: '翌月27日' },
-  { name: '三井住友カード', closing: '月末', payment: '翌月26日' },
-]
-
 const isGoogleAuthEnabled = process.env.NEXT_PUBLIC_ENABLE_GOOGLE_AUTH === 'true'
 
 export default function FlowSetupWizard() {
@@ -85,11 +74,12 @@ export default function FlowSetupWizard() {
             />
           )}
           {step === 1 && <BalanceScreen balance={initialBalance} onBalanceChange={setInitialBalance} onNext={() => setStep(2)} />}
-          {step === 2 && <IncomeScreen income={monthlyIncome} onIncomeChange={setMonthlyIncome} onBack={() => setStep(1)} onNext={() => setStep(3)} />}
-          {step === 3 && <FixedCostsScreen onBack={() => setStep(2)} onNext={() => setStep(4)} />}
-          {step === 4 && (
-            <CardCycleScreen
-              onBack={() => setStep(3)}
+          {step === 2 && (
+            <IncomeScreen
+              income={monthlyIncome}
+              onIncomeChange={setMonthlyIncome}
+              onBack={() => setStep(1)}
+              saving={saving}
               onNext={async () => {
                 setSaving(true)
                 try {
@@ -104,17 +94,16 @@ export default function FlowSetupWizard() {
                   const data = await res.json()
                   if (!res.ok) throw new Error(data.error)
                   showToast('初期設定を保存しました', 'success')
-                  setStep(5)
+                  setStep(3)
                 } catch (err) {
                   showToast(err instanceof Error ? err.message : '保存に失敗しました', 'error')
                 } finally {
                   setSaving(false)
                 }
               }}
-              saving={saving}
             />
           )}
-          {step === 5 && <DoneScreen balance={Number(initialBalance || 0)} income={Number(monthlyIncome || 0)} />}
+          {step === 3 && <DoneScreen balance={Number(initialBalance || 0)} income={Number(monthlyIncome || 0)} />}
         </div>
       </div>
     </div>
@@ -196,59 +185,33 @@ function IncomeScreen({
   onIncomeChange,
   onBack,
   onNext,
+  saving,
 }: {
   income: string
   onIncomeChange: (value: string) => void
   onBack: () => void
   onNext: () => void
+  saving: boolean
 }) {
   return (
     <StepFrame step={2} title="毎月の固定収入は？" description="給与など、毎月ほぼ同じ額が入るものを入力します。">
       <MoneyField label="月収" value={income} onChange={onIncomeChange} />
-      <StepNav onBack={onBack} onNext={onNext} />
+      <StepNav
+        onBack={onBack}
+        onNext={onNext}
+        nextLabel={saving ? '保存中...' : '設定を完了する'}
+        disabled={saving}
+      />
     </StepFrame>
   )
 }
 
-function FixedCostsScreen({ onBack, onNext }: { onBack: () => void; onNext: () => void }) {
-  return (
-    <StepFrame step={3} title="毎月の固定費を登録" description="家賃やサブスクなど、金額と発生日が決まっているもの。">
-      <div className="space-y-2.5">
-        {fixedCosts.map(cost => (
-          <div key={cost.name} className="grid grid-cols-[1fr_96px_70px_28px] items-center gap-2">
-            <input className="rounded-[10px] border border-[#E6EAEF] bg-[#F0F3F7] px-3 py-2.5 text-[13px]" defaultValue={cost.name} />
-            <input className="rounded-[10px] border border-[#E6EAEF] bg-[#F0F3F7] px-3 py-2.5 font-mono text-[13px]" defaultValue={cost.amount} />
-            <div className="text-center font-mono text-xs text-[#8891A0]">{cost.day}</div>
-            <button type="button" className="h-7 w-7 rounded-full bg-[#F0F3F7] text-sm text-[#8891A0]">×</button>
-          </div>
-        ))}
-      </div>
-      <button type="button" className="mt-2 text-xs text-[#1476B3]">＋ 固定費を追加</button>
-      <StepNav onBack={onBack} onNext={onNext} className="mt-5" />
-    </StepFrame>
-  )
-}
-
-function CardCycleScreen({ onBack, onNext, saving }: { onBack: () => void; onNext: () => void; saving: boolean }) {
-  return (
-    <StepFrame step={4} title="クレジットカードの締め日" description="請求予定額を自動計算するために使います。">
-      <div className="space-y-3">
-        {cards.map(card => (
-          <div key={card.name} className="rounded-xl bg-[#F0F3F7] p-4">
-            <p className="mb-2.5 text-[13px] font-medium">{card.name}</p>
-            <div className="grid grid-cols-2 gap-2.5">
-              <SmallField label="締め日" value={card.closing} />
-              <SmallField label="引き落とし日" value={card.payment} />
-            </div>
-          </div>
-        ))}
-      </div>
-      <button type="button" className="mt-2 text-xs text-[#1476B3]">＋ カードを追加</button>
-      <StepNav onBack={onBack} onNext={onNext} nextLabel={saving ? '保存中...' : '設定を完了する'} className="mt-5" disabled={saving} />
-    </StepFrame>
-  )
-}
-
+/**
+ * 固定費とカードの登録は、実際に保存できる画面(口座管理・固定費一覧)へ誘導する。
+ * 以前ここには FixedCostsScreen / CardCycleScreen という入力欄があったが、
+ * onChange も保存処理も無いモックで、完了画面も入力に関係なく
+ * 「固定費 3件 ¥90,980」と固定表示していたため撤去した。
+ */
 function DoneScreen({ balance, income }: { balance: number; income: number }) {
   return (
     <div>
@@ -258,16 +221,20 @@ function DoneScreen({ balance, income }: { balance: number; income: number }) {
         </div>
         <h1 className="text-[19px] font-bold">設定が完了しました</h1>
         <p className="mb-5 mt-2 text-[12.5px] leading-7 text-[#8891A0]">
-          ホーム画面から、今日あと使える金額を確認できます。
+          続けて口座と固定費を登録すると、引き落とし予測とAIコーチが使えます。
         </p>
       </div>
       <SummaryRow label="初期残高" value={`¥${balance.toLocaleString()}`} />
       <SummaryRow label="月収" value={`¥${income.toLocaleString()}`} />
-      <SummaryRow label="固定費 3件" value="¥90,980 / 月" />
-      <SummaryRow label="登録カード" value="2枚" />
-      <div className="mt-5">
-        <Link href="/dashboard" className="block w-full rounded-full bg-[#1476B3] px-5 py-3 text-center text-[13px] font-medium text-white">
-          ホームへ進む
+      <div className="mt-5 space-y-2.5">
+        <Link href="/accounts" className="block w-full rounded-full bg-[#1476B3] px-5 py-3 text-center text-[13px] font-medium text-white">
+          口座を登録する
+        </Link>
+        <Link href="/cashflow" className="block w-full rounded-full border border-[#E6EAEF] px-5 py-3 text-center text-[13px] font-medium text-[#1E2933]">
+          固定費を登録する
+        </Link>
+        <Link href="/dashboard" className="block w-full px-5 py-2 text-center text-[12.5px] text-[#8891A0]">
+          あとで設定する
         </Link>
       </div>
     </div>
@@ -314,15 +281,6 @@ function MoneyField({ label, value, onChange }: { label: string; value: string; 
           onChange={e => onChange(e.target.value)}
         />
       </span>
-    </label>
-  )
-}
-
-function SmallField({ label, value }: { label: string; value: string }) {
-  return (
-    <label className="block">
-      <span className="mb-1 block text-xs text-[#8891A0]">{label}</span>
-      <input className="w-full rounded-[10px] border border-[#E6EAEF] bg-white px-2.5 py-2 font-mono text-[13px]" defaultValue={value} />
     </label>
   )
 }

@@ -18,6 +18,7 @@ type CreditCardBody = {
   card_type?: string
   card_plan?: string
   bank_account?: string | null
+  debit_account_id?: string | null
 }
 
 function normalizeDay(value: unknown) {
@@ -57,6 +58,8 @@ function toPatch(body: CreditCardBody) {
     card_type: cardType,
     card_plan: cardPlan,
     bank_account: String(body.bank_account ?? '').trim() || null,
+    // 引き落とし口座の真実は FK 側。カード払いの固定費をこの口座に付け替える
+    debit_account_id: body.debit_account_id || null,
     updated_at: new Date().toISOString(),
   }
 }
@@ -71,13 +74,26 @@ export async function PATCH(request: NextRequest, { params }: Context) {
     return Response.json({ error: 'カード名・締め日・引き落とし日を入力してください' }, { status: 400 })
   }
 
-  const { data, error } = await supabaseAdmin
+  let { data, error } = await supabaseAdmin
     .from('credit_cards')
     .update(patch)
     .eq('id', id)
     .eq('user_id', user.id)
     .select()
     .single()
+
+  // migration 018 未適用の環境では debit_account_id 列が無いので、落として再試行する
+  if (error?.message.includes('debit_account_id')) {
+    const fallback = { ...patch }
+    delete (fallback as Partial<typeof patch>).debit_account_id
+    ;({ data, error } = await supabaseAdmin
+      .from('credit_cards')
+      .update(fallback)
+      .eq('id', id)
+      .eq('user_id', user.id)
+      .select()
+      .single())
+  }
 
   if (error) {
     return Response.json({ error: error.message }, { status: 500 })
