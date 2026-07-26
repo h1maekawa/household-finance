@@ -5,7 +5,7 @@ import useSWR from 'swr'
 import Link from 'next/link'
 import type { GoalProgress } from '@/types/goal'
 
-const fetcher = (url: string) => fetch(url).then(r => r.json())
+import { fetcher } from '@/lib/fetcher'
 
 const STATUS_STYLE: Record<GoalProgress['status'], { label: string; className: string }> = {
   achieved: { label: '達成', className: 'bg-success/10 text-success' },

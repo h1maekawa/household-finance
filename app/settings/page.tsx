@@ -77,8 +77,6 @@ export default function SettingsPage() {
   const { accounts } = useAccounts()
   const [activeTab, setActiveTab] = useState<SettingTab>('integrations')
   const [initialBalance, setInitialBalance] = useState('')
-  const [monthlyIncome, setMonthlyIncome] = useState('')
-  const [incomeDay, setIncomeDay] = useState('25')
   const [creditCards, setCreditCards] = useState<CreditCardSetting[]>([])
   const [cardName, setCardName] = useState('')
   const [closingDay, setClosingDay] = useState('31')
@@ -106,8 +104,6 @@ export default function SettingsPage() {
       .then((data: SettingsResponse) => {
         if (!mounted) return
         setInitialBalance(toNumberInput(data.profile?.initial_balance))
-        setMonthlyIncome(toNumberInput(data.profile?.monthly_income))
-        setIncomeDay(String(data.profile?.income_day ?? 25))
       })
       .catch(() => showToast('設定の読み込みに失敗しました', 'error'))
       .finally(() => {
@@ -146,11 +142,9 @@ export default function SettingsPage() {
       const res = await fetch('/api/settings', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          initial_balance: Number(initialBalance || 0),
-          monthly_income: Number(monthlyIncome || 0),
-          income_day: Number(incomeDay || 25),
-        }),
+        // 残高だけを送る。月収・給料日は固定収支ページが持つようになったので、
+        // ここから送ると古い値で上書きしてしまう。
+        body: JSON.stringify({ initial_balance: Number(initialBalance || 0) }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error)
@@ -337,6 +331,7 @@ export default function SettingsPage() {
         <h2 className="text-base font-bold">家計の初期値</h2>
         <p className="mt-1 text-xs leading-relaxed text-muted">
           残高はキャッシュフロー予測の起点として保存されます。
+          月収と給料日は<Link href="/fixed" className="font-medium text-primary">固定収支</Link>で設定します。
         </p>
 
         <div className="mt-4 grid gap-4">
@@ -344,18 +339,6 @@ export default function SettingsPage() {
             label="現在の貯金残高"
             value={initialBalance}
             onChange={setInitialBalance}
-            disabled={loading || saving}
-          />
-          <MoneyInput
-            label="毎月の固定収入"
-            value={monthlyIncome}
-            onChange={setMonthlyIncome}
-            disabled={loading || saving}
-          />
-          <DayInput
-            label="給料日"
-            value={incomeDay}
-            onChange={setIncomeDay}
             disabled={loading || saving}
           />
         </div>

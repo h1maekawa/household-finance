@@ -28,7 +28,8 @@ import TransactionForm from '@/components/TransactionForm'
 import ChatInput from '@/components/ChatInput'
 import PaymentMethodSummaryCard from '@/components/PaymentMethodSummaryCard'
 
-const fetcher = (url: string) => fetch(url).then(r => r.json())
+import { fetcher } from '@/lib/fetcher'
+import { CATEGORY_COLORS } from '@/lib/category-colors'
 
 type PeriodKey = 'thisMonth' | 'lastMonth' | 'threeMonths' | 'year'
 type ChartMode = 'monthly' | 'category'
@@ -41,19 +42,6 @@ const PERIODS: { key: PeriodKey; label: string }[] = [
   { key: 'lastMonth', label: '先月' },
 ]
 
-const CATEGORY_COLORS = [
-  '#1476B3',
-  '#1FAE8C',
-  '#E2544B',
-  '#F0B429',
-  '#7C5CFF',
-  '#EF7B45',
-  '#2F80ED',
-  '#6B7280',
-  '#9B51E0',
-  '#14B8A6',
-  '#F97316',
-]
 
 function periodRange(period: PeriodKey) {
   const today = new Date()
@@ -349,7 +337,7 @@ export default function TransactionsPage() {
       <button
         type="button"
         onClick={() => setShowInput(true)}
-        className="fixed bottom-[calc(64px+env(safe-area-inset-bottom,0px)+16px)] right-4 z-30 flex h-14 w-14 items-center justify-center rounded-full bg-primary text-2xl text-white shadow-lg transition-base active:scale-95 lg:bottom-6"
+        className="fixed bottom-[calc(env(safe-area-inset-bottom,0px)+16px)] right-4 z-30 flex h-14 w-14 items-center justify-center rounded-full bg-primary text-2xl text-white shadow-lg transition-base active:scale-95 lg:bottom-6"
         aria-label="取引を追加"
       >
         ＋

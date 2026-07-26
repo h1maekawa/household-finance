@@ -3,11 +3,11 @@ import { useState } from 'react'
 import useSWR from 'swr'
 import { addMonths, endOfMonth, format, isAfter, isWithinInterval, parseISO, startOfDay, startOfMonth } from 'date-fns'
 import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
+import Link from 'next/link'
 import { CashflowResponse } from '@/types/cashflow'
-import ScheduledPaymentList from '@/components/ScheduledPaymentList'
 import { useToast } from '@/components/Toast'
 
-const fetcher = (url: string) => fetch(url).then(r => r.json())
+import { fetcher } from '@/lib/fetcher'
 
 function isImportedCardBill(name: string, memo?: string) {
   const text = `${name} ${memo ?? ''}`.toLowerCase()
@@ -373,10 +373,18 @@ export default function CashflowPage() {
           </div>
         )}
 
-        {/* Scheduled Payments */}
-        {data && (
-          <ScheduledPaymentList payments={payments} onMutate={() => mutate()} />
-        )}
+        {/* 固定費の登録・編集は固定収支ページへ移した(要件定義書 v3.1 の情報設計)。
+            ここは「未来のお金を見る場所」なので、編集導線だけ残す。 */}
+        <Link
+          href="/fixed"
+          className="card flex items-center justify-between px-4 py-3.5 text-sm transition-base active:opacity-80"
+        >
+          <span>
+            <span className="font-medium">固定費を編集する</span>
+            <span className="mt-0.5 block text-xs text-muted">家賃・サブスクなどの引き落とし予定</span>
+          </span>
+          <span className="text-muted">›</span>
+        </Link>
       </div>
     </div>
   )

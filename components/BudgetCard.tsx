@@ -8,7 +8,7 @@ import Link from 'next/link'
 import type { BudgetSummary } from '@/types/budget'
 import type { CategoryProgress } from '@/types/budget'
 
-const fetcher = (url: string) => fetch(url).then(r => r.json())
+import { fetcher } from '@/lib/fetcher'
 
 type BudgetResponse = BudgetSummary & {
   categoryBudgets: Array<{ category: string; amount: number; source: string }>
@@ -56,7 +56,7 @@ export default function BudgetCard() {
     <div className="card p-4">
       <div className="mb-1 flex items-center justify-between">
         <h2 className="text-base font-bold">今月あと使える額</h2>
-        <Link href="/settings?tab=budget" className="text-xs font-bold text-primary">予算設定</Link>
+        <Link href="/fixed" className="text-xs font-bold text-primary">予算設定</Link>
       </div>
 
       <p className={`text-3xl font-bold ${overBudget ? 'text-danger' : ''}`}>

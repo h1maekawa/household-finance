@@ -12,7 +12,6 @@
   --surface: #F0F3F7;
   --border: #E6EAEF;
   --muted: #8891A0;
-  --bottom-nav-height: 64px;
   --sidebar-width: 200px;
 }
 
@@ -111,10 +110,6 @@ body {
 /* ===== Safe Area (iPhone) ===== */
 .safe-bottom {
   padding-bottom: env(safe-area-inset-bottom, 0px);
-}
-
-.pb-nav {
-  padding-bottom: calc(var(--bottom-nav-height) + env(safe-area-inset-bottom, 0px) + 16px);
 }
 
 /* ===== Transitions ===== */

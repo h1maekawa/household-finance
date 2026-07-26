@@ -2,7 +2,7 @@
 import useSWR from 'swr'
 import { CATEGORIES, INCOME_CATEGORIES, Category } from '@/types/transaction'
 
-const fetcher = (url: string) => fetch(url).then(r => r.json())
+import { fetcher } from '@/lib/fetcher'
 
 /**
  * 既定カテゴリ + チャットボット等で追加したカスタムカテゴリのマージ済み一覧。

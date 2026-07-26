@@ -18,19 +18,9 @@ import TransactionList from '@/components/TransactionList'
 import { TransactionsResponse } from '@/types/transaction'
 import { useCategories } from '@/lib/useCategories'
 
-const fetcher = (url: string) => fetch(url).then(r => r.json())
+import { fetcher } from '@/lib/fetcher'
+import { CATEGORY_COLORS } from '@/lib/category-colors'
 
-const CATEGORY_COLORS = [
-  '#1476B3',
-  '#1FAE8C',
-  '#E2544B',
-  '#F0B429',
-  '#7C5CFF',
-  '#EF7B45',
-  '#2F80ED',
-  '#6B7280',
-  '#9B51E0',
-]
 
 type AssetHistoryResponse = {
   points: Array<{

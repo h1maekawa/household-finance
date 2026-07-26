@@ -7,7 +7,7 @@ import InvestmentCsvImportPanel from '@/components/InvestmentCsvImportPanel'
 import InvestmentTransactionList from '@/components/InvestmentTransactionList'
 import StockHoldingList from '@/components/StockHoldingList'
 
-const fetcher = (url: string) => fetch(url).then(r => r.json())
+import { fetcher } from '@/lib/fetcher'
 
 export default function InvestmentsPage() {
   const [activeTab, setActiveTab] = useState<'summary' | 'holdings' | 'history'>('summary')

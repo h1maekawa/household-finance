@@ -4,7 +4,7 @@ import useSWR from 'swr'
 import { CreditCardSetting } from '@/types/cashflow'
 import { useToast } from '@/components/Toast'
 
-const fetcher = (url: string) => fetch(url).then(r => r.json())
+import { fetcher } from '@/lib/fetcher'
 
 const DEFAULT_CARDS = [
   { name: '楽天カード', paymentDay: 27, cardType: 'rakuten', cardPlan: 'rakuten_standard' },

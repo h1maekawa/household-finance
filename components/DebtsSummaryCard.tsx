@@ -7,7 +7,7 @@ import { ScheduledPayment } from '@/types/cashflow'
 import { getUnpaidScheduledPayments } from '@/lib/unpaid'
 import { useToast } from '@/components/Toast'
 
-const fetcher = (url: string) => fetch(url).then(r => r.json())
+import { fetcher } from '@/lib/fetcher'
 
 export default function DebtsSummaryCard() {
   const { showToast } = useToast()

@@ -1,6 +1,7 @@
 'use client'
 
 import useSWR from 'swr'
+import { fetcher } from '@/lib/fetcher'
 
 type ImportStatus = {
   ready: boolean
@@ -14,8 +15,6 @@ type ImportStatus = {
   }
   nextAction: string
 }
-
-const fetcher = (url: string) => fetch(url).then(r => r.json())
 
 export default function GmailImportStatusCard() {
   const { data, error } = useSWR<ImportStatus>('/api/transactions/import', fetcher)

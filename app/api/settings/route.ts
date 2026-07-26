@@ -63,23 +63,43 @@ export async function PATCH(request: NextRequest) {
   const supabase = await createSupabaseServerClient()
 
   const body: SettingsBody = await request.json()
-  const initialBalance = normalizeAmount(body.initial_balance)
-  const monthlyIncome = normalizeAmount(body.monthly_income)
-  const incomeDay = normalizeDay(body.income_day ?? 25)
 
-  if (initialBalance === null || monthlyIncome === null || incomeDay === null) {
-    return Response.json({ error: '残高・月収・給料日を正しく入力してください' }, { status: 400 })
+  // 部分更新を許す。固定収支ページは月収・給料日だけを、キャッシュフローページは
+  // 残高だけを送る。全項目必須にすると、月収を保存するたびに残高スナップショットが
+  // 1件積まれて残高の推移が汚れてしまう。
+  const patch: Record<string, unknown> = { user_id: user.id, updated_at: new Date().toISOString() }
+
+  if (body.initial_balance !== undefined) {
+    const initialBalance = normalizeAmount(body.initial_balance)
+    if (initialBalance === null) {
+      return Response.json({ error: '残高を正しく入力してください' }, { status: 400 })
+    }
+    patch.initial_balance = initialBalance
+  }
+
+  if (body.monthly_income !== undefined) {
+    const monthlyIncome = normalizeAmount(body.monthly_income)
+    if (monthlyIncome === null) {
+      return Response.json({ error: '月収を正しく入力してください' }, { status: 400 })
+    }
+    patch.monthly_income = monthlyIncome
+  }
+
+  if (body.income_day !== undefined) {
+    const incomeDay = normalizeDay(body.income_day)
+    if (incomeDay === null) {
+      return Response.json({ error: '給料日は1〜31で入力してください' }, { status: 400 })
+    }
+    patch.income_day = incomeDay
+  }
+
+  if (Object.keys(patch).length <= 2) {
+    return Response.json({ error: '更新する項目がありません' }, { status: 400 })
   }
 
   const { data: profile, error: profileError } = await supabase
     .from('users_profile')
-    .upsert({
-      user_id: user.id,
-      initial_balance: initialBalance,
-      monthly_income: monthlyIncome,
-      income_day: incomeDay,
-      updated_at: new Date().toISOString(),
-    }, { onConflict: 'user_id' })
+    .upsert(patch, { onConflict: 'user_id' })
     .select()
     .single()
 
@@ -87,14 +107,19 @@ export async function PATCH(request: NextRequest) {
     return Response.json({ error: profileError.message }, { status: 500 })
   }
 
-  const { data: balance, error: balanceError } = await supabase
-    .from('account_balance')
-    .insert([{ balance: initialBalance, user_id: user.id }])
-    .select()
-    .single()
+  // 残高スナップショットは、残高が実際に送られてきたときだけ積む
+  let balance = null
+  if (patch.initial_balance !== undefined) {
+    const { data, error: balanceError } = await supabase
+      .from('account_balance')
+      .insert([{ balance: patch.initial_balance, user_id: user.id }])
+      .select()
+      .single()
 
-  if (balanceError) {
-    return Response.json({ error: balanceError.message }, { status: 500 })
+    if (balanceError) {
+      return Response.json({ error: balanceError.message }, { status: 500 })
+    }
+    balance = data
   }
 
   return Response.json({ profile, currentBalance: balance })

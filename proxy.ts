@@ -9,10 +9,11 @@ import { updateSession } from '@/lib/supabase/middleware'
 const protectedPaths = [
   '/dashboard',
   '/transactions',
+  '/fixed',
   '/cashflow',
   '/investments',
-  '/input',
-  '/assets',
+  '/goals',
+  '/ai',
   '/settings',
   '/accounts',
   '/onboarding',

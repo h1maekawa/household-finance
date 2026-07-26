@@ -6,13 +6,12 @@ import { useCategories } from '@/lib/useCategories'
 import { useAccounts } from '@/lib/useAccounts'
 import { useToast } from '@/components/Toast'
 import FixedCostTemplate from '@/components/FixedCostTemplate'
+import { fetcher } from '@/lib/fetcher'
 
 interface Props {
   payments: ScheduledPayment[]
   onMutate: () => void
 }
-
-const fetcher = (url: string) => fetch(url).then(r => r.json())
 
 const emptyForm = (): ScheduledPaymentInput => ({
   name:     '',

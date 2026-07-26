@@ -6,7 +6,7 @@ import { useState } from 'react'
 import useSWR from 'swr'
 import type { CoachInsightRow } from '@/types/coach'
 
-const fetcher = (url: string) => fetch(url).then(r => r.json())
+import { fetcher } from '@/lib/fetcher'
 
 const SEVERITY_STYLE: Record<CoachInsightRow['severity'], { badge: string; ring: string; label: string }> = {
   action: { badge: 'bg-danger/10 text-danger', ring: 'border-danger/30', label: '要対応' },

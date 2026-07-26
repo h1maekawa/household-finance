@@ -4,7 +4,7 @@ import useSWR from 'swr'
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from 'recharts'
 import { Debt } from '@/types/debt'
 
-const fetcher = (url: string) => fetch(url).then(r => r.json())
+import { fetcher } from '@/lib/fetcher'
 
 export default function DebtBalanceOverview() {
   const { data: debts } = useSWR<Debt[]>('/api/debts', fetcher)

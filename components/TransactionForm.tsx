@@ -5,7 +5,7 @@ import { format } from 'date-fns'
 import { CATEGORIES, INCOME_CATEGORIES, PAYMENT_METHODS, TransactionInput, Category } from '@/types/transaction'
 import { useToast } from '@/components/Toast'
 
-const fetcher = (url: string) => fetch(url).then(r => r.json())
+import { fetcher } from '@/lib/fetcher'
 
 interface Props {
   onSuccess?: () => void

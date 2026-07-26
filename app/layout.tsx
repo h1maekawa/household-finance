@@ -1,7 +1,8 @@
 import type { Metadata, Viewport } from 'next'
 import './globals.css'
-import BottomNav from '@/components/BottomNav'
+import MobileNav from '@/components/MobileNav'
 import Sidebar from '@/components/Sidebar'
+import SWRProvider from '@/components/SWRProvider'
 import { ToastProvider } from '@/components/Toast'
 
 export const metadata: Metadata = {
@@ -26,11 +27,15 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="ja" className="h-full">
       <body className="min-h-svh flex bg-background">
-        <ToastProvider>
-          <Sidebar />
-          <main className="min-w-0 flex-1 pb-nav lg:pb-8">{children}</main>
-          <BottomNav />
-        </ToastProvider>
+        <SWRProvider>
+          <ToastProvider>
+            <Sidebar />
+            <div className="flex min-w-0 flex-1 flex-col">
+              <MobileNav />
+              <main className="min-w-0 flex-1">{children}</main>
+            </div>
+          </ToastProvider>
+        </SWRProvider>
       </body>
     </html>
   )

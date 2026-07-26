@@ -2,7 +2,7 @@
 import useSWR from 'swr'
 import type { AccountWithBalance } from '@/lib/repositories/accounts'
 
-const fetcher = (url: string) => fetch(url).then(r => r.json())
+import { fetcher } from '@/lib/fetcher'
 
 /**
  * 口座マスタ + 最新残高。
