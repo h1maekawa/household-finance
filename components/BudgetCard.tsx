@@ -56,7 +56,7 @@ export default function BudgetCard() {
     <div className="card p-4">
       <div className="mb-1 flex items-center justify-between">
         <h2 className="text-base font-bold">今月あと使える額</h2>
-        <Link href="/fixed" className="text-xs font-bold text-primary">予算設定</Link>
+        <Link href="/plan" className="text-xs font-bold text-primary">予算設定</Link>
       </div>
 
       <p className={`text-3xl font-bold ${overBudget ? 'text-danger' : ''}`}>

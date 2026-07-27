@@ -331,7 +331,7 @@ export default function SettingsPage() {
         <h2 className="text-base font-bold">家計の初期値</h2>
         <p className="mt-1 text-xs leading-relaxed text-muted">
           残高はキャッシュフロー予測の起点として保存されます。
-          月収と給料日は<Link href="/fixed" className="font-medium text-primary">固定収支</Link>で設定します。
+          月収と給料日は<Link href="/plan" className="font-medium text-primary">マネープラン</Link>で設定します。
         </p>
 
         <div className="mt-4 grid gap-4">
