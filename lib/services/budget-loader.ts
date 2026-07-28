@@ -2,7 +2,11 @@
 //
 // 予算・コーチ API が共通で使うサーバー側のデータ収集。
 // 「収集(I/O)」と「計算(純関数)」を分け、計算は lib/services/*.ts に閉じ込める。
+import type { SupabaseClient } from '@supabase/supabase-js'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
+
+/** Cookieセッション版と service role 版のどちらも受けられるようにする */
+type SupabaseLike = SupabaseClient
 import { getMergedCategories } from '@/lib/categories'
 import { getBudget, ensureBudget, listBudgetCategories } from '@/lib/repositories/budgets'
 import { listAccountsWithBalances } from '@/lib/repositories/accounts'
@@ -54,13 +58,15 @@ export type BudgetLoad = {
 export async function loadBudget(
   userId: string,
   month: string,
-  today: string
+  today: string,
+  /** サーバー間連携ではセッションが無いため supabaseAdmin を渡す */
+  client?: SupabaseLike
 ): Promise<BudgetLoad> {
-  const supabase = await createSupabaseServerClient()
+  const supabase = client ?? (await createSupabaseServerClient())
 
   const [{ settings, row, source }, profileRes, scheduledRes, txRes, categories] =
     await Promise.all([
-      getBudget(userId, month),
+      getBudget(userId, month, client),
       supabase.from('users_profile').select('monthly_income').eq('user_id', userId).maybeSingle(),
       supabase
         .from('scheduled_payments')

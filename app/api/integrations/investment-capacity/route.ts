@@ -48,7 +48,7 @@ export async function GET(request: NextRequest) {
 
   try {
     const [budgetLoad, balanceRes, scheduledRes, investmentRes, categories] = await Promise.all([
-      loadBudget(userId, month, today),
+      loadBudget(userId, month, today, supabaseAdmin),
       supabaseAdmin
         .from('account_balance')
         .select('balance, recorded_at')

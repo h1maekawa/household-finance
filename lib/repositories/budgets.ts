@@ -1,5 +1,9 @@
 // lib/repositories/budgets.ts
+import type { SupabaseClient } from '@supabase/supabase-js'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
+
+/** Cookieセッション版と service role 版のどちらも受けられるようにする */
+type SupabaseLike = SupabaseClient
 import { yen } from '@/lib/services/money'
 import type { BudgetSettings, CategoryBudget } from '@/types/budget'
 
@@ -37,9 +41,14 @@ function toSettings(row: Record<string, unknown> | null): BudgetSettings {
  */
 export async function getBudget(
   userId: string,
-  month: string
+  month: string,
+  /**
+   * 読み取りに使うクライアント。既定はCookieセッション版。
+   * サーバー間連携（セッションが無い経路）では supabaseAdmin を渡す。
+   */
+  client?: SupabaseLike
 ): Promise<{ row: BudgetRow | null; settings: BudgetSettings; source: 'month' | 'template' | 'default' }> {
-  const supabase = await createSupabaseServerClient()
+  const supabase = client ?? (await createSupabaseServerClient())
   const { data, error } = await supabase
     .from('budgets')
     .select('*')
