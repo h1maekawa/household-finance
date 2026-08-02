@@ -115,7 +115,7 @@ export default function PaymentMethodSummaryCard({ transactions, scheduledPaymen
               {deferred && !item.schedule && (
                 <div className="mt-2 flex items-center justify-between gap-2 rounded-lg bg-warning/10 px-2.5 py-2">
                   <p className="text-[11px] text-warning">引き落とし日が未設定です</p>
-                  <Link href="/cashflow" className="shrink-0 text-[11px] font-bold text-warning">
+                  <Link href="/plan?tab=payments" className="shrink-0 text-[11px] font-bold text-warning">
                     設定する
                   </Link>
                 </div>

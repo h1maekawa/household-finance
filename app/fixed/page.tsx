@@ -1,7 +1,6 @@
 import { redirect } from 'next/navigation'
 
-// /fixed・/goals・/ai はマネープラン(/plan)へ統合した。
-// 既存のブックマークとナビ履歴を壊さないようリダイレクトだけ残す。
+// 固定費は「予定」ページの固定費タブへ統合した。
 export default function Page() {
-  redirect('/plan')
+  redirect('/plan?tab=fixed')
 }

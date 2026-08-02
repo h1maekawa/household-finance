@@ -227,10 +227,10 @@ function DoneScreen({ balance, income }: { balance: number; income: number }) {
       <SummaryRow label="初期残高" value={`¥${balance.toLocaleString()}`} />
       <SummaryRow label="月収" value={`¥${income.toLocaleString()}`} />
       <div className="mt-5 space-y-2.5">
-        <Link href="/accounts" className="block w-full rounded-full bg-[#1476B3] px-5 py-3 text-center text-[13px] font-medium text-white">
+        <Link href="/investments?tab=accounts" className="block w-full rounded-full bg-[#1476B3] px-5 py-3 text-center text-[13px] font-medium text-white">
           口座を登録する
         </Link>
-        <Link href="/cashflow" className="block w-full rounded-full border border-[#E6EAEF] px-5 py-3 text-center text-[13px] font-medium text-[#1E2933]">
+        <Link href="/plan?tab=payments" className="block w-full rounded-full border border-[#E6EAEF] px-5 py-3 text-center text-[13px] font-medium text-[#1E2933]">
           固定費を登録する
         </Link>
         <Link href="/dashboard" className="block w-full px-5 py-2 text-center text-[12.5px] text-[#8891A0]">

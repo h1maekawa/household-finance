@@ -400,7 +400,7 @@ export default function SettingsPage() {
               固定費ごとに引き落とし日と利用口座を確認・設定できます。
             </p>
           </div>
-          <Link href="/accounts" className="shrink-0 text-sm font-medium text-primary">
+          <Link href="/investments?tab=accounts" className="shrink-0 text-sm font-medium text-primary">
             口座管理
           </Link>
         </div>

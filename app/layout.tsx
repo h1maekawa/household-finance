@@ -32,7 +32,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             <Sidebar />
             <div className="flex min-w-0 flex-1 flex-col">
               <MobileNav />
-              <main className="min-w-0 flex-1">{children}</main>
+              {/* モバイルは下部固定タブぶんの余白を確保する。
+                  これが無いと最後のカードがタブに隠れて押せない */}
+              <main className="min-w-0 flex-1 pb-[calc(4rem+env(safe-area-inset-bottom))] lg:pb-0">
+                {children}
+              </main>
             </div>
           </ToastProvider>
         </SWRProvider>
