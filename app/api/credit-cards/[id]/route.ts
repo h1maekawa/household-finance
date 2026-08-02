@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
 import { getAuthenticatedUser, unauthorized } from '@/lib/auth'
+import { describeMissingColumn } from '@/lib/credit-card-errors'
 import type { CardType, CardPlan } from '@/lib/card-payment-rules'
 
 type Context = { params: Promise<{ id: string }> }
@@ -96,7 +97,10 @@ export async function PATCH(request: NextRequest, { params }: Context) {
   }
 
   if (error) {
-    return Response.json({ error: error.message }, { status: 500 })
+    return Response.json(
+      { error: describeMissingColumn(error.message) ?? error.message },
+      { status: 500 }
+    )
   }
 
   return Response.json(data)

@@ -4,7 +4,7 @@ import useSWR from 'swr'
 import { addMonths, endOfMonth, format, isAfter, isWithinInterval, parseISO, startOfDay, startOfMonth } from 'date-fns'
 import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import Link from 'next/link'
-import { CashflowResponse } from '@/types/cashflow'
+import { CardCycle, CashflowResponse } from '@/types/cashflow'
 import { useToast } from '@/components/Toast'
 
 import { fetcher } from '@/lib/fetcher'
@@ -33,6 +33,8 @@ export default function CashflowPage() {
   const generatedPayments = data?.generatedPayments ?? []
   const creditCards = data?.creditCards ?? []
   const profile = data?.profile
+  const cardCycles = data?.cardCycles ?? []
+  const unassigned = data?.unassignedCardUsage
 
   // 表示の起点となる月は「今月のカード引き落とし日を過ぎたか」で決める。
   // - 今月の引き落とし日が未到来 → 今月を起点（例: 7/27前なら 7月・8月）
@@ -80,7 +82,10 @@ export default function CashflowPage() {
   }, 0)
   const additionalCashNeeded = Math.max(0, -minBalance)
   const usableCashAfterProjection = focusedProjected.length > 0 ? focusedProjected[focusedProjected.length - 1].balance : currentCash
-  const upcomingCardBills = [...confirmedCardBills, ...generatedPayments]
+  // 見込みは「カードの締めと引き落とし」パネルが締めサイクル単位で出すので、
+  // ここは Gmail から取り込んだ確定請求だけに絞る。両方出すと同じ請求が
+  // 2箇所に違う金額で並び、「どっちが本当か分からない」状態になる。
+  const upcomingCardBills = confirmedCardBills
     .slice()
     .filter(payment => {
       if (!payment.scheduled_date) return false
@@ -218,6 +223,61 @@ export default function CashflowPage() {
           </div>
         )}
 
+        {/* 取りこぼし警告: 請求見込みから抜け落ちているカード利用 */}
+        {unassigned && unassigned.count > 0 && (
+          <div className="card border border-warning/30 bg-warning/5 p-4">
+            <div className="flex items-start gap-3">
+              <span className="mt-0.5 text-base">⚠</span>
+              <div className="min-w-0">
+                <h2 className="text-sm font-bold text-foreground">
+                  カード請求に含まれていない利用が {unassigned.count}件（{unassigned.total.toLocaleString()}円）
+                </h2>
+                <p className="mt-1 text-xs leading-relaxed text-muted">
+                  カード会社が特定できていないため、下の引き落とし見込みから抜けています。
+                  実際の請求額はこの分だけ多くなります。
+                </p>
+                <div className="mt-2 flex flex-col gap-1">
+                  {Object.entries(unassigned.byMonth).sort().map(([month, amount]) => (
+                    <p key={month} className="text-[11px] text-muted">
+                      {month.replace('-', '年')}月利用分: <strong className="text-warning">{amount.toLocaleString()}円</strong>
+                    </p>
+                  ))}
+                </div>
+                <Link href="/transactions" className="mt-2 inline-block text-xs font-bold text-primary">
+                  取引一覧でカードを設定する ›
+                </Link>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* 締め前も含めた「これから引き落とされるカード」。予測ウィンドウの外の支払日もここには出る */}
+        {cardCycles.length > 0 && (
+          <div className="card p-4">
+            <div className="mb-3">
+              <h2 className="text-base font-bold">カードの締めと引き落とし</h2>
+              <p className="mt-1 text-xs leading-relaxed text-muted">
+                締め日ごとに利用額をまとめ、いつ・いくら引き落とされるかを出しています。
+                「締め前」はこれから金額が増えます。
+              </p>
+            </div>
+            <div className="flex flex-col gap-2">
+              {cardCycles.map(cycle => (
+                <CardCycleRow
+                  key={`${cycle.cardId}-${cycle.paymentDate}`}
+                  cycle={cycle}
+                  onSaved={mutate}
+                />
+              ))}
+            </div>
+            <p className="mt-3 text-[11px] leading-relaxed text-muted">
+              締め日・支払日はカード設定のプランで決まります。実際の引き落とし日と違う場合は
+              <a href="/settings" className="font-bold text-primary"> 設定 </a>
+              からプランを変更してください。
+            </p>
+          </div>
+        )}
+
         {/* Alerts */}
         {negDays > 0 && (
           <div className="flex items-start gap-3 px-4 py-3 rounded-xl bg-danger/10 text-danger border border-danger/20 text-sm font-medium">
@@ -302,9 +362,9 @@ export default function CashflowPage() {
           <div className="card p-4">
             <div className="mb-3 flex items-start justify-between gap-3">
               <div>
-                <h2 className="font-bold text-base">カード引き落とし見込み</h2>
+                <h2 className="font-bold text-base">取り込み済みの確定請求</h2>
                 <p className="mt-1 text-xs leading-relaxed text-muted">
-                  取り込んだカード利用通知を月末締めでまとめ、翌月の引き落とし日に反映します。
+                  カード会社の請求確定メールから取り込んだ、金額が確定済みの引き落としです。
                 </p>
               </div>
               <span className="shrink-0 rounded-full bg-primary/10 px-2.5 py-1 text-xs font-bold text-primary">
@@ -386,6 +446,157 @@ export default function CashflowPage() {
           <span className="text-muted">›</span>
         </Link>
       </div>
+    </div>
+  )
+}
+
+/**
+ * カード1サイクルの行。締め済みのサイクルには確定額の入力欄を出す。
+ *
+ * 利用通知の積み上げ(見込み)は、締め日時点では実額と一致しない。
+ * 売上確定日が利用日とズレる／年会費・分割手数料の通知が来ない／
+ * 海外利用は為替確定まで金額が動く、といった理由による。
+ * Vpass 等の「次回お支払い金額」を1つ入れれば、そこから先は完全に一致する。
+ */
+function CardCycleRow({ cycle, onSaved }: { cycle: CardCycle; onSaved: () => void }) {
+  const { showToast } = useToast()
+  const [editing, setEditing] = useState(false)
+  const [value, setValue] = useState('')
+  const [saving, setSaving] = useState(false)
+
+  const confirmed = cycle.confirmedAmount
+  const gap = confirmed === null ? 0 : confirmed - cycle.amount
+
+  async function save(amount: number | null) {
+    setSaving(true)
+    try {
+      const res = await fetch(
+        amount === null
+          ? `/api/credit-cards/statement?card_id=${cycle.cardId}&payment_date=${cycle.paymentDate}`
+          : '/api/credit-cards/statement',
+        amount === null
+          ? { method: 'DELETE' }
+          : {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                card_id: cycle.cardId,
+                payment_date: cycle.paymentDate,
+                amount,
+              }),
+            }
+      )
+      if (!res.ok) throw new Error((await res.json()).error)
+      showToast(amount === null ? '確定額を取り消しました' : '確定額を保存しました', 'success')
+      setEditing(false)
+      setValue('')
+      onSaved()
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : '保存に失敗しました', 'error')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  function handleSave() {
+    const amount = Number(value.replace(/[,\s]/g, ''))
+    if (!Number.isFinite(amount) || amount < 0) {
+      showToast('正しい金額を入力してください', 'warning')
+      return
+    }
+    save(amount)
+  }
+
+  return (
+    <div className={`rounded-xl px-3 py-3 ${
+      confirmed !== null
+        ? 'bg-success/5 border border-success/20'
+        : cycle.open
+          ? 'bg-primary/5 border border-primary/20'
+          : 'bg-surface'
+    }`}>
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="truncate text-sm font-bold">
+            {cycle.cardName}
+            <span className={`ml-1.5 rounded px-1.5 py-0.5 text-[10px] font-bold ${
+              confirmed !== null
+                ? 'bg-success/15 text-success'
+                : cycle.open
+                  ? 'bg-primary/15 text-primary'
+                  : 'bg-warning/15 text-warning'
+            }`}>
+              {confirmed !== null ? '確定額' : cycle.open ? '締め前・増加中' : '締め済み・見込み'}
+            </span>
+          </p>
+          <p className="mt-1 text-xs text-muted">
+            {cycle.periodStart.slice(5).replace('-', '/')}〜{cycle.periodEnd.slice(5).replace('-', '/')} 利用分
+            （{cycle.transactionCount}件）
+          </p>
+          <p className="mt-0.5 text-xs font-medium text-foreground">
+            {cycle.paymentDate.replaceAll('-', '/')} に引き落とし
+          </p>
+        </div>
+        <div className="shrink-0 text-right">
+          <p className="font-mono text-sm font-bold text-danger">
+            -{(confirmed ?? cycle.amount).toLocaleString()}円
+          </p>
+          {confirmed !== null && gap !== 0 && (
+            <p className="mt-0.5 text-[11px] text-muted">
+              見込み比 {gap > 0 ? '+' : ''}{gap.toLocaleString()}円
+            </p>
+          )}
+        </div>
+      </div>
+
+      {/* 締め前はカード会社側も金額を確定させていないので、入力欄は出さない */}
+      {!cycle.open && (
+        <div className="mt-2.5 border-t border-border/60 pt-2.5">
+          {editing ? (
+            <div className="flex gap-2">
+              <input
+                type="number"
+                inputMode="numeric"
+                value={value}
+                onChange={e => setValue(e.target.value)}
+                placeholder="確定額を入力"
+                autoFocus
+                className="min-w-0 flex-1 rounded-lg border border-border bg-card px-2.5 py-2 font-mono text-sm focus:border-primary focus:outline-none"
+              />
+              <button onClick={handleSave} disabled={saving}
+                className="shrink-0 rounded-lg bg-success px-3 py-2 text-xs font-bold text-white disabled:opacity-50">
+                {saving ? '...' : '保存'}
+              </button>
+              <button onClick={() => { setEditing(false); setValue('') }}
+                className="shrink-0 rounded-lg bg-surface px-3 py-2 text-xs font-bold text-muted">
+                取消
+              </button>
+            </div>
+          ) : (
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-[11px] leading-relaxed text-muted">
+                {confirmed !== null
+                  ? 'カード会社の確定額を使っています'
+                  : 'Vpass等の「次回お支払い金額」を入れると完全に一致します'}
+              </p>
+              <div className="flex shrink-0 gap-2">
+                {confirmed !== null && (
+                  <button onClick={() => save(null)} disabled={saving}
+                    className="text-[11px] font-bold text-muted disabled:opacity-50">
+                    取消
+                  </button>
+                )}
+                <button
+                  onClick={() => { setEditing(true); setValue(String(confirmed ?? cycle.amount)) }}
+                  className="text-[11px] font-bold text-primary"
+                >
+                  {confirmed !== null ? '修正' : '確定額を入力'}
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   )
 }

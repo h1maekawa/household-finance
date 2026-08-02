@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
 import { getAuthenticatedUser, unauthorized } from '@/lib/auth'
+import { describeMissingColumn } from '@/lib/credit-card-errors'
 import type { CardType, CardPlan } from '@/lib/card-payment-rules'
 
 const VALID_CARD_TYPES = new Set<CardType>(['rakuten', 'smbc', 'generic'])
@@ -108,7 +109,10 @@ export async function POST(request: NextRequest) {
   }
 
   if (error) {
-    return Response.json({ error: error.message }, { status: 500 })
+    return Response.json(
+      { error: describeMissingColumn(error.message) ?? error.message },
+      { status: 500 }
+    )
   }
 
   return Response.json(data, { status: 201 })

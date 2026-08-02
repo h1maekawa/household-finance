@@ -170,11 +170,10 @@ export async function loadUpcomingDebits(userId: string, today: string, horizonD
         'recurrence, business_day_rule, currency, foreign_amount, created_at'
       )
       .eq('user_id', userId),
-    supabase
-      .from('credit_cards')
-      .select('id, name, closing_day, payment_day, closing_day_int, payment_day_int, ' +
-        'payment_month_offset, card_plan, debit_account_id, created_at')
-      .eq('user_id', userId),
+    // 列を明示すると、未適用のマイグレーションがある環境(card_plan は 013)で
+    // クエリ全体が失敗し、カード払いの付け替えが丸ごと効かなくなる。
+    // 存在する列だけを返す select('*') にして、欠けた列は undefined として扱う。
+    supabase.from('credit_cards').select('*').eq('user_id', userId),
     loadFxRates(),
   ])
 

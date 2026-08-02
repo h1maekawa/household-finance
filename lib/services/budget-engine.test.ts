@@ -166,6 +166,25 @@ test('summarizeVariableSpending excludes fixed categories and matched transactio
   assert.equal(result.stats['食費'].average, 3600)
 })
 
+// Gmail 取り込みは category='未分類' で入り、ユーザーが確定するまでそのまま。
+// ここを除外すると「実際は使っているのに消化額0円」になり、
+// 「あといくら使えるか」が実態より大きく出てしまう。
+test('summarizeVariableSpending counts 未分類 so the remaining budget stays honest', () => {
+  const transactions = [
+    tx({ id: 't1', amount: 4200, category: '食費' }),
+    tx({ id: 't2', amount: 21700, category: '未分類' }),
+    tx({ id: 't3', amount: 62000, category: 'クレカ請求' }), // これは引き続き除外
+  ]
+
+  const result = summarizeVariableSpending(transactions, {
+    month: '2026-07',
+    fixedNames: FIXED_NAMES,
+  })
+
+  assert.equal(result.total, 25900)
+  assert.deepEqual(result.byCategory, { 食費: 4200, 未分類: 21700 })
+})
+
 // ---------------------------------------------------------------- 主計算
 
 function baseInput(overrides: Partial<BudgetInput> = {}): BudgetInput {

@@ -26,6 +26,7 @@ type CreditCardSetting = {
   card_type?: string | null
   card_plan?: string | null
   bank_account?: string | null
+  debit_account_id?: string | null
 }
 
 function toNumberInput(value: number | undefined) {
@@ -191,6 +192,45 @@ export default function SettingsPage() {
       showToast('カード設定を追加しました', 'success')
     } catch (err) {
       showToast(err instanceof Error ? err.message : 'カード設定を保存できませんでした', 'error')
+    } finally {
+      setSavingCard(false)
+    }
+  }
+
+  /**
+   * 既存カードのプラン変更。
+   *
+   * プランを選ぶと締め日・支払日は lib/card-payment-rules.ts のルールが正になるため、
+   * closing_day_int / payment_day_int はルール側の値で上書きして表示と実計算を揃える。
+   * (両者がズレていると「設定は10日払いなのに27日に落ちる」ように見える)
+   */
+  async function handleUpdateCardPlan(card: CreditCardSetting, plan: string) {
+    const rule = CARD_PAYMENT_RULES[plan as CardPlan]
+    const usePlan = plan !== 'generic' && rule?.supported
+    setSavingCard(true)
+    try {
+      const res = await fetch(`/api/credit-cards/${card.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: card.name,
+          closing_day_int: usePlan
+            ? (rule.closingDay === 'end_of_month' ? 31 : rule.closingDay)
+            : card.closing_day_int ?? 31,
+          payment_day_int: usePlan ? rule.paymentDay : card.payment_day_int ?? 27,
+          payment_month_offset: usePlan ? rule.paymentMonthOffset : card.payment_month_offset ?? 1,
+          card_type: usePlan ? rule.cardType : 'generic',
+          card_plan: plan,
+          debit_account_id: card.debit_account_id ?? null,
+          bank_account: card.bank_account ?? null,
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error)
+      await refreshCreditCards()
+      showToast('カードのプランを更新しました', 'success')
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'プランを更新できませんでした', 'error')
     } finally {
       setSavingCard(false)
     }
@@ -473,20 +513,32 @@ export default function SettingsPage() {
                 key={card.id}
                 className={`flex items-center justify-between gap-3 px-4 py-3 ${index < creditCards.length - 1 ? 'border-b border-border' : ''}`}
               >
-                <div>
+                <div className="min-w-0 flex-1">
                   <p className="text-sm font-bold">{card.name}</p>
                   <p className="mt-0.5 text-xs text-muted">
                     {describeCardRule(card)}
                   </p>
-                  <p className="mt-0.5 text-[11px] text-muted">
-                    {CARD_TYPES.find(item => item.value === (card.card_type ?? 'generic'))?.label ?? '手動設定'} / {CARD_PLANS.find(item => item.value === (card.card_plan ?? 'generic'))?.label ?? '手動設定'}
-                  </p>
                   <p className="mt-0.5 text-[11px] text-muted">引き落とし口座: {card.bank_account || '未設定'}</p>
+                  {/* プランを選ぶと締め日・支払日がルール側の値に揃う。
+                      ここが唯一の変更導線なので、一覧に直接置いている。 */}
+                  <label className="mt-2 block">
+                    <span className="mb-1 block text-[11px] text-muted">支払いプラン</span>
+                    <select
+                      value={card.card_plan ?? 'generic'}
+                      onChange={event => handleUpdateCardPlan(card, event.target.value)}
+                      disabled={savingCard}
+                      className="w-full rounded-lg border border-border bg-surface px-2.5 py-2 text-xs focus:border-primary focus:outline-none disabled:opacity-50"
+                    >
+                      {CARD_PLANS.map(item => (
+                        <option key={item.value} value={item.value}>{item.label}</option>
+                      ))}
+                    </select>
+                  </label>
                 </div>
                 <button
                   type="button"
                   onClick={() => handleDeleteCard(card.id)}
-                  className="shrink-0 text-xs font-bold text-danger"
+                  className="shrink-0 self-start text-xs font-bold text-danger"
                 >
                   削除
                 </button>

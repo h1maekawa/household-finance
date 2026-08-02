@@ -53,6 +53,53 @@ function cardMatchesTransaction(tx: Transaction, normalizedCardName: string) {
   )
 }
 
+/**
+ * 「クレジットカードで払った支出」に見えるか。
+ * card_issuer が空でも payment_method が汎用の「クレジットカード」なら該当する。
+ */
+function looksLikeCardUsage(tx: Transaction) {
+  if (tx.kind === 'income') return false
+  if (tx.card_issuer) return true
+  const method = normalizeName(tx.payment_method ?? '')
+  return method.includes('クレジット') || method.includes('card') || method.includes('カード')
+}
+
+export type UnassignedCardUsage = {
+  /** どのカード設定にも紐づかなかったカード利用の合計額 */
+  total: number
+  count: number
+  /** 'YYYY-MM' → 合計額。どの月の請求がズレるかを画面で示すために使う */
+  byMonth: Record<string, number>
+}
+
+/**
+ * カード払いに見えるのに、登録済みのどのカードにも一致しない取引を集計する。
+ *
+ * これらは buildGeneratedCreditPayments のどのグループにも入らないため、
+ * 放っておくと請求見込みから黙って消える(実データで16,162円が消えていた)。
+ * 消えたことを数字で見せて、card_issuer の修正へ誘導するのがこの関数の役目。
+ */
+export function findUnassignedCardUsage(
+  transactions: Transaction[],
+  creditCards: CreditCardSetting[]
+): UnassignedCardUsage {
+  const normalizedNames = creditCards.map(card => normalizeName(card.name))
+  const byMonth: Record<string, number> = {}
+  let total = 0
+  let count = 0
+
+  for (const tx of transactions) {
+    if (!looksLikeCardUsage(tx)) continue
+    if (normalizedNames.some(name => cardMatchesTransaction(tx, name))) continue
+    const month = tx.date.slice(0, 7)
+    byMonth[month] = (byMonth[month] ?? 0) + tx.amount
+    total += tx.amount
+    count += 1
+  }
+
+  return { total, count, byMonth }
+}
+
 function numberOrDefault(value: unknown, fallback: number) {
   const parsed = Number(value)
   return Number.isFinite(parsed) ? parsed : fallback
@@ -104,6 +151,172 @@ function getBillingPeriod(usedAt: Date, plan: CardPlan, memo?: string | null): {
       return { start, end }
     }
   }
+}
+
+/** カード1サイクル分の締め期間と引き落とし日 */
+export type CardCycleWindow = {
+  /** 締め期間の開始日 'YYYY-MM-DD' */
+  periodStart: string
+  /** 締め日 'YYYY-MM-DD' */
+  periodEnd: string
+  /** 引き落とし日(土日祝シフト済み) 'YYYY-MM-DD' */
+  paymentDate: string
+}
+
+function toKey(date: Date) {
+  return format(date, 'yyyy-MM-dd')
+}
+
+/**
+ * プラン未設定・未対応カード向けに、利用日から締め期間と引き落とし日を求める。
+ *
+ * buildGeneratedCreditPayments の generic 分岐が「引き落とし日 → 締め期間」と
+ * 逆算していたのと同じ規則を、「利用日 → サイクル」の向きで表したもの。
+ * 前サイクルの締め日も独立に月末クランプする点まで揃えている
+ * (addMonths(closing, -1) だと 2/28 → 1/28 となり 1/29〜1/31 が二重集計される)。
+ */
+function resolveGenericCycle(usedAt: Date, card: CreditCardSetting): CardCycleWindow | null {
+  const closingDay = numberOrDefault(card.closing_day_int ?? parseInt(card.closing_day, 10), 31)
+  const paymentDay = numberOrDefault(card.payment_day_int ?? parseInt(card.payment_day, 10), 27)
+  const offset = numberOrDefault(card.payment_month_offset, 1)
+  if (paymentDay < 1) return null
+
+  // 利用日が当月の締め日を過ぎていれば、翌月締めのサイクルに入る
+  let closing = dateForDay(usedAt.getFullYear(), usedAt.getMonth(), closingDay)
+  if (usedAt > closing) {
+    const next = addMonths(closing, 1)
+    closing = dateForDay(next.getFullYear(), next.getMonth(), closingDay)
+  }
+
+  const prev = addMonths(closing, -1)
+  const previousClosing = dateForDay(prev.getFullYear(), prev.getMonth(), closingDay)
+
+  const paymentMonth = addMonths(closing, offset)
+  const rawPaymentDate = dateForDay(paymentMonth.getFullYear(), paymentMonth.getMonth(), paymentDay)
+
+  return {
+    periodStart: toKey(addDays(previousClosing, 1)),
+    periodEnd: toKey(closing),
+    paymentDate: toKey(nextBusinessDay(rawPaymentDate)),
+  }
+}
+
+/**
+ * 利用日 → そのカードの締め期間・引き落とし日。
+ * プランが設定されていればプランのルール、無ければカード個別の締め日設定を使う。
+ */
+export function resolveCardCycle(
+  usedAt: Date,
+  card: CreditCardSetting,
+  memo?: string | null
+): CardCycleWindow | null {
+  const plan = (card.card_plan || 'generic') as CardPlan
+  const rule = CARD_PAYMENT_RULES[plan]
+
+  if (plan !== 'generic' && rule?.supported) {
+    const paymentDate = calcPaymentDate(usedAt, plan, memo)
+    if (!paymentDate) return null
+    const { start, end } = getBillingPeriod(usedAt, plan, memo)
+    return { periodStart: toKey(start), periodEnd: toKey(end), paymentDate: toKey(paymentDate) }
+  }
+
+  return resolveGenericCycle(usedAt, card)
+}
+
+/**
+ * 確定請求額を保存する scheduled_payments 行の external_id。
+ *
+ * カード + 引き落とし日で一意にすることで、
+ *   ・同じサイクルへの二重登録を DB の unique 制約で防げる
+ *   ・見込み(generated)の打ち消しを、あいまいな名前一致ではなく完全一致で判定できる
+ */
+export function statementExternalId(cardId: string, paymentDate: string) {
+  return `card-statement-${cardId}-${paymentDate}`
+}
+
+/** 確定請求額の行を「カードID|引き落とし日 → 金額」に畳む */
+export function indexConfirmedStatements(payments: ScheduledPayment[]): Map<string, number> {
+  const index = new Map<string, number>()
+  for (const payment of payments) {
+    if (payment.source !== 'card_statement') continue
+    if (!payment.credit_card_id || !payment.scheduled_date) continue
+    index.set(`${payment.credit_card_id}|${payment.scheduled_date}`, payment.amount)
+  }
+  return index
+}
+
+/** 締め前・締め後の1サイクル分。画面に「今いくら溜まっているか」を出すために使う */
+export type CardCycle = CardCycleWindow & {
+  cardId: string
+  cardName: string
+  amount: number
+  transactionCount: number
+  /** 締め日が未到来 = この金額はまだ増える */
+  open: boolean
+  debitAccountId: string | null
+  /** カード会社が確定させた請求額。締め前は常に null(カード会社側も未確定のため) */
+  confirmedAmount: number | null
+}
+
+/**
+ * カードごとに「これから引き落とされるサイクル」を組み立てる。
+ *
+ * buildGeneratedCreditPayments が返すのは予測に載せる支払いだけなので、
+ * 締め日が未到来のサイクル(＝今まさに増えている利用分)が画面から見えない。
+ * SMBC 10日払いプランだと支払日が最大2ヶ月先になり、CF画面の2ヶ月ウィンドウから
+ * 外れて完全に不可視になる。ここはその「溜まっている最中の額」を明示するためにある。
+ */
+export function buildCardCycles(
+  transactions: Transaction[],
+  creditCards: CreditCardSetting[],
+  today: Date = new Date(),
+  /** 'カードID|引き落とし日' → 確定請求額 */
+  confirmedStatements: Map<string, number> = new Map()
+): CardCycle[] {
+  const todayKey = format(today, 'yyyy-MM-dd')
+  const cycles: CardCycle[] = []
+
+  for (const card of creditCards) {
+    const normalizedCardName = normalizeName(card.name)
+    const groups = new Map<string, CardCycle>()
+
+    for (const tx of transactions) {
+      if (tx.kind === 'income') continue
+      if (!cardMatchesTransaction(tx, normalizedCardName)) continue
+
+      const window = resolveCardCycle(parseISO(tx.date), card, tx.memo)
+      if (!window) continue
+      // 既に引き落とし済みのサイクルは「これから出ていくお金」ではない
+      if (window.paymentDate < todayKey) continue
+
+      const existing = groups.get(window.paymentDate)
+      if (existing) {
+        existing.amount += tx.amount
+        existing.transactionCount += 1
+        continue
+      }
+      const open = todayKey <= window.periodEnd
+      groups.set(window.paymentDate, {
+        ...window,
+        cardId: card.id,
+        cardName: card.name,
+        amount: tx.amount,
+        transactionCount: 1,
+        open,
+        debitAccountId: card.debit_account_id ?? null,
+        // 締め前はカード会社側も金額を確定させていないので、確定額は存在しえない
+        confirmedAmount: open
+          ? null
+          : confirmedStatements.get(`${card.id}|${window.paymentDate}`) ?? null,
+      })
+    }
+
+    cycles.push(...groups.values())
+  }
+
+  return cycles.sort((a, b) =>
+    a.paymentDate === b.paymentDate ? a.cardName.localeCompare(b.cardName) : a.paymentDate < b.paymentDate ? -1 : 1
+  )
 }
 
 export function buildGeneratedCreditPayments(
@@ -182,6 +395,10 @@ export function buildGeneratedCreditPayments(
           is_active: true,
           memo: memoStr,
           bank_account: card.bank_account ?? null,
+          // 確定請求額(source: 'card_statement')との突合を、名前の部分一致ではなく
+          // カードID + 引き落とし日の完全一致でやるために持たせる。
+          // payment_method は付けないので resolveMonthlyDebits の付け替え対象にはならない。
+          credit_card_id: card.id,
           scheduled_date: key,
           generated: true,
           source: 'credit_card',
@@ -231,6 +448,10 @@ export function buildGeneratedCreditPayments(
           is_active: true,
           memo: `${format(periodStart, 'M/d')}〜${format(periodEnd, 'M/d')} 利用分`,
           bank_account: card.bank_account ?? null,
+          // 確定請求額(source: 'card_statement')との突合を、名前の部分一致ではなく
+          // カードID + 引き落とし日の完全一致でやるために持たせる。
+          // payment_method は付けないので resolveMonthlyDebits の付け替え対象にはならない。
+          credit_card_id: card.id,
           scheduled_date: scheduledDate,
           generated: true,
           source: 'credit_card',

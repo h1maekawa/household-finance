@@ -2,7 +2,10 @@ import { NextRequest } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
 import { getAuthenticatedUser, unauthorized } from '@/lib/auth'
 import {
+  buildCardCycles,
   buildGeneratedCreditPayments,
+  findUnassignedCardUsage,
+  indexConfirmedStatements,
   getCashflowFetchEnd,
   getCashflowFetchStart,
   projectCashflow,
@@ -86,7 +89,11 @@ export async function GET(request: NextRequest) {
   const scheduledPayments: ScheduledPayment[] = paymentsRes.data ?? []
   const creditCards: CreditCardSetting[] = cardsRes.data ?? []
   const transactions: Transaction[] = transactionsRes.data ?? []
+  // 確定請求額が入っているサイクルは、見込みを完全に取り下げる。
+  // 残すと同じ請求が「見込み」と「確定」で二重に残高から引かれる。
+  const confirmedStatements = indexConfirmedStatements(scheduledPayments)
   const generatedPayments = buildGeneratedCreditPayments(transactions, creditCards, projectionDays)
+    .filter(payment => !confirmedStatements.has(`${payment.credit_card_id}|${payment.scheduled_date}`))
     .filter(payment => !scheduledPayments.some(confirmed => confirmedPaymentMatchesGenerated(confirmed, payment)))
   const profile = profileRes.data ?? {
     initial_balance: balanceRes.data?.balance ?? 0,
@@ -116,5 +123,10 @@ export async function GET(request: NextRequest) {
     generatedPayments,
     creditCards,
     profile,
+    // どのカード設定にも紐づかなかったカード利用。請求見込みから抜け落ちるので画面で警告する
+    unassignedCardUsage: findUnassignedCardUsage(transactions, creditCards),
+    // 締め前も含めた「これから引き落とされるカードのサイクル」。
+    // 予測ウィンドウ(2ヶ月)の外に出る支払日も、ここでは必ず見える。
+    cardCycles: buildCardCycles(transactions, creditCards, new Date(), confirmedStatements),
   })
 }

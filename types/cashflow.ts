@@ -41,7 +41,11 @@ export interface ScheduledPayment {
   last_paid_month?: string | null // 'YYYY-MM'。直近どの月まで支払い済みか
   scheduled_date?: string
   generated?: boolean
-  source?: 'manual' | 'credit_card' | 'monthly_income' | 'gmail_bank'
+  /**
+   * 'card_statement' は、カード会社が確定させた請求額をユーザーが入力したもの。
+   * 同じカード・同じ引き落とし日の見込み(source: 'credit_card')を置き換える。
+   */
+  source?: 'manual' | 'credit_card' | 'monthly_income' | 'gmail_bank' | 'card_statement'
   external_id?: string | null
   created_at: string
 }
@@ -113,6 +117,33 @@ export interface CashflowProfile {
   income_day?: number | null
 }
 
+/** どのカード設定にも紐づかず、請求見込みから抜け落ちたカード利用 */
+export interface UnassignedCardUsage {
+  total: number
+  count: number
+  /** 'YYYY-MM' → 合計額 */
+  byMonth: Record<string, number>
+}
+
+/** カード1サイクル分。open=true なら締め前で、金額はまだ増える */
+export interface CardCycle {
+  cardId: string
+  cardName: string
+  periodStart: string
+  periodEnd: string
+  paymentDate: string
+  /** 利用通知の積み上げによる見込み額 */
+  amount: number
+  transactionCount: number
+  open: boolean
+  debitAccountId: string | null
+  /**
+   * カード会社が確定させた請求額。入力済みならこちらが正で、予測にもこの額が乗る。
+   * 締め前(open)のサイクルはカード会社側も未確定なので常に null。
+   */
+  confirmedAmount: number | null
+}
+
 export interface CashflowResponse {
   currentBalance: AccountBalance | null
   projectedDays: DailyBalance[]
@@ -120,4 +151,6 @@ export interface CashflowResponse {
   generatedPayments: ScheduledPayment[]
   creditCards: CreditCardSetting[]
   profile: CashflowProfile
+  unassignedCardUsage?: UnassignedCardUsage
+  cardCycles?: CardCycle[]
 }
