@@ -9,6 +9,17 @@ import { useToast } from '@/components/Toast'
 
 const isGoogleAuthEnabled = process.env.NEXT_PUBLIC_ENABLE_GOOGLE_AUTH === 'true'
 
+/**
+ * ログイン後の戻り先として安全なパスだけを通す。
+ * 'https://evil.com' や '//evil.com' を弾き、自サイト内の絶対パスだけ許可する。
+ */
+function safeNextPath(value: string | null): string | null {
+  if (!value) return null
+  if (!value.startsWith('/')) return null
+  if (value.startsWith('//')) return null
+  return value
+}
+
 export default function FlowSetupWizard() {
   const [step, setStep] = useState(0)
   const [initialBalance, setInitialBalance] = useState('800000')
@@ -19,7 +30,10 @@ export default function FlowSetupWizard() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const supabase = useMemo(() => createSupabaseBrowserClient(), [])
-  const nextPath = searchParams.get('next')
+  // ログイン後の戻り先。外部URLへ飛ばされないよう自サイト内のパスだけ受け付ける。
+  // '//evil.com' はブラウザにプロトコル相対URLとして解釈されるため、
+  // 先頭が '/' であることに加えて2文字目が '/' でないことも確認する。
+  const nextPath = safeNextPath(searchParams.get('next'))
 
   useEffect(() => {
     if (!isSupabaseConfigured) return

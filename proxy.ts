@@ -30,7 +30,10 @@ export async function proxy(request: NextRequest) {
 
   if (isProtected && !user) {
     const redirectUrl = new URL('/flow/setup', request.url)
-    redirectUrl.searchParams.set('next', pathname)
+    // クエリごと引き継ぐ。ページ内タブを ?tab= で持つようになったので、
+    // pathname だけだと /plan?tab=payments へのリンクがログイン後に
+    // 既定タブへ落ちてしまう。
+    redirectUrl.searchParams.set('next', `${pathname}${request.nextUrl.search}`)
     return NextResponse.redirect(redirectUrl)
   }
 

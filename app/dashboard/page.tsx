@@ -1,449 +1,252 @@
 'use client'
-import { useState } from 'react'
+// ホーム — 今日なにを判断すればよいかだけを見る場所。
+//
+// 以前はここに今月の支出・AIコーチ・予算・目標・資産・負債・カテゴリ分析・
+// 固定費/変動費・直近取引まで並べていて、家計簿・予定・資産のどのページとも
+// 内容が重複していた。同じ数字が複数の画面に出ると「どれが本当か」が分からなくなる。
+//
+// 情報の「本来の居場所」を1つに決め、ホームには判断に要る分だけを置く:
+//   取引履歴・カテゴリ分析 → 家計簿   (ホームは直近3件のみ)
+//   固定費・カード請求     → 予定     (ホームは次の支払いのみ)
+//   口座残高・投資詳細     → 資産     (ホームは合計と不足口座のみ)
+//
+// 数字は各APIが返す値をそのまま読むだけで、ここで新しい計算はしない。
 import useSWR from 'swr'
-import { format, addMonths, startOfMonth } from 'date-fns'
-import { ja } from 'date-fns/locale'
-import {
-  Bar, BarChart, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis,
-} from 'recharts'
 import Link from 'next/link'
-import AlertBanner from '@/components/AlertBanner'
-import BudgetCard from '@/components/BudgetCard'
+import { format } from 'date-fns'
+import { ja } from 'date-fns/locale'
 import CoachCard from '@/components/CoachCard'
-import GoalCard from '@/components/GoalCard'
-import CreditCardMonthlyPrompt from '@/components/CreditCardMonthlyPrompt'
-import DebtBalanceOverview from '@/components/DebtBalanceOverview'
 import SignOutButton from '@/components/SignOutButton'
-import TransactionList from '@/components/TransactionList'
-import { TransactionsResponse } from '@/types/transaction'
-import { useCategories } from '@/lib/useCategories'
-
+import CreditCardMonthlyPrompt from '@/components/CreditCardMonthlyPrompt'
 import { fetcher } from '@/lib/fetcher'
-import { CATEGORY_COLORS } from '@/lib/category-colors'
+import { useCategories } from '@/lib/useCategories'
+import type { BudgetSummary } from '@/types/budget'
+import type { CashflowResponse } from '@/types/cashflow'
+import type { TransactionsResponse } from '@/types/transaction'
 
+export default function HomePage() {
+  const { iconOf } = useCategories()
+  const now = new Date()
 
-type AssetHistoryResponse = {
-  points: Array<{
-    label: string
-    month: string
-    cash: number
-    investment: number
-    total: number
-  }>
-  current: {
-    cash: number
-    investment: number
-    total: number
-  }
-}
-
-export default function DashboardPage() {
-  const { expense: expenseCategories, iconOf } = useCategories()
-  const [month, setMonth] = useState(startOfMonth(new Date()))
-  const [activeTab, setActiveTab] = useState<'overview' | 'history'>('overview')
-  const [activeCategory, setActiveCategory] = useState<string | null>(null)
-  const year  = month.getFullYear()
-  const mo    = month.getMonth() + 1
-
-  const { data, mutate } = useSWR<TransactionsResponse>(
-    `/api/transactions?year=${year}&month=${mo}`,
+  const { data: budget } = useSWR<BudgetSummary>('/api/budget', fetcher)
+  const { data: cashflow } = useSWR<CashflowResponse>('/api/cashflow', fetcher)
+  const { data: transactionData } = useSWR<TransactionsResponse>(
+    `/api/transactions?year=${now.getFullYear()}&month=${now.getMonth() + 1}`,
     fetcher
   )
-  const { data: analysis } = useSWR(
-    `/api/analysis/fixed-variable?year=${year}&month=${mo}`,
-    fetcher
+
+  const variable = budget?.variable
+  const incomeMissing = (budget?.income.planned ?? 0) <= 0
+  const reserved = (budget?.savings.target ?? 0) + (budget?.buffer ?? 0)
+  const liquid = Number(cashflow?.currentBalance?.balance ?? 0)
+
+  // 予測期間に出ていく額。projectCashflow が返した支払いを足すだけ
+  const scheduledOutflow = (cashflow?.projectedDays ?? []).reduce(
+    (sum, day) =>
+      sum +
+      day.payments
+        .filter(payment => payment.type !== 'income')
+        .reduce((daySum, payment) => daySum + payment.amount, 0),
+    0
   )
-  const { data: assetHistory } = useSWR<AssetHistoryResponse>('/api/assets/history?months=6', fetcher)
-  const { data: investments } = useSWR('/api/investments', fetcher)
-  const { data: cashflow } = useSWR('/api/cashflow', fetcher)
 
-  const transactions = data?.transactions ?? []
-  const summary      = data?.summary ?? { total: 0, expense_total: 0, income_total: 0, by_category: {} }
-  const reviewCount  = transactions.filter(tx => tx.needs_review).length
-  const expenseTransactions = transactions.filter(tx => tx.kind !== 'income')
-  const filteredExpenseTransactions = activeCategory
-    ? expenseTransactions.filter(tx => tx.category === activeCategory)
-    : expenseTransactions
+  // 要対応: 残高がマイナスになる日と、請求から抜け落ちたカード利用
+  const negativeDay = (cashflow?.projectedDays ?? []).find(day => day.isNegative)
+  const unassigned = cashflow?.unassignedCardUsage
+  const reviewCount = (transactionData?.transactions ?? []).filter(tx => tx.needs_review).length
 
-  const categoryTotal = summary.expense_total || summary.total || 0
-  const chartData = Object.entries(summary.by_category)
-    .sort((a, b) => b[1] - a[1])
-    .map(([category, amount], index) => ({
-      category,
-      amount,
-      percentage: categoryTotal > 0 ? Math.round((amount / categoryTotal) * 100) : 0,
-      icon: iconOf(category),
-      color: CATEGORY_COLORS[index % CATEGORY_COLORS.length],
-    }))
-  const topCategory = chartData[0]
-
-  const recentFive = transactions.slice(0, 5)
-  const cashBalance = Number(assetHistory?.current.cash ?? cashflow?.currentBalance?.balance ?? 0)
-  const investmentValue = Number(assetHistory?.current.investment ?? investments?.summary?.investmentValue ?? 0)
-  const totalAssets = cashBalance + investmentValue
-  const assetChartData = assetHistory?.points ?? []
-
-  function fmt(v: number) {
-    if (v >= 10000) return `${Math.floor(v / 10000)}万${v % 10000 > 0 ? `${v % 10000}` : ''}`
-    return v.toLocaleString()
-  }
+  // 次の支払い: 締めサイクル単位で直近3件だけ
+  const nextPayments = (cashflow?.cardCycles ?? []).slice(0, 3)
+  const recentTransactions = (transactionData?.transactions ?? []).slice(0, 3)
 
   return (
-    <div className="max-w-xl mx-auto">
+    <div className="mx-auto max-w-xl">
       <CreditCardMonthlyPrompt />
-      {/* Header */}
-      <div className="bg-primary text-white px-4 pt-5 pb-4">
-        <div className="mb-3 flex items-center justify-between">
-          <div>
-            <p className="text-lg font-bold leading-none">Flow<span className="text-white/70">+</span></p>
-            <p className="mt-1 text-xs text-white/70">{format(new Date(), 'M月d日 EEEE', { locale: ja })}</p>
-          </div>
-          <SignOutButton />
+
+      <div className="flex items-center justify-between px-4 pt-5">
+        <div>
+          <p className="text-lg font-bold leading-none">
+            Flow<span className="text-muted">+</span>
+          </p>
+          <p className="mt-1 text-xs text-muted">{format(now, 'M月d日 EEEE', { locale: ja })}</p>
         </div>
-        <div className="flex items-center justify-between">
-          <button
-            onClick={() => setMonth(m => addMonths(m, -1))}
-            className="w-9 h-9 flex items-center justify-center rounded-full bg-white/20 text-white text-lg"
-          >
-            ‹
-          </button>
-          <h1 className="text-base font-medium">
-            {format(month, 'yyyy年M月', { locale: ja })}
-          </h1>
-          <button
-            onClick={() => setMonth(m => addMonths(m, 1))}
-            className="w-9 h-9 flex items-center justify-center rounded-full bg-white/20 text-white text-lg"
-          >
-            ›
-          </button>
-        </div>
-        <div className="mt-3 text-center">
-          <p className="text-white/70 text-xs mb-1">今月の支出</p>
-          {!data ? (
-            <div className="skeleton h-10 w-48 mx-auto" />
-          ) : (
-            <p className="text-3xl font-bold">{summary.total.toLocaleString()}<span className="text-base ml-1">円</span></p>
-          )}
-        </div>
+        <SignOutButton />
       </div>
 
       <div className="flex flex-col gap-4 px-4 pt-4">
-        <div className="grid grid-cols-2 rounded-xl bg-white p-1">
-          <button
-            type="button"
-            onClick={() => setActiveTab('overview')}
-            className={`rounded-lg py-2 text-sm font-bold transition-base ${
-              activeTab === 'overview' ? 'bg-primary text-white' : 'text-muted'
-            }`}
-          >
-            概要
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab('history')}
-            className={`rounded-lg py-2 text-sm font-bold transition-base ${
-              activeTab === 'history' ? 'bg-primary text-white' : 'text-muted'
-            }`}
-          >
-            支出履歴
-          </button>
-        </div>
-
-        {activeTab === 'overview' ? (
-          <>
-        {/* 今日: コーチの一言 → 今月あと使える額 → 目標進捗(習慣ループの中心) */}
-        <CoachCard />
-        <BudgetCard />
-        <GoalCard />
-
-        <div className="card p-4">
-          <div className="mb-3 flex items-start justify-between gap-3">
-            <div>
-              <h2 className="text-base font-bold">資産サマリー</h2>
-              <p className="mt-1 text-xs text-muted">総資産・現金預金・投資評価額</p>
-            </div>
-            <Link href="/investments" className="shrink-0 text-xs font-bold text-primary">詳細</Link>
-          </div>
-          <div className="grid grid-cols-3 gap-2">
-            <AssetMini label="総資産" value={totalAssets} />
-            <AssetMini label="現金預金" value={cashBalance} />
-            <AssetMini label="投資評価額" value={investmentValue} />
-          </div>
-          <div className="mt-4 h-[190px]">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={assetChartData}>
-                <XAxis dataKey="label" tick={{ fontSize: 10 }} />
-                <YAxis tick={{ fontSize: 10 }} width={42} tickFormatter={v => Number(v) >= 10000 ? `${Math.round(Number(v) / 10000)}万` : String(v)} />
-                <Tooltip formatter={(value, name) => [`${Number(value).toLocaleString()}円`, name === 'cash' ? '現金預金' : name === 'investment' ? '投資評価額' : '総資産']} />
-                <Bar dataKey="cash" stackId="asset" fill="#1476B3" radius={[0, 0, 4, 4]} />
-                <Bar dataKey="investment" stackId="asset" fill="#1FAE8C" radius={[4, 4, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-
-        <DebtBalanceOverview />
-
-        {/* Alerts */}
-        {analysis?.alerts?.length > 0 && (
-          <AlertBanner alerts={analysis.alerts} />
-        )}
-
-        {/* Category Chart */}
-        {chartData.length > 0 && (
-          <div className="card p-4">
-            <div className="flex items-start justify-between gap-3 mb-3">
-              <div>
-                <h2 className="font-bold text-base">カテゴリ別支出</h2>
-                <p className="text-xs text-muted mt-1">今月の使い道の割合</p>
-              </div>
-              {topCategory && (
-                <div className="text-right shrink-0">
-                  <p className="text-xs text-muted">一番多い</p>
-                  <p className="text-sm font-bold">
-                    {topCategory.icon} {topCategory.category}
-                  </p>
+        {/* 1. 今月あと使える金額 — この画面で一番大きい数字 */}
+        <section className="card p-4">
+          <p className="text-xs text-muted">今月あと使える金額</p>
+          {!budget ? (
+            <div className="skeleton mt-2 h-10 w-48 rounded" />
+          ) : incomeMissing ? (
+            <>
+              <p className="mt-2 text-base font-bold">まだ計算できません</p>
+              <p className="mt-1 text-xs leading-relaxed text-muted">
+                今月の手取り収入を登録すると、あといくら使えるかが出ます。
+              </p>
+              <Link href="/plan" className="mt-3 inline-block text-xs font-bold text-primary">
+                収入を登録する ›
+              </Link>
+            </>
+          ) : (
+            <>
+              <p className={`mt-1 text-4xl font-bold ${(variable?.remaining ?? 0) < 0 ? 'text-danger' : ''}`}>
+                {(variable?.remaining ?? 0).toLocaleString()}
+                <span className="ml-1 text-base font-normal">円</span>
+              </p>
+              <p className="mt-1 text-xs text-muted">
+                残り{variable?.daysLeft ?? 0}日・1日あたり約
+                {(variable?.dailyAllowance ?? 0).toLocaleString()}円
+              </p>
+              {reserved > 0 && (
+                <div className="mt-3 rounded-xl bg-surface px-3 py-2.5">
+                  <p className="text-[11px] text-muted">貯金・予備費（今月使わずに残す）</p>
+                  <p className="mt-0.5 text-sm font-bold">{reserved.toLocaleString()}円</p>
                 </div>
               )}
+            </>
+          )}
+        </section>
+
+        {/* 2. 要対応 — 今すぐ手を打つべきこと */}
+        {(negativeDay || (unassigned?.count ?? 0) > 0 || reviewCount > 0) && (
+          <section className="card border border-danger/25 bg-danger/5 p-4">
+            <h2 className="text-sm font-bold">要対応</h2>
+            <div className="mt-2 flex flex-col gap-2.5">
+              {negativeDay && (
+                <ActionRow
+                  href="/plan?tab=payments"
+                  title={`${negativeDay.date.slice(5).replace('-', '月')}日に残高が不足します`}
+                  detail={`${Math.abs(negativeDay.balance).toLocaleString()}円 足りません`}
+                />
+              )}
+              {(unassigned?.count ?? 0) > 0 && (
+                <ActionRow
+                  href="/transactions"
+                  title={`カード請求に含まれていない利用が${unassigned!.count}件`}
+                  detail={`${unassigned!.total.toLocaleString()}円。実際の請求はこの分だけ多くなります`}
+                />
+              )}
+              {reviewCount > 0 && (
+                <ActionRow
+                  href="/transactions"
+                  title={`カテゴリ未確定の取引が${reviewCount}件`}
+                  detail="確定すると使い道の内訳が正確になります"
+                />
+              )}
             </div>
-
-            <div className="grid grid-cols-[150px_1fr] gap-4 items-center">
-              <div className="relative h-[150px]">
-                <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
-                    <Pie
-                      data={chartData}
-                      dataKey="amount"
-                      nameKey="category"
-                      innerRadius={46}
-                      outerRadius={68}
-                      paddingAngle={2}
-                      stroke="none"
-                    >
-                      {chartData.map(d => (
-                        <Cell key={d.category} fill={d.color} />
-                      ))}
-                    </Pie>
-                    <Tooltip
-                      formatter={(v) => [`${Number(v).toLocaleString()}円`]}
-                      contentStyle={{ fontSize: 12, borderRadius: 8 }}
-                    />
-                  </PieChart>
-                </ResponsiveContainer>
-                <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                  <span className="text-xs text-muted">合計</span>
-                  <span className="text-lg font-bold">{fmt(categoryTotal)}</span>
-                  <span className="text-[10px] text-muted">円</span>
-                </div>
-              </div>
-
-              <div className="flex min-w-0 flex-col gap-2">
-                {chartData.slice(0, 5).map(d => (
-                  <div key={d.category} className="min-w-0">
-                    <div className="mb-1 flex items-center gap-2 text-xs">
-                      <span className="h-2.5 w-2.5 rounded-full shrink-0" style={{ backgroundColor: d.color }} />
-                      <span className="shrink-0">{d.icon}</span>
-                      <span className="truncate font-medium">{d.category}</span>
-                      <span className="ml-auto shrink-0 text-muted">{d.percentage}%</span>
-                    </div>
-                    <div className="h-2 rounded-full bg-surface overflow-hidden">
-                      <div
-                        className="h-full rounded-full"
-                        style={{ width: `${Math.max(d.percentage, 3)}%`, backgroundColor: d.color }}
-                      />
-                    </div>
-                    <p className="mt-0.5 text-right text-xs font-bold">
-                      {d.amount.toLocaleString()}円
-                    </p>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {reviewCount > 0 && (
-              <Link href="/transactions" className="mt-4 flex items-center justify-between gap-3 rounded-xl border border-warning/30 bg-warning/5 px-3 py-3 active:opacity-80">
-                <div>
-                  <p className="text-sm font-bold">確認が必要な取引</p>
-                  <p className="mt-0.5 text-xs text-muted">カテゴリやメモを見直せます</p>
-                </div>
-                <span className="rounded-full bg-warning/10 px-2.5 py-1 text-xs font-bold text-warning shrink-0">
-                  {reviewCount}件
-                </span>
-              </Link>
-            )}
-
-            {chartData.length > 5 && (
-              <p className="mt-3 text-right text-xs text-muted">
-                他 {chartData.length - 5}カテゴリ
-              </p>
-            )}
-          </div>
+          </section>
         )}
 
-        {/* Fixed vs Variable */}
-        {analysis && (
-          <div className="card p-4">
-            <h2 className="font-bold text-base mb-3">固定費 / 変動費</h2>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="bg-surface rounded-xl p-3">
-                <p className="text-xs text-muted mb-1">固定費</p>
-                <p className="text-lg font-bold">{analysis.fixed?.total?.toLocaleString() ?? 0}円</p>
-                {analysis.fixed?.change_rate !== 0 && (
-                  <p className={`text-xs mt-1 ${analysis.fixed?.change_rate > 0 ? 'text-danger' : 'text-success'}`}>
-                    {analysis.fixed?.change_rate > 0 ? '↑' : '↓'}
-                    {Math.abs(Math.round((analysis.fixed?.change_rate ?? 0) * 100))}% 先月比
-                  </p>
-                )}
-              </div>
-              <div className="bg-surface rounded-xl p-3">
-                <p className="text-xs text-muted mb-1">変動費</p>
-                <p className="text-lg font-bold">{analysis.variable?.total?.toLocaleString() ?? 0}円</p>
-                {analysis.variable?.change_rate !== 0 && (
-                  <p className={`text-xs mt-1 ${analysis.variable?.change_rate > 0 ? 'text-danger' : 'text-success'}`}>
-                    {analysis.variable?.change_rate > 0 ? '↑' : '↓'}
-                    {Math.abs(Math.round((analysis.variable?.change_rate ?? 0) * 100))}% 先月比
-                  </p>
-                )}
-              </div>
-            </div>
+        {/* 3. 次の支払い — 詳細は「予定」が持つ */}
+        <section className="card p-4">
+          <div className="mb-3 flex items-center justify-between">
+            <h2 className="text-sm font-bold">次の支払い</h2>
+            <Link href="/plan?tab=payments" className="text-xs font-bold text-primary">
+              すべて見る ›
+            </Link>
           </div>
-        )}
-
-        {/* Recent Transactions */}
-        <div>
-          <div className="flex items-center justify-between mb-2">
-            <h2 className="font-bold text-base">直近の取引</h2>
-            <Link href="/transactions" className="text-sm text-primary">詳細 →</Link>
-          </div>
-
-          {!data ? (
-            <div className="card overflow-hidden">
-              {[...Array(3)].map((_, i) => (
-                <div key={i} className="flex gap-3 px-4 py-3 border-b border-border last:border-0">
-                  <div className="skeleton w-8 h-8 rounded-full" />
-                  <div className="flex-1 flex flex-col gap-1">
-                    <div className="skeleton h-4 w-3/4 rounded" />
-                    <div className="skeleton h-3 w-1/2 rounded" />
-                  </div>
-                  <div className="skeleton h-5 w-16 rounded" />
+          {!cashflow ? (
+            <div className="skeleton h-16 w-full rounded-xl" />
+          ) : nextPayments.length === 0 ? (
+            <p className="text-xs text-muted">予定されている支払いはありません。</p>
+          ) : (
+            <div className="flex flex-col gap-2">
+              {nextPayments.map(cycle => (
+                <div
+                  key={`${cycle.cardId}-${cycle.paymentDate}`}
+                  className="flex items-baseline justify-between gap-3 text-sm"
+                >
+                  <span className="min-w-0 truncate">
+                    <span className="text-muted">{cycle.paymentDate.slice(5).replace('-', '/')}</span>
+                    <span className="ml-2">{cycle.cardName}</span>
+                    <span className="ml-1.5 text-[10px] text-muted">
+                      {cycle.confirmedAmount !== null ? '確定' : cycle.open ? '増加中' : '見込み'}
+                    </span>
+                  </span>
+                  <span className="shrink-0 font-mono font-bold text-danger">
+                    {(cycle.confirmedAmount ?? cycle.amount).toLocaleString()}円
+                  </span>
                 </div>
               ))}
-            </div>
-          ) : recentFive.length === 0 ? (
-            <div className="card flex flex-col items-center py-10 text-muted gap-2">
-              <span className="text-4xl">📋</span>
-              <p className="text-sm">まだデータがありません</p>
-              <Link href="/transactions" className="mt-2 px-4 py-2 rounded-xl bg-primary text-white text-sm font-medium">
-                収支を開く
-              </Link>
-            </div>
-          ) : (
-            <div className="card overflow-hidden">
-              {recentFive.map((tx, i) => {
-                const icon = iconOf(tx.category)
-                const isIncome = tx.kind === 'income'
-                return (
-                  <div key={tx.id}
-                    className={`flex items-center gap-3 px-4 py-3 ${i < recentFive.length - 1 ? 'border-b border-border' : ''}`}>
-                    <span className="text-2xl">{icon}</span>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium truncate">{tx.memo || tx.category}</p>
-                      <p className="text-xs text-muted">{tx.date} · {tx.payment_method}</p>
-                    </div>
-                    <p className={`text-sm font-bold shrink-0 ${isIncome ? 'text-success' : 'text-danger'}`}>
-                      {isIncome ? '+' : '-'}{tx.amount.toLocaleString()}円
-                    </p>
-                  </div>
-                )
-              })}
             </div>
           )}
-        </div>
-          </>
-        ) : (
-          <div className="flex flex-col gap-4">
-            <div className="card p-4">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <p className="text-xs text-muted mb-1">この月の支出</p>
-                  <p className="text-2xl font-bold">
-                    {summary.expense_total.toLocaleString()}
-                    <span className="text-sm font-normal text-muted ml-1">円</span>
-                  </p>
-                </div>
-                <div className="text-right shrink-0">
-                  <p className="text-xs text-muted mb-1">表示中</p>
-                  <p className="text-sm font-bold">{filteredExpenseTransactions.length}件</p>
-                </div>
-              </div>
-            </div>
+        </section>
 
-            <div className="flex gap-2 overflow-x-auto">
-              <HistoryFilterChip
-                label="すべて"
-                active={activeCategory === null}
-                onClick={() => setActiveCategory(null)}
-              />
-              {expenseCategories.map(c => (
-                <HistoryFilterChip
-                  key={c.name}
-                  label={`${c.icon} ${c.name}`}
-                  active={activeCategory === c.name}
-                  onClick={() => setActiveCategory(c.name)}
-                />
-              ))}
-            </div>
-
-            {!data ? (
-              <div className="card overflow-hidden">
-                {[...Array(4)].map((_, i) => (
-                  <div key={i} className="flex gap-3 px-4 py-3 border-b border-border last:border-0">
-                    <div className="skeleton w-9 h-9 rounded-[10px]" />
-                    <div className="flex-1 flex flex-col gap-1">
-                      <div className="skeleton h-4 w-3/4 rounded" />
-                      <div className="skeleton h-3 w-1/2 rounded" />
-                    </div>
-                    <div className="skeleton h-5 w-16 rounded" />
-                  </div>
-                ))}
+        {/* 4. 今月の状況 — 数字の関係を1箇所で示す */}
+        <section className="card p-4">
+          <h2 className="mb-3 text-sm font-bold">今月の状況</h2>
+          <div className="flex flex-col gap-2 text-sm">
+            <SummaryRow label="流動資産" amount={liquid} href="/investments" />
+            <SummaryRow label="支払い予定" amount={-scheduledOutflow} href="/plan?tab=payments" />
+            {reserved > 0 && <SummaryRow label="貯金・予備費" amount={-reserved} href="/plan" />}
+            {!incomeMissing && (
+              <div className="mt-1 flex items-baseline justify-between border-t border-border pt-2.5">
+                <span className="font-bold">今月あと使える金額</span>
+                <span className={`font-mono font-bold ${(variable?.remaining ?? 0) < 0 ? 'text-danger' : 'text-success'}`}>
+                  {(variable?.remaining ?? 0).toLocaleString()}円
+                </span>
               </div>
-            ) : (
-              <TransactionList transactions={filteredExpenseTransactions} onMutate={() => mutate()} />
             )}
           </div>
-        )}
+        </section>
 
-        {/* Quick Add Button */}
-        <Link
-          href="/transactions"
-          className="fixed bottom-[calc(64px+env(safe-area-inset-bottom,0px)+16px)] right-4 w-14 h-14 rounded-full bg-primary text-white text-2xl flex items-center justify-center shadow-lg transition-base active:scale-95 lg:hidden"
-        >
-          ＋
-        </Link>
+        {/* 5. AIの一言 — 詳細な分析は各詳細画面が持つ */}
+        <CoachCard />
+
+        {/* 6. 直近の取引 — 一覧と分析は家計簿が持つ */}
+        <section className="card p-4">
+          <div className="mb-3 flex items-center justify-between">
+            <h2 className="text-sm font-bold">直近の取引</h2>
+            <Link href="/transactions" className="text-xs font-bold text-primary">
+              家計簿を見る ›
+            </Link>
+          </div>
+          {!transactionData ? (
+            <div className="skeleton h-16 w-full rounded-xl" />
+          ) : recentTransactions.length === 0 ? (
+            <p className="text-xs text-muted">今月の取引はまだありません。</p>
+          ) : (
+            <div className="flex flex-col gap-2">
+              {recentTransactions.map(tx => (
+                <div key={tx.id} className="flex items-baseline justify-between gap-3 text-sm">
+                  <span className="min-w-0 truncate">
+                    <span className="text-muted">{tx.date.slice(5).replace('-', '/')}</span>
+                    <span className="ml-2">{iconOf(tx.category)}</span>
+                    <span className="ml-1">{tx.memo || tx.category}</span>
+                  </span>
+                  <span className={`shrink-0 font-mono ${tx.kind === 'income' ? 'text-success' : ''}`}>
+                    {tx.kind === 'income' ? '+' : '-'}
+                    {tx.amount.toLocaleString()}円
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
       </div>
     </div>
   )
 }
 
-function HistoryFilterChip({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
+function ActionRow({ href, title, detail }: { href: string; title: string; detail: string }) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`shrink-0 rounded-full border px-3.5 py-1.5 text-xs transition-base ${
-        active ? 'border-primary bg-primary text-white' : 'border-border bg-card text-muted'
-      }`}
-    >
-      {label}
-    </button>
+    <Link href={href} className="block active:opacity-80">
+      <p className="text-sm font-bold text-foreground">{title}</p>
+      <p className="mt-0.5 text-xs text-muted">{detail}</p>
+    </Link>
   )
 }
 
-function AssetMini({ label, value }: { label: string; value: number }) {
+function SummaryRow({ label, amount, href }: { label: string; amount: number; href: string }) {
   return (
-    <div className="min-w-0 rounded-xl bg-surface p-2.5">
-      <p className="truncate text-[11px] text-muted">{label}</p>
-      <p className="mt-1 truncate font-mono text-sm font-bold">{value.toLocaleString()}円</p>
-    </div>
+    <Link href={href} className="flex items-baseline justify-between gap-3 active:opacity-80">
+      <span className="text-muted">{label}</span>
+      <span className="font-mono">
+        {amount < 0 ? '-' : ''}
+        {Math.abs(amount).toLocaleString()}円
+      </span>
+    </Link>
   )
 }
