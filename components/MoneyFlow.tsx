@@ -6,6 +6,17 @@
 import { useState } from 'react'
 import type { MoneyPlan, PlanStep } from '@/lib/services/money-plan'
 
+function FixedTotal({ label, amount, emphasis }: { label: string; amount: number; emphasis?: boolean }) {
+  return (
+    <div className={`rounded-xl p-2.5 ${emphasis ? 'bg-primary/10' : 'bg-surface'}`}>
+      <p className="text-[10px] text-muted">{label}</p>
+      <p className={`mt-0.5 text-sm font-bold ${emphasis ? 'text-primary' : 'text-foreground'}`}>
+        {amount.toLocaleString()}円
+      </p>
+    </div>
+  )
+}
+
 const STEP_STYLE: Record<PlanStep['key'], { bar: string; text: string }> = {
   income:     { bar: 'bg-primary',        text: 'text-primary' },
   fixed:      { bar: 'bg-[#7C5CFF]',      text: 'text-[#7C5CFF]' },
@@ -27,6 +38,24 @@ export default function MoneyFlow({ plan }: { plan: MoneyPlan }) {
         </span>
       </div>
 
+      {/* 生活固定費と積立投資は別物として出す。
+          積立を固定費に混ぜると「毎月の生活費」が実態より重く見える */}
+      <div className="mt-3 grid grid-cols-3 gap-2">
+        <FixedTotal label="生活固定費" amount={plan.livingFixed} />
+        <FixedTotal label="毎月の投資" amount={plan.investmentFixed} />
+        <FixedTotal label="固定支出合計" amount={plan.totalFixed} emphasis />
+      </div>
+
+      {/* 収入が未登録なら「0円しか使えない」ではなく、何を設定すべきかを出す */}
+      {plan.incomeMissing && (
+        <div className="mt-3 rounded-xl border border-warning/30 bg-warning/5 px-3 py-2.5">
+          <p className="text-xs font-bold text-foreground">今月使える金額がまだ計算できません</p>
+          <p className="mt-1 text-[11px] leading-relaxed text-muted">
+            今月の手取り収入を登録してください。固定費だけでは「あといくら使えるか」は決まりません。
+          </p>
+        </div>
+      )}
+
       {/* 全体の比率を1本の帯で。ここだけ見れば構成が分かる */}
       <ProportionBar plan={plan} />
 
@@ -36,7 +65,8 @@ export default function MoneyFlow({ plan }: { plan: MoneyPlan }) {
         ))}
       </div>
 
-      {/* 自由予算の消化状況 */}
+      {/* 自由予算の消化状況。収入未登録のときは 0円 を出さない(赤字に見えるため) */}
+      {!plan.incomeMissing && (
       <div className="mt-4 rounded-2xl bg-surface p-3.5">
         <div className="flex items-baseline justify-between">
           <span className="text-xs text-muted">今月あと使える額</span>
@@ -56,6 +86,7 @@ export default function MoneyFlow({ plan }: { plan: MoneyPlan }) {
           {plan.daysLeft > 0 && ` ・ 残り${plan.daysLeft}日で1日あたり ${plan.dailyAllowance.toLocaleString()}円`}
         </p>
       </div>
+      )}
     </section>
   )
 }

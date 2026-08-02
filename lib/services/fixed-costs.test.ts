@@ -6,6 +6,7 @@ import {
   resolveDueDate,
   resolveMonthlyDebits,
   toDebitSources,
+  resolveVariableAmount,
 } from './fixed-costs'
 import type { CreditCardSetting, ScheduledPayment } from '@/types/cashflow'
 
@@ -190,4 +191,63 @@ test('toDebitSources は前月利用ぶんのカード引き落としも当月�
   assert.equal(september[0].scheduled_date, '2026-09-28')
   assert.equal(september[0].debit_account_id, 'acc-rakuten')
   assert.match(september[0].name, /楽天カード/)
+})
+
+// ---------------------------------------------------------------- 変動固定費の金額
+
+test('確定額があれば予定額より優先し、両者を足さない', () => {
+  const result = resolveVariableAmount(
+    { amount: 2000, amount_type: 'variable' },
+    '2026-08',
+    3150
+  )
+  assert.deepEqual(result, { amount: 3150, basis: 'confirmed' })
+})
+
+test('確定額が無ければユーザー入力の予定額を使う', () => {
+  const result = resolveVariableAmount({ amount: 2000, amount_type: 'variable' }, '2026-08')
+  assert.deepEqual(result, { amount: 2000, basis: 'planned' })
+})
+
+test('予定額が未登録なら直近3ヶ月の確定実績の平均を使う', () => {
+  const history = new Map([
+    ['2026-07', 3000],
+    ['2026-06', 2000],
+    ['2026-05', 1000],
+    ['2026-04', 999999], // 3ヶ月より前は使わない
+  ])
+  const result = resolveVariableAmount(
+    { amount: 0, amount_type: 'variable' },
+    '2026-08',
+    undefined,
+    history
+  )
+  assert.deepEqual(result, { amount: 2000, basis: 'average', sampleMonths: 3 })
+})
+
+test('履歴が1〜2ヶ月ぶんしか無ければ、その月数だけで平均する', () => {
+  const history = new Map([['2026-07', 3000], ['2026-06', 2000]])
+  const result = resolveVariableAmount(
+    { amount: 0, amount_type: 'variable' },
+    '2026-08',
+    undefined,
+    history
+  )
+  // 0円の月で薄めず 2件で平均する
+  assert.deepEqual(result, { amount: 2500, basis: 'average', sampleMonths: 2 })
+})
+
+test('確定も予定も履歴も無ければ 0円ではなく unknown として警告に回す', () => {
+  const result = resolveVariableAmount({ amount: 0, amount_type: 'variable' }, '2026-08')
+  assert.equal(result.basis, 'unknown')
+})
+
+test('固定額は予定額がそのまま請求額になる', () => {
+  const result = resolveVariableAmount({ amount: 58330, amount_type: 'fixed' }, '2026-08')
+  assert.deepEqual(result, { amount: 58330, basis: 'planned' })
+})
+
+test('固定額でも、確定額が取れたらそちらを使う', () => {
+  const result = resolveVariableAmount({ amount: 3980, amount_type: 'fixed' }, '2026-07', 2007)
+  assert.deepEqual(result, { amount: 2007, basis: 'confirmed' })
 })

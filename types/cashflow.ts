@@ -17,6 +17,27 @@ export type Recurrence = 'monthly' | 'yearly' | 'once'
 /** 固定費の通貨。外貨建ては foreign_amount × レートで円換算する */
 export type PaymentCurrency = 'JPY' | 'USD'
 
+/**
+ * 金額が毎月同じか、月ごとに動くか。
+ * 'variable' の amount は「予定額」であって確定額ではない。
+ */
+export type AmountType = 'fixed' | 'variable'
+
+/** その月の金額をどう決めたか。UI に算出根拠を出すために使う */
+export type AmountBasis =
+  | 'confirmed'  // 実際の取引と照合できた確定額
+  | 'planned'    // ユーザーが入力した予定額
+  | 'average'    // 直近3ヶ月の確定実績の平均
+  | 'unknown'    // 金額を決められない(警告する)
+
+/** 変動固定費の今月の金額と、その根拠 */
+export interface ResolvedAmount {
+  amount: number
+  basis: AmountBasis
+  /** average のとき、平均に使った月数 */
+  sampleMonths?: number
+}
+
 export interface ScheduledPayment {
   id: string
   name: string
@@ -38,6 +59,13 @@ export interface ScheduledPayment {
   currency?: PaymentCurrency
   /** 外貨建ての原資産額（例: 105 USD）。currency==='JPY' なら未使用 */
   foreign_amount?: number | null
+  /** 'variable' なら amount は予定額。実額は確定 > 予定 > 3ヶ月平均 で決める */
+  amount_type?: AmountType
+  /**
+   * カード利用メールの摘要と突合するキーワード。
+   * 一致した実取引があるサイクルでは、この固定費の予測を加算しない（二重計上の防止）。
+   */
+  match_keywords?: string[] | null
   last_paid_month?: string | null // 'YYYY-MM'。直近どの月まで支払い済みか
   scheduled_date?: string
   generated?: boolean

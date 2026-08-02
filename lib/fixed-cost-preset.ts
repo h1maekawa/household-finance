@@ -1,0 +1,156 @@
+// lib/fixed-cost-preset.ts
+//
+// 「現在の固定費を一括登録」で投入する定期支出の定義。
+//
+// ユーザーIDを埋め込んだマイグレーションは作らない。ログイン中のユーザーが
+// 画面から登録し、カード名・口座名はサーバー側で ID へ解決する。
+//
+// 支払日・引落口座が分からない項目は、ここでは埋めない。推測した日付を入れると
+// キャッシュフローが「それらしいが間違っている」状態になり、
+// 未設定として警告が出るより検知しにくくなるため。
+import type { AmountType, PaymentMethod } from '@/types/cashflow'
+
+export type FixedCostPresetItem = {
+  name: string
+  amount: number
+  category: string
+  amountType: AmountType
+  paymentMethod: PaymentMethod
+  /** カード払いのとき、紐づけるカードの表示名。サーバー側で ID へ解決する */
+  cardName?: string
+  /** 支払日。分からない項目は null のままにして「確認が必要」を出す */
+  dueDay: number | null
+  /**
+   * カード利用メールとの照合キーワード。
+   * 実際に届いている摘要から取ったものだけを入れる。
+   * これが空だと、実カード利用と固定費の予測が二重計上される。
+   */
+  matchKeywords: string[]
+  /** 画面に出す補足 */
+  note?: string
+}
+
+/**
+ * 積立投資のカテゴリ。生活固定費と分けて集計するため、
+ * lib/services/money-plan.ts の判定と同じ '投資' を使う。
+ */
+export const FIXED_COST_PRESET: FixedCostPresetItem[] = [
+  {
+    name: '家賃',
+    amount: 58330,
+    category: '住居費',
+    amountType: 'fixed',
+    paymentMethod: 'bank_debit',
+    dueDay: null,
+    matchKeywords: [],
+    note: '支払日・引落口座は未確認',
+  },
+  {
+    name: '保険',
+    amount: 20000,
+    category: '保険',
+    amountType: 'variable',
+    paymentMethod: 'bank_debit',
+    dueDay: null,
+    matchKeywords: [],
+    note: '平均額。支払日・引落口座は未確認',
+  },
+  {
+    name: '電気代',
+    amount: 2000,
+    category: '水道光熱費',
+    amountType: 'variable',
+    paymentMethod: 'credit_card',
+    cardName: '三井住友カード',
+    dueDay: null,
+    // 契約している電力会社が不明。摘要が分かってから登録する
+    matchKeywords: [],
+    note: '契約会社が未確認のため、メール照合はまだ設定していません',
+  },
+  {
+    name: 'ガス代',
+    amount: 1600,
+    category: '水道光熱費',
+    amountType: 'variable',
+    paymentMethod: 'credit_card',
+    cardName: '三井住友カード',
+    dueDay: null,
+    matchKeywords: [],
+    note: '契約会社が未確認のため、メール照合はまだ設定していません',
+  },
+  {
+    name: '水道代',
+    amount: 1500,
+    category: '水道光熱費',
+    amountType: 'variable',
+    paymentMethod: 'credit_card',
+    cardName: '楽天カード',
+    dueDay: null,
+    // 実際に届いている摘要「26/06-26/07スイドウリ」から取得
+    matchKeywords: ['スイドウリ'],
+  },
+  {
+    name: '楽天モバイル',
+    amount: 3980,
+    category: '通信費',
+    amountType: 'fixed',
+    paymentMethod: 'credit_card',
+    cardName: '楽天カード',
+    dueDay: null,
+    matchKeywords: ['楽天モバイル', 'RAKUTEN MOBILE', 'モバイル通信料'],
+  },
+  {
+    name: '交通費・定期代',
+    amount: 13940,
+    category: '交通費',
+    amountType: 'fixed',
+    paymentMethod: 'credit_card',
+    cardName: '三井住友カード',
+    dueDay: null,
+    // 実際に届いている摘要「京王電鉄定期券(モバイル)」から取得
+    matchKeywords: ['京王電鉄定期券'],
+  },
+  {
+    name: '積立NISA',
+    amount: 15000,
+    category: '投資',
+    amountType: 'variable',
+    paymentMethod: 'credit_card',
+    cardName: '楽天カード',
+    dueDay: null,
+    matchKeywords: ['楽天証券', 'RAKUTEN SECURITIES', '投信積立'],
+    note: '生活固定費とは分けて「投資」として集計します',
+  },
+]
+
+/** 生活固定費（積立投資を除く）の合計 */
+export function presetLivingFixedTotal(items = FIXED_COST_PRESET) {
+  return items
+    .filter(item => item.category !== '投資')
+    .reduce((sum, item) => sum + item.amount, 0)
+}
+
+/** 毎月の積立投資の合計 */
+export function presetInvestmentTotal(items = FIXED_COST_PRESET) {
+  return items
+    .filter(item => item.category === '投資')
+    .reduce((sum, item) => sum + item.amount, 0)
+}
+
+/** 固定支出合計 = 生活固定費 + 積立投資 */
+export function presetTotal(items = FIXED_COST_PRESET) {
+  return presetLivingFixedTotal(items) + presetInvestmentTotal(items)
+}
+
+/**
+ * 重複判定のキー。名前だけで見ると「楽天カード払いの水道代」と
+ * 「口座引落の水道代」が同じ扱いになってしまうため、支払方法とカードも含める。
+ */
+export function fixedCostIdentity(input: {
+  name: string
+  paymentMethod?: string | null
+  cardId?: string | null
+}) {
+  const name = input.name.normalize('NFKC').toLowerCase().replace(/[\s　]/g, '')
+  return `${name}|${input.paymentMethod ?? 'bank_debit'}|${input.cardId ?? ''}`
+}

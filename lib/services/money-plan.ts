@@ -44,6 +44,14 @@ export type CategoryPlan = {
 export type MoneyPlan = {
   month: string
   steps: PlanStep[]
+  /** 生活固定費（積立投資を含まない） */
+  livingFixed: number
+  /** 毎月の積立投資 */
+  investmentFixed: number
+  /** 固定支出合計 = 生活固定費 + 積立投資 */
+  totalFixed: number
+  /** 収入が未登録。true のときは金額ではなく「収入を登録してください」を出す */
+  incomeMissing: boolean
   /** 自由に使えるお金(= budget.variable.budget) */
   freeBudget: number
   spent: number
@@ -55,13 +63,46 @@ export type MoneyPlan = {
   categories: CategoryPlan[]
 }
 
-/** 固定費をカテゴリ別に合算する。カード払いも含めた「毎月出ていく額」で見る */
-export function groupFixedByCategory(payments: ResolvedScheduledPayment[]): PlanBreakdown[] {
+/**
+ * 積立投資のカテゴリ。生活固定費とは別枠で集計する。
+ *
+ * 積立NISA を「固定費」と「投資」の両方に数えると、収入から二重に引かれて
+ * 自由に使える額が実態より少なく出る。片方だけに置くこと。
+ */
+const INVESTMENT_CATEGORY = '投資'
+
+/** 積立投資か。カテゴリだけで判定し、名前からは推測しない */
+export function isInvestmentPayment(payment: ResolvedScheduledPayment): boolean {
+  return payment.category === INVESTMENT_CATEGORY
+}
+
+/**
+ * カード請求そのもの（type: 'credit'）は家計の支出に足さない。
+ *
+ * 電気代2,000円をカードで払うと、電気代が固定費として1回計上され、
+ * 翌月そのカードの請求として銀行から引き落とされる。請求は同じ支出の決済なので、
+ * ここで足すと二重計上になる。カード請求はキャッシュフロー上の口座引落として
+ * だけ使い、支出カテゴリの集計には入れない（要件 §11）。
+ */
+function isCardBill(payment: ResolvedScheduledPayment): boolean {
+  return payment.type === 'credit'
+}
+
+/**
+ * 固定費をカテゴリ別に合算する。カード払いも含めた「毎月出ていく額」で見る。
+ * 積立投資は生活固定費に混ぜないので、既定では除外する。
+ */
+export function groupFixedByCategory(
+  payments: ResolvedScheduledPayment[],
+  options: { includeInvestment?: boolean } = {}
+): PlanBreakdown[] {
   const totals = new Map<string, number>()
 
   for (const payment of payments) {
     if (!payment.is_active) continue
     if (payment.type === 'income') continue
+    if (isCardBill(payment)) continue
+    if (!options.includeInvestment && isInvestmentPayment(payment)) continue
     const amount = yen(payment.resolvedAmountYen ?? payment.amount)
     if (amount <= 0) continue // 金額未登録は流れに乗せない
     const category = payment.category || 'その他'
@@ -71,6 +112,24 @@ export function groupFixedByCategory(payments: ResolvedScheduledPayment[]): Plan
   return [...totals.entries()]
     .map(([label, amount]) => ({ label, amount }))
     .sort((a, b) => b.amount - a.amount)
+}
+
+/** 生活固定費の合計（積立投資を含まない） */
+export function sumLivingFixed(payments: ResolvedScheduledPayment[]): number {
+  return groupFixedByCategory(payments).reduce((sum, item) => sum + item.amount, 0)
+}
+
+/** 毎月の積立投資の合計 */
+export function sumInvestmentFixed(payments: ResolvedScheduledPayment[]): number {
+  return payments
+    .filter(
+      payment =>
+        payment.is_active &&
+        payment.type !== 'income' &&
+        !isCardBill(payment) &&
+        isInvestmentPayment(payment)
+    )
+    .reduce((sum, payment) => sum + Math.max(yen(payment.resolvedAmountYen ?? payment.amount), 0), 0)
 }
 
 /** 目標・ミッションの毎月の積立額。逆算値(requiredMonthly)を優先する */
@@ -98,9 +157,20 @@ export function buildMoneyPlan(input: {
   const { month, budget, categoryBudgets, fixedPayments, goals } = input
 
   const income = yen(budget.income.planned)
-  const fixed = yen(budget.fixed.effective)
+  // 生活固定費と積立投資を分ける。budget.fixed.effective は両方を含むので、
+  // 投資ぶんを引いて「生活固定費」にし、投資は投資のステップで1回だけ引く。
+  //
+  // 前提: fixedPayments と budget.fixed.items は同じ scheduled_payments 集合であること。
+  // 引き算にしているのは、effective が「予定と実績の突合後」の額だから。
+  // 単純に fixedPayments を合計すると、支払済みの実額ではなく予定額に戻ってしまう。
+  const investmentFromFixed = sumInvestmentFixed(fixedPayments)
+  const fixed = Math.max(yen(budget.fixed.effective) - investmentFromFixed, 0)
   const savings = yen(budget.savings.target)
-  const investment = yen(budget.investment.target)
+  // budget.investment.target と固定費側の積立が両方あると二重に引かれるため、
+  // 固定費として登録済みならそちらを正とする。
+  const investment = investmentFromFixed > 0
+    ? investmentFromFixed
+    : yen(budget.investment.target)
   const buffer = yen(budget.buffer)
   const free = yen(budget.variable.budget)
 
@@ -121,7 +191,7 @@ export function buildMoneyPlan(input: {
       amount: fixed,
       sign: '−',
       ratio: ratioOf(fixed),
-      breakdown: groupFixedByCategory(fixedPayments),
+      breakdown: groupFixedByCategory(fixedPayments),  // 積立投資は含まない
     },
     {
       key: 'goals',
@@ -162,6 +232,13 @@ export function buildMoneyPlan(input: {
     // 金額0のステップ(投資・予備費が未設定など)は流れから省いて見やすくする。
     // ただし収入と自由予算は0でも常に出す(0であること自体が情報のため)。
     steps: steps.filter(step => step.amount > 0 || step.key === 'income' || step.key === 'free'),
+    livingFixed: fixed,
+    investmentFixed: investment,
+    // 生活固定費 + 積立投資。画面ではこの内訳も併せて出す
+    totalFixed: fixed + investment,
+    // 収入が未登録なら「0円しか使えない」ではなく「まだ計算できない」。
+    // 0円として赤字表示すると、設定漏れが破綻に見えてしまう。
+    incomeMissing: income <= 0,
     freeBudget: free,
     spent: yen(budget.variable.spent),
     remaining: yen(budget.variable.remaining),

@@ -1,7 +1,7 @@
 // lib/cashflow.ts
 import type { ScheduledPayment, DailyBalance, CreditCardSetting } from '@/types/cashflow'
 import type { Transaction } from '@/types/transaction'
-import { format, addDays, addMonths, getDaysInMonth, isAfter, isBefore, parseISO } from 'date-fns'
+import { format, addDays, addMonths, getDaysInMonth, parseISO } from 'date-fns'
 // CardPlan は型なので `type` を付ける。付けないと node --test の型ストリップが
 // 実行時の named import を残してしまい、モジュール解決に失敗する。
 import {
@@ -27,6 +27,12 @@ type CashflowOptions = {
   today?: Date
   /** カード払いの固定費を、カードの支払日・引落口座へ付け替えるために使う */
   creditCards?: CreditCardSetting[]
+  /**
+   * 予測から取り下げる「固定費ID|引き落とし日」。
+   * 実際のカード利用として既に取り込まれている固定費を二重に引かないために使う
+   * （lib/services/fixed-cost-matching.ts の suppressedDebitKeys）。
+   */
+  suppressedDebits?: Set<string>
 }
 
 function clampDay(year: number, monthIndex: number, day: number) {
@@ -105,15 +111,7 @@ function numberOrDefault(value: unknown, fallback: number) {
   return Number.isFinite(parsed) ? parsed : fallback
 }
 
-function getCardClosingDate(paymentDate: Date, closingDay: number, monthOffset: number) {
-  const closingMonth = addMonths(paymentDate, -monthOffset)
-  return dateForDay(closingMonth.getFullYear(), closingMonth.getMonth(), closingDay)
-}
 
-function isWithinBillingPeriod(date: Date, start: Date, end: Date) {
-  return (isAfter(date, start) || format(date, 'yyyy-MM-dd') === format(start, 'yyyy-MM-dd')) &&
-    (isBefore(date, end) || format(date, 'yyyy-MM-dd') === format(end, 'yyyy-MM-dd'))
-}
 
 export function getCashflowFetchStart() {
   return format(addMonths(new Date(), -3), 'yyyy-MM-dd')
@@ -203,16 +201,33 @@ function resolveGenericCycle(usedAt: Date, card: CreditCardSetting): CardCycleWi
 
 /**
  * 利用日 → そのカードの締め期間・引き落とし日。
- * プランが設定されていればプランのルール、無ければカード個別の締め日設定を使う。
+ *
+ * 優先順位（要件 §4）:
+ *   1. ユーザーがそのカードに設定した締め日・支払日
+ *   2. カードブランド／発行会社の既定ルール（CARD_PAYMENT_RULES）
+ *   3. どちらも無ければ null（呼び出し側が「未設定」として警告する）
+ *
+ * 以前はプランが設定されているとカード個別の設定を無視していたため、
+ * 「楽天カードは必ず27日払い」のような全ユーザー共通ルールを、
+ * 実際の引き落とし日が違うユーザーが上書きできなかった。
+ * CARD_PAYMENT_RULES 自体は書き換えず、プランは「プリセット」として扱う
+ * （選ぶと締め日・支払日の各列にルールの値が書き込まれる）。
  */
 export function resolveCardCycle(
   usedAt: Date,
   card: CreditCardSetting,
   memo?: string | null
 ): CardCycleWindow | null {
+  const closingDay = card.closing_day_int ?? parseInt(card.closing_day, 10)
+  const paymentDay = card.payment_day_int ?? parseInt(card.payment_day, 10)
+  const hasCardSetting = Number.isFinite(closingDay) && Number.isFinite(paymentDay)
+
+  // 1. カード個別設定
+  if (hasCardSetting) return resolveGenericCycle(usedAt, card)
+
+  // 2. ブランド既定ルール
   const plan = (card.card_plan || 'generic') as CardPlan
   const rule = CARD_PAYMENT_RULES[plan]
-
   if (plan !== 'generic' && rule?.supported) {
     const paymentDate = calcPaymentDate(usedAt, plan, memo)
     if (!paymentDate) return null
@@ -220,7 +235,8 @@ export function resolveCardCycle(
     return { periodStart: toKey(start), periodEnd: toKey(end), paymentDate: toKey(paymentDate) }
   }
 
-  return resolveGenericCycle(usedAt, card)
+  // 3. 未設定
+  return null
 }
 
 /**
@@ -319,149 +335,44 @@ export function buildCardCycles(
   )
 }
 
+/**
+ * カード請求の見込みを、キャッシュフロー予測に載せる支払いの形で返す。
+ *
+ * サイクルの切り方は buildCardCycles と同じ resolveCardCycle に委譲する。
+ * 以前はここに「引き落とし日から締め期間を逆算する」独自の分岐があり、
+ * 画面のサイクル表示と予測の金額が食い違う余地があった。
+ */
 export function buildGeneratedCreditPayments(
   transactions: Transaction[],
   creditCards: CreditCardSetting[],
-  days: number = 45
+  days: number = 45,
+  today: Date = new Date()
 ): ScheduledPayment[] {
-  const result: ScheduledPayment[] = []
-  const today = new Date()
   const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate())
-  const windowEnd = addDays(todayStart, days - 1)
+  const windowEnd = format(addDays(todayStart, days - 1), 'yyyy-MM-dd')
 
-  for (const card of creditCards) {
-    const cardPlan = (card.card_plan || 'generic') as CardPlan
-    const rule = CARD_PAYMENT_RULES[cardPlan]
-    const normalizedCardName = normalizeName(card.name)
-    // カードプランが設定されていれば、closing_day_int / payment_day_int が入っていても
-    // プランのルール（締め日・支払日）を優先する。
-    // ※ 以前は legacy カラムが入っているとプランが無視され、
-    //    SMBC 10日プラン等の締め日が正しく計算されなかった。
-    const usePlanRule = cardPlan !== 'generic' && Boolean(rule?.supported)
-
-    if (usePlanRule) {
-      // 1. Filter transactions matching the card
-      const cardTx = transactions.filter(tx => {
-        if (tx.kind === 'income') return false
-        return cardMatchesTransaction(tx, normalizedCardName)
-      })
-
-      // 2. Group transactions by their computed payment date
-      const groups = new Map<string, { txs: Transaction[]; paymentDate: Date }>()
-
-      for (const tx of cardTx) {
-        const txDate = parseISO(tx.date)
-        const paymentDate = calcPaymentDate(txDate, cardPlan, tx.memo)
-        if (!paymentDate) continue
-
-        // Check if the payment date is within the projection window
-        if (paymentDate >= todayStart && paymentDate <= windowEnd) {
-          const key = format(paymentDate, 'yyyy-MM-dd')
-          if (!groups.has(key)) {
-            groups.set(key, { txs: [], paymentDate })
-          }
-          groups.get(key)!.txs.push(tx)
-        }
-      }
-
-      // 3. Generate ScheduledPayment objects for each group
-      const sortedKeys = Array.from(groups.keys()).sort()
-      for (const key of sortedKeys) {
-        const { txs, paymentDate } = groups.get(key)!
-        const amount = txs.reduce((sum, tx) => sum + tx.amount, 0)
-        if (amount <= 0) continue
-
-        // Calculate the combined billing period
-        let minStart: Date | null = null
-        let maxEnd: Date | null = null
-
-        for (const tx of txs) {
-          const { start, end } = getBillingPeriod(parseISO(tx.date), cardPlan, tx.memo)
-          if (!minStart || start < minStart) minStart = start
-          if (!maxEnd || end > maxEnd) maxEnd = end
-        }
-
-        const memoStr = minStart && maxEnd
-          ? `${format(minStart, 'M/d')}〜${format(maxEnd, 'M/d')} 利用分`
-          : 'カード利用分'
-
-        result.push({
-          id: `generated-credit-${card.id}-${key}`,
-          name: `${card.name} 請求見込み`,
-          amount,
-          due_day: paymentDate.getDate(),
-          category: 'クレカ請求',
-          type: 'credit',
-          is_active: true,
-          memo: memoStr,
-          bank_account: card.bank_account ?? null,
-          // 確定請求額(source: 'card_statement')との突合を、名前の部分一致ではなく
-          // カードID + 引き落とし日の完全一致でやるために持たせる。
-          // payment_method は付けないので resolveMonthlyDebits の付け替え対象にはならない。
-          credit_card_id: card.id,
-          scheduled_date: key,
-          generated: true,
-          source: 'credit_card',
-          created_at: new Date().toISOString(),
-        })
-      }
-    } else {
-      // Fallback: Generic / Unsupported plan
-      for (let i = -7; i < days + 7; i++) {
-        const rawPaymentDate = addDays(todayStart, i)
-        const paymentDay = numberOrDefault(card.payment_day_int ?? parseInt(card.payment_day, 10), 27)
-        const effectivePaymentDay = clampDay(rawPaymentDate.getFullYear(), rawPaymentDate.getMonth(), paymentDay)
-        if (rawPaymentDate.getDate() !== effectivePaymentDay) continue
-
-        const shiftedPaymentDate = nextBusinessDay(rawPaymentDate)
-        if (shiftedPaymentDate < todayStart || shiftedPaymentDate > windowEnd) continue
-
-        const closingDay = numberOrDefault(card.closing_day_int ?? parseInt(card.closing_day, 10), 31)
-        const monthOffset = numberOrDefault(card.payment_month_offset, 1)
-
-        const closingDate = getCardClosingDate(rawPaymentDate, closingDay, monthOffset)
-        // 前サイクルの締め日も同じクランプ規則で算出する。
-        // ※ addMonths(closingDate, -1) だと 2/28 → 1/28 となり、1/29〜1/31 が二重集計されていた。
-        const previousClosingDate = getCardClosingDate(rawPaymentDate, closingDay, monthOffset + 1)
-        const periodStart = addDays(previousClosingDate, 1)
-        const periodEnd = closingDate
-
-        const amount = transactions
-          .filter(tx => {
-            if (tx.kind === 'income') return false
-            if (!cardMatchesTransaction(tx, normalizedCardName)) return false
-            const txDate = parseISO(tx.date)
-            return isWithinBillingPeriod(txDate, periodStart, periodEnd)
-          })
-          .reduce((sum, tx) => sum + tx.amount, 0)
-
-        if (amount <= 0) continue
-
-        const scheduledDate = format(shiftedPaymentDate, 'yyyy-MM-dd')
-        result.push({
-          id: `generated-credit-${card.id}-${scheduledDate}`,
-          name: `${card.name} 請求見込み`,
-          amount,
-          due_day: shiftedPaymentDate.getDate(),
-          category: 'クレカ請求',
-          type: 'credit',
-          is_active: true,
-          memo: `${format(periodStart, 'M/d')}〜${format(periodEnd, 'M/d')} 利用分`,
-          bank_account: card.bank_account ?? null,
-          // 確定請求額(source: 'card_statement')との突合を、名前の部分一致ではなく
-          // カードID + 引き落とし日の完全一致でやるために持たせる。
-          // payment_method は付けないので resolveMonthlyDebits の付け替え対象にはならない。
-          credit_card_id: card.id,
-          scheduled_date: scheduledDate,
-          generated: true,
-          source: 'credit_card',
-          created_at: new Date().toISOString(),
-        })
-      }
-    }
-  }
-
-  return result
+  return buildCardCycles(transactions, creditCards, todayStart)
+    .filter(cycle => cycle.paymentDate <= windowEnd && cycle.amount > 0)
+    .map(cycle => ({
+      id: `generated-credit-${cycle.cardId}-${cycle.paymentDate}`,
+      name: `${cycle.cardName} 請求見込み`,
+      amount: cycle.amount,
+      due_day: Number(cycle.paymentDate.slice(8, 10)),
+      category: 'クレカ請求',
+      type: 'credit' as const,
+      is_active: true,
+      memo: `${cycle.periodStart.slice(5).replace('-', '/')}〜${cycle.periodEnd.slice(5).replace('-', '/')} 利用分`,
+      bank_account: null,
+      debit_account_id: cycle.debitAccountId,
+      scheduled_date: cycle.paymentDate,
+      generated: true,
+      source: 'credit_card' as const,
+      // 確定請求額(source: 'card_statement')との突合を、名前の部分一致ではなく
+      // カードID + 引き落とし日の完全一致でやるために持たせる。
+      // payment_method は付けないので resolveMonthlyDebits の付け替え対象にはならない。
+      credit_card_id: cycle.cardId,
+      created_at: new Date().toISOString(),
+    }))
 }
 
 /**
@@ -477,7 +388,8 @@ function buildPaymentIndex(
   cards: CreditCardSetting[],
   today: Date,
   days: number,
-  fx: FxRates
+  fx: FxRates,
+  suppressed: Set<string> = new Set()
 ): Map<string, { payment: ScheduledPayment; amount: number }[]> {
   const index = new Map<string, { payment: ScheduledPayment; amount: number }[]>()
   const push = (date: string, entry: { payment: ScheduledPayment; amount: number }) => {
@@ -495,6 +407,8 @@ function buildPaymentIndex(
   for (const month of months) {
     // 支出: カード払いの付け替えを含めて解決する
     for (const debit of resolveMonthlyDebits(payments, cards, month, fx)) {
+      // 実際のカード利用として取り込み済みなら、予測は加算しない（実績が予測に勝つ）
+      if (suppressed.has(`${debit.id}|${debit.date}`)) continue
       const payment = byId.get(debit.id)
       if (payment) push(debit.date, { payment, amount: debit.amount })
     }
@@ -530,7 +444,8 @@ export function projectCashflow(
     options.creditCards ?? [],
     today,
     days,
-    fx
+    fx,
+    options.suppressedDebits ?? new Set()
   )
 
   for (let i = 0; i < days; i++) {

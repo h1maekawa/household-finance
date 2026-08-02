@@ -204,3 +204,122 @@ test('予算枠が無いのに使っているカテゴリも末尾に出す', ()
   assert.equal(leisure?.remaining, -3500)
   assert.equal(plan.categories.at(-1)?.unbudgeted, true, '予算外は末尾に並ぶ')
 })
+
+// ---------------------------------------------------------------- 生活固定費と投資の分離
+
+/** 要件 §2 の実データ8件 */
+function realFixedCosts(): ResolvedScheduledPayment[] {
+  const items: Array<[string, number, string]> = [
+    ['家賃', 58330, '住居費'],
+    ['保険', 20000, '保険'],
+    ['電気代', 2000, '水道光熱費'],
+    ['ガス代', 1600, '水道光熱費'],
+    ['水道代', 1500, '水道光熱費'],
+    ['楽天モバイル', 3980, '通信費'],
+    ['交通費・定期代', 13940, '交通費'],
+    ['積立NISA', 15000, '投資'],
+  ]
+  return items.map(([name, amount, category], index) =>
+    fixedPayment({ id: `sp-${index}`, name, amount, category, resolvedAmountYen: amount })
+  )
+}
+
+test('生活固定費101,350円と積立投資15,000円を分けて集計する', () => {
+  const payments = realFixedCosts()
+  const plan = buildMoneyPlan({
+    month: '2026-08',
+    // budget.fixed.effective は投資を含んだ合計116,350円
+    budget: summary({
+      fixed: { planned: 116350, paid: 0, unpaid: 116350, effective: 116350, items: [] },
+      investment: { target: 0 },
+    }),
+    categoryBudgets: [],
+    fixedPayments: payments,
+    goals: [],
+  })
+
+  assert.equal(plan.livingFixed, 101350)
+  assert.equal(plan.investmentFixed, 15000)
+  assert.equal(plan.totalFixed, 116350)
+})
+
+test('積立NISAを固定費と投資で二重に引かない', () => {
+  const plan = buildMoneyPlan({
+    month: '2026-08',
+    budget: summary({
+      fixed: { planned: 116350, paid: 0, unpaid: 116350, effective: 116350, items: [] },
+      // 予算側にも投資目標が入っているケース。固定費側を正として1回だけ引く
+      investment: { target: 15000 },
+    }),
+    categoryBudgets: [],
+    fixedPayments: realFixedCosts(),
+    goals: [],
+  })
+
+  const fixedStep = plan.steps.find(step => step.key === 'fixed')
+  const investmentStep = plan.steps.find(step => step.key === 'investment')
+
+  assert.equal(fixedStep?.amount, 101350)
+  assert.equal(investmentStep?.amount, 15000)
+  // 固定費ステップ + 投資ステップ = 116,350（30,000にならない）
+  assert.equal((fixedStep?.amount ?? 0) + (investmentStep?.amount ?? 0), 116350)
+})
+
+test('固定費の内訳に投資カテゴリを混ぜない', () => {
+  const breakdown = groupFixedByCategory(realFixedCosts())
+  assert.equal(breakdown.some(item => item.label === '投資'), false)
+  assert.equal(breakdown.reduce((sum, item) => sum + item.amount, 0), 101350)
+  // 水道光熱費は 2,000 + 1,600 + 1,500
+  assert.equal(breakdown.find(item => item.label === '水道光熱費')?.amount, 5100)
+})
+
+test('収入が未登録なら0円計算ではなく incomeMissing を立てる', () => {
+  const plan = buildMoneyPlan({
+    month: '2026-08',
+    budget: summary({
+      income: { planned: 0, actual: 0 },
+      fixed: { planned: 116350, paid: 0, unpaid: 116350, effective: 116350, items: [] },
+      investment: { target: 0 },
+      variable: { ...summary().variable, budget: 0, remaining: 0, dailyAllowance: 0 },
+    }),
+    categoryBudgets: [],
+    fixedPayments: realFixedCosts(),
+    goals: [],
+  })
+
+  assert.equal(plan.incomeMissing, true)
+  // 固定費自体は収入と無関係に出せる
+  assert.equal(plan.livingFixed, 101350)
+})
+
+test('収入が登録されていれば incomeMissing は立たない', () => {
+  const plan = buildMoneyPlan({
+    month: '2026-08',
+    budget: summary(),
+    categoryBudgets: [],
+    fixedPayments: realFixedCosts(),
+    goals: [],
+  })
+  assert.equal(plan.incomeMissing, false)
+})
+
+// 要件 §11: カード請求は同じ支出の決済なので、支出集計に再加算しない
+test('カード請求(type: credit)は固定費の集計に足さない', () => {
+  const payments = [
+    ...realFixedCosts(),
+    // 三井住友カードの確定請求 17,540円 = 電気代+ガス代+交通費 の決済
+    fixedPayment({
+      id: 'sp-bill',
+      name: '三井住友カード 請求（確定）',
+      amount: 17540,
+      category: 'クレカ請求',
+      type: 'credit',
+      resolvedAmountYen: 17540,
+    }),
+  ]
+
+  const breakdown = groupFixedByCategory(payments)
+  assert.equal(breakdown.some(item => item.label === 'クレカ請求'), false)
+  // 101,350円のまま。118,890円にならない
+  assert.equal(breakdown.reduce((sum, item) => sum + item.amount, 0), 101350)
+})

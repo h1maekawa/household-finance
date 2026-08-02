@@ -15,6 +15,9 @@ export default function VariableBudgetList({
 
   const allocated = categories.reduce((sum, c) => sum + c.budget, 0)
   const unallocated = freeBudget - allocated
+  // 食費は変動費の中で一番大きく、ここが未設定だと
+  // 「今月あと自由に使える額」が実態とずれる(要件 §10)
+  const foodBudgetMissing = !categories.some(c => c.category === '食費' && c.budget > 0)
 
   if (categories.length === 0) {
     return (
@@ -37,6 +40,15 @@ export default function VariableBudgetList({
             : `配分超過 ${Math.abs(unallocated).toLocaleString()}円`}
         </span>
       </div>
+
+      {foodBudgetMissing && (
+        <div className="mt-3 rounded-xl border border-warning/30 bg-warning/5 px-3 py-2.5">
+          <p className="text-xs font-bold text-foreground">食費予算が未設定です</p>
+          <p className="mt-1 text-[11px] leading-relaxed text-muted">
+            今月使える金額を正確に計算するため、食費予算を設定してください。
+          </p>
+        </div>
+      )}
 
       <div className="mt-3 flex flex-col gap-3.5">
         {categories.map(item => (

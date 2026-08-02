@@ -17,6 +17,7 @@ import type {
   CreditCardSetting,
   PaymentCurrency,
   Recurrence,
+  ResolvedAmount,
   ScheduledPayment,
 } from '@/types/cashflow'
 import { adjustBusinessDay } from '@/lib/holiday-jp'
@@ -133,6 +134,64 @@ export function resolveAmountYen(payment: FixedCostLike, fx: FxRates = {}): numb
 
   if (effectiveRate <= 0) return yen(payment.amount)
   return yen(foreign * effectiveRate)
+}
+
+// ---------------------------------------------------------------- 変動固定費の金額
+
+/** 変動固定費の平均に使う過去月数 */
+const AVERAGE_WINDOW_MONTHS = 3
+
+/**
+ * 変動固定費（電気代・保険など）の「その月いくらで見るか」を決める。
+ *
+ * 優先順位（要件 §6）:
+ *   1. 今月の確定金額（カード利用メール等と照合できた実額）
+ *   2. ユーザーが入力した予定金額
+ *   3. 直近3ヶ月の確定実績の平均
+ *   4. 決められない → basis: 'unknown' として呼び出し側が警告する
+ *
+ * 確定金額と予定金額は足さない。確定が入ったら予定を置き換える。
+ * 履歴が1〜2ヶ月しか無ければ、その月数だけで平均する（0で薄めない）。
+ * 履歴が無いときに 0円 を返さないのは、0円の固定費が予測を実態より
+ * 楽観的に見せてしまうため。
+ *
+ * @param confirmed  その月の確定額。未確定なら undefined
+ * @param history    'YYYY-MM' → 確定額。未払い・金額未登録の月は含めないこと
+ */
+export function resolveVariableAmount(
+  payment: Pick<ScheduledPayment, 'amount' | 'amount_type'>,
+  month: string,
+  confirmed?: number,
+  history: Map<string, number> = new Map()
+): ResolvedAmount {
+  if (confirmed !== undefined && confirmed > 0) {
+    return { amount: yen(confirmed), basis: 'confirmed' }
+  }
+
+  // 固定額は予定額がそのまま請求額
+  if ((payment.amount_type ?? 'fixed') === 'fixed') {
+    const planned = yen(payment.amount)
+    return planned > 0 ? { amount: planned, basis: 'planned' } : { amount: 0, basis: 'unknown' }
+  }
+
+  const planned = yen(payment.amount)
+  if (planned > 0) return { amount: planned, basis: 'planned' }
+
+  const samples: number[] = []
+  for (let back = 1; back <= AVERAGE_WINDOW_MONTHS; back++) {
+    const value = history.get(addMonths(month, -back))
+    if (value !== undefined && value > 0) samples.push(value)
+  }
+  if (samples.length > 0) {
+    const total = samples.reduce((sum, value) => sum + value, 0)
+    return {
+      amount: yen(total / samples.length),
+      basis: 'average',
+      sampleMonths: samples.length,
+    }
+  }
+
+  return { amount: 0, basis: 'unknown' }
 }
 
 // ---------------------------------------------------------------- 口座への割当

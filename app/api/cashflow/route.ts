@@ -11,6 +11,11 @@ import {
   projectCashflow,
 } from '@/lib/cashflow'
 import { loadFxRates } from '@/lib/repositories/fx-rates'
+import {
+  findUnmatchedCardFixedCosts,
+  matchFixedCostsToCardUsage,
+  suppressedDebitKeys,
+} from '@/lib/services/fixed-cost-matching'
 import type { CreditCardSetting, ScheduledPayment } from '@/types/cashflow'
 import type { Transaction } from '@/types/transaction'
 
@@ -103,6 +108,12 @@ export async function GET(request: NextRequest) {
   const currentBalance = balanceRes.data?.balance ?? 0
   // 外貨建て固定費(ジブラルタ生命 105 USD 等)を円換算するためのレート
   const fxRates = await loadFxRates()
+
+  // カード払いの固定費のうち、実際のカード利用として既に取り込まれているものを特定する。
+  // ここで取り下げないと、同じ支出が「固定費の予測」と「カード請求に含まれる実取引」で
+  // 二重に残高から引かれる。
+  const fixedCostMatches = matchFixedCostsToCardUsage(scheduledPayments, creditCards, transactions)
+
   const projectedDays = projectCashflow(
     currentBalance,
     [...scheduledPayments, ...generatedPayments],
@@ -113,6 +124,7 @@ export async function GET(request: NextRequest) {
       // カード払いの固定費をカードの支払日・引落口座へ付け替えるために渡す
       creditCards,
       fxRates,
+      suppressedDebits: suppressedDebitKeys(fixedCostMatches),
     }
   )
 
@@ -128,5 +140,13 @@ export async function GET(request: NextRequest) {
     // 締め前も含めた「これから引き落とされるカードのサイクル」。
     // 予測ウィンドウ(2ヶ月)の外に出る支払日も、ここでは必ず見える。
     cardCycles: buildCardCycles(transactions, creditCards, new Date(), confirmedStatements),
+    // 実カード利用と照合できた固定費（＝予測から取り下げたもの）
+    fixedCostMatches,
+    // 照合キーワードが無いカード払い固定費。実取引が来ていれば二重計上している
+    unmatchedCardFixedCosts: findUnmatchedCardFixedCosts(scheduledPayments).map(payment => ({
+      id: payment.id,
+      name: payment.name,
+      amount: payment.amount,
+    })),
   })
 }

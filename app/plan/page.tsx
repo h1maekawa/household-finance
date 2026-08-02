@@ -17,6 +17,7 @@ import GoalList from '@/components/GoalList'
 import DebtsSummaryCard from '@/components/DebtsSummaryCard'
 import FixedIncomeCard from '@/components/FixedIncomeCard'
 import ScheduledPaymentList from '@/components/ScheduledPaymentList'
+import BulkFixedCostImport from '@/components/BulkFixedCostImport'
 import { buildMoneyPlan } from '@/lib/services/money-plan'
 import type { BudgetSummary, CategoryBudget } from '@/types/budget'
 import type { GoalProgress } from '@/types/goal'
@@ -65,8 +66,18 @@ export default function PlanPage() {
         </Section>
 
         <Section title="固定費" defaultOpen={fixedPayments.length === 0}>
-          <div className="card p-4">
-            <ScheduledPaymentList payments={fixedPayments} onMutate={mutatePayments} />
+          <div className="flex flex-col gap-3">
+            {/* 未登録のうちは一括登録を前面に出す。1件ずつ入れるのは現実的でない */}
+            <div className="card p-4">
+              <h3 className="text-sm font-bold">固定費をまとめて登録</h3>
+              <p className="mb-3 mt-1 text-xs leading-relaxed text-muted">
+                家賃・光熱費・通信費・積立をまとめて登録します。登録前に内容を確認できます。
+              </p>
+              <BulkFixedCostImport onImported={mutatePayments} />
+            </div>
+            <div className="card p-4">
+              <ScheduledPaymentList payments={fixedPayments} onMutate={mutatePayments} />
+            </div>
           </div>
         </Section>
 
