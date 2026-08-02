@@ -63,9 +63,11 @@ export const FIXED_COST_PRESET: FixedCostPresetItem[] = [
     paymentMethod: 'credit_card',
     cardName: '三井住友カード',
     dueDay: null,
-    // 契約している電力会社が不明。摘要が分かってから登録する
-    matchKeywords: [],
-    note: '契約会社が未確認のため、メール照合はまだ設定していません',
+    // 契約先はアルカナエナジー。カードの摘要はカタカナ・半角カタカナ・英字の
+    // どれで来るか実物を見るまで確定しないので、表記ゆれをまとめて登録する。
+    // 照合は NFKC 正規化後の部分一致なので、半角カタカナは自動で吸収される。
+    matchKeywords: ['アルカナエナジー', 'アルカナ', 'ARCANA'],
+    note: 'アルカナエナジー。初回請求後に照合できているか確認してください',
   },
   {
     name: 'ガス代',
@@ -75,8 +77,11 @@ export const FIXED_COST_PRESET: FixedCostPresetItem[] = [
     paymentMethod: 'credit_card',
     cardName: '三井住友カード',
     dueDay: null,
-    matchKeywords: [],
-    note: '契約会社が未確認のため、メール照合はまだ設定していません',
+    // 契約先は東京ガス。カード明細は「トウキヨウガス」のように
+    // 拗音が大書きのカタカナで来ることがあるため、その形も入れておく。
+    // 単に 'ガス' だけにすると無関係な店名を誤照合するので使わない。
+    matchKeywords: ['東京ガス', 'トウキヨウガス', 'トウキョウガス', 'TOKYO GAS'],
+    note: '東京ガス。初回請求後に照合できているか確認してください',
   },
   {
     name: '水道代',

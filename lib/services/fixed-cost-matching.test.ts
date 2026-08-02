@@ -153,3 +153,49 @@ test('照合できていないサイクルの予測は残る', () => {
   // 9/27は日曜なので翌営業日の28日
   assert.equal(days.find(d => d.date === '2026-09-28')?.payments.length, 1)
 })
+
+// 電力・ガスの摘要は表記ゆれが大きい。半角カタカナ・拗音の大書き・英字のいずれでも拾う
+test('アルカナエナジーと東京ガスは表記ゆれがあっても照合できる', () => {
+  const smbc: CreditCardSetting = { ...rakuten, id: 'card-smbc', name: '三井住友カード' }
+  const electric = fixed({
+    id: 'sp-electric', name: '電気代', credit_card_id: 'card-smbc',
+    match_keywords: ['アルカナエナジー', 'アルカナ', 'ARCANA'],
+  })
+  const gas = fixed({
+    id: 'sp-gas', name: 'ガス代', credit_card_id: 'card-smbc',
+    match_keywords: ['東京ガス', 'トウキヨウガス', 'トウキョウガス', 'TOKYO GAS'],
+  })
+
+  const variants: Array<[string, string]> = [
+    ['sp-electric', 'クレジットカード自動連携 (ｱﾙｶﾅｴﾅｼﾞｰ)'],       // 半角カタカナ
+    ['sp-electric', 'クレジットカード自動連携 (アルカナエナジー)'],
+    ['sp-electric', 'クレジットカード自動連携 (ARCANA ENERGY)'],     // 英字
+    ['sp-gas', 'クレジットカード自動連携 (東京ガス)'],              // 漢字
+    ['sp-gas', 'クレジットカード自動連携 (ﾄｳｷﾖｳｶﾞｽ)'],              // 半角・拗音大書き
+    ['sp-gas', 'クレジットカード自動連携 (TOKYO GAS)'],
+  ]
+
+  for (const [expectedId, memo] of variants) {
+    const matches = matchFixedCostsToCardUsage(
+      [electric, gas],
+      [smbc],
+      [tx({ id: 'tx-x', memo, card_issuer: '三井住友カード' })]
+    )
+    assert.equal(matches.length, 1, `照合できなかった: ${memo}`)
+    assert.equal(matches[0].paymentId, expectedId, `別の固定費に紐づいた: ${memo}`)
+  }
+})
+
+test('「ガス」を含む無関係な店名は誤照合しない', () => {
+  const smbc: CreditCardSetting = { ...rakuten, id: 'card-smbc', name: '三井住友カード' }
+  const gas = fixed({
+    id: 'sp-gas', name: 'ガス代', credit_card_id: 'card-smbc',
+    match_keywords: ['東京ガス', 'トウキヨウガス', 'トウキョウガス', 'TOKYO GAS'],
+  })
+  const matches = matchFixedCostsToCardUsage(
+    [gas],
+    [smbc],
+    [tx({ id: 'tx-y', memo: 'クレジットカード自動連携 (ガスト 笹塚店)', card_issuer: '三井住友カード' })]
+  )
+  assert.equal(matches.length, 0)
+})

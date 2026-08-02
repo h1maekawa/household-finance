@@ -43,10 +43,16 @@ test('固定額と変動額の区分', () => {
   assert.equal(typeOf('積立NISA'), 'variable')
 })
 
-test('契約会社が不明な電気・ガスには照合キーワードを入れない', () => {
-  for (const name of ['電気代', 'ガス代']) {
-    assert.deepEqual(FIXED_COST_PRESET.find(i => i.name === name)!.matchKeywords, [])
+test('カード払いの固定費は全件に照合キーワードがある（無いと二重計上する）', () => {
+  for (const item of FIXED_COST_PRESET) {
+    if (item.paymentMethod !== 'credit_card') continue
+    assert.ok(item.matchKeywords.length > 0, `${item.name} にキーワードが無いと二重計上する`)
   }
+})
+
+test('ガス代のキーワードに単独の「ガス」を使わない（無関係な店名を誤照合するため）', () => {
+  const gas = FIXED_COST_PRESET.find(i => i.name === 'ガス代')!
+  assert.equal(gas.matchKeywords.includes('ガス'), false)
 })
 
 // 実取引が届いている4件は、キーワードが無いと二重計上する
