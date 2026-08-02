@@ -1,21 +1,12 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import Link from 'next/link'
 import { useToast } from '@/components/Toast'
 import { useCategories } from '@/lib/useCategories'
 import { useAccounts } from '@/lib/useAccounts'
 import GmailImportStatusCard from '@/components/GmailImportStatusCard'
-import type { ScheduledPayment } from '@/types/cashflow'
 import { CARD_PAYMENT_RULES, type CardPlan } from '@/lib/card-payment-rules'
 
-type SettingsResponse = {
-  profile: {
-    initial_balance: number
-    monthly_income: number
-    income_day?: number | null
-  }
-}
 
 type CreditCardSetting = {
   id: string
@@ -29,14 +20,10 @@ type CreditCardSetting = {
   debit_account_id?: string | null
 }
 
-function toNumberInput(value: number | undefined) {
-  return value ? String(value) : ''
-}
 
 const SETTING_TABS = [
   { key: 'integrations', label: '連携・取込' },
   { key: 'categories', label: 'カテゴリ管理' },
-  { key: 'assets', label: '資産・投資設定' },
   { key: 'cards', label: 'カード設定' },
   { key: 'display', label: '表示設定' },
   { key: 'account', label: 'アカウント' },
@@ -77,7 +64,6 @@ export default function SettingsPage() {
   const { showToast } = useToast()
   const { accounts } = useAccounts()
   const [activeTab, setActiveTab] = useState<SettingTab>('integrations')
-  const [initialBalance, setInitialBalance] = useState('')
   const [creditCards, setCreditCards] = useState<CreditCardSetting[]>([])
   const [cardName, setCardName] = useState('')
   const [closingDay, setClosingDay] = useState('31')
@@ -87,29 +73,15 @@ export default function SettingsPage() {
   const [cardBankAccount, setCardBankAccount] = useState('')
   const [savingCard, setSavingCard] = useState(false)
   const [recategorizing, setRecategorizing] = useState(false)
-  const [loading, setLoading] = useState(true)
-  const [saving, setSaving] = useState(false)
   const [billingActive, setBillingActive] = useState(false)
   const [billingRequired, setBillingRequired] = useState(false)
   const [newGasSecret, setNewGasSecret] = useState('')
-  const [scheduledPayments, setScheduledPayments] = useState<ScheduledPayment[]>([])
   const [newCategoryName, setNewCategoryName] = useState('')
   const [newCategoryIcon, setNewCategoryIcon] = useState('📦')
   const [savingCategory, setSavingCategory] = useState(false)
 
   useEffect(() => {
     let mounted = true
-
-    fetch('/api/settings')
-      .then(res => res.json())
-      .then((data: SettingsResponse) => {
-        if (!mounted) return
-        setInitialBalance(toNumberInput(data.profile?.initial_balance))
-      })
-      .catch(() => showToast('設定の読み込みに失敗しました', 'error'))
-      .finally(() => {
-        if (mounted) setLoading(false)
-      })
 
     fetch('/api/billing/status')
       .then(res => res.json())
@@ -127,35 +99,9 @@ export default function SettingsPage() {
       })
       .catch(() => undefined)
 
-    fetch('/api/scheduled-payments')
-      .then(res => res.json())
-      .then((data: ScheduledPayment[]) => {
-        if (mounted) setScheduledPayments(Array.isArray(data) ? data : [])
-      })
-      .catch(() => undefined)
-
     return () => { mounted = false }
   }, [showToast])
 
-  async function handleSave() {
-    setSaving(true)
-    try {
-      const res = await fetch('/api/settings', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        // 残高だけを送る。月収・給料日は固定収支ページが持つようになったので、
-        // ここから送ると古い値で上書きしてしまう。
-        body: JSON.stringify({ initial_balance: Number(initialBalance || 0) }),
-      })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error)
-      showToast('設定を保存しました', 'success')
-    } catch (err) {
-      showToast(err instanceof Error ? err.message : '保存に失敗しました', 'error')
-    } finally {
-      setSaving(false)
-    }
-  }
 
   async function refreshCreditCards() {
     const res = await fetch('/api/credit-cards')
@@ -315,33 +261,11 @@ export default function SettingsPage() {
     }
   }
 
-  async function refreshScheduledPayments() {
-    const res = await fetch('/api/scheduled-payments')
-    const data = await res.json()
-    if (res.ok) setScheduledPayments(Array.isArray(data) ? data : [])
-  }
 
   /**
    * 引き落とし口座は debit_account_id(FK) が真実。bank_account(text) は
    * 既存データとの互換のため表示名を併せて書いておくだけ。
    */
-  async function handlePaymentBankChange(payment: ScheduledPayment, accountId: string) {
-    const account = accounts.find(a => a.id === accountId)
-    const res = await fetch(`/api/scheduled-payments/${payment.id}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        debit_account_id: accountId || null,
-        bank_account: account?.name ?? null,
-      }),
-    })
-    if (res.ok) {
-      await refreshScheduledPayments()
-      showToast('引き落とし口座を保存しました', 'success')
-    } else {
-      showToast('引き落とし口座を保存できませんでした', 'error')
-    }
-  }
 
   return (
     <div className="mx-auto max-w-xl px-4 py-8 lg:max-w-3xl lg:px-0">
@@ -365,86 +289,11 @@ export default function SettingsPage() {
         ))}
       </div>
 
-      {activeTab === 'assets' && (
-      <div className="flex flex-col gap-4">
-      <section className="card p-4">
-        <h2 className="text-base font-bold">家計の初期値</h2>
-        <p className="mt-1 text-xs leading-relaxed text-muted">
-          残高はキャッシュフロー予測の起点として保存されます。
-          月収と給料日は<Link href="/plan" className="font-medium text-primary">マネープラン</Link>で設定します。
-        </p>
-
-        <div className="mt-4 grid gap-4">
-          <MoneyInput
-            label="現在の貯金残高"
-            value={initialBalance}
-            onChange={setInitialBalance}
-            disabled={loading || saving}
-          />
-        </div>
-
-        <button
-          type="button"
-          onClick={handleSave}
-          disabled={loading || saving}
-          className="mt-5 w-full rounded-2xl bg-primary py-3 font-bold text-white transition-base active:opacity-80 disabled:opacity-50"
-        >
-          {saving ? '保存中...' : '保存する'}
-        </button>
-      </section>
-      <section className="card p-4">
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <h2 className="text-base font-bold">固定費の引き落とし管理</h2>
-            <p className="mt-1 text-xs leading-relaxed text-muted">
-              固定費ごとに引き落とし日と利用口座を確認・設定できます。
-            </p>
-          </div>
-          <Link href="/investments?tab=accounts" className="shrink-0 text-sm font-medium text-primary">
-            口座管理
-          </Link>
-        </div>
-        {accounts.length === 0 && (
-          <p className="mt-2 text-xs text-warning">
-            口座がまだ登録されていません。「口座管理」から登録すると引落口座を選べます。
-          </p>
-        )}
-        <div className="mt-4 overflow-hidden rounded-2xl border border-border">
-          {scheduledPayments.length === 0 ? (
-            <div className="px-4 py-5 text-center text-sm text-muted">固定費の登録はまだありません</div>
-          ) : (
-            scheduledPayments.map((payment, index) => (
-              <div
-                key={payment.id}
-                className={`grid gap-3 px-4 py-3 ${index < scheduledPayments.length - 1 ? 'border-b border-border' : ''}`}
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-bold">{payment.name}</p>
-                    <p className="mt-0.5 text-xs text-muted">
-                      {payment.scheduled_date ?? `毎月${payment.due_day}日`} / {payment.amount.toLocaleString()}円
-                    </p>
-                  </div>
-                  <span className="shrink-0 rounded-full bg-surface px-2.5 py-1 text-[11px] text-muted">{payment.category}</span>
-                </div>
-                <select
-                  value={payment.debit_account_id ?? ''}
-                  onChange={event => handlePaymentBankChange(payment, event.target.value)}
-                  aria-label={`${payment.name}の引き落とし口座`}
-                  className="w-full rounded-xl border border-border bg-surface px-3.5 py-2.5 text-sm focus:border-primary focus:bg-card focus:outline-none"
-                >
-                  <option value="">口座未設定</option>
-                  {accounts.map(account => (
-                    <option key={account.id} value={account.id}>{account.name}</option>
-                  ))}
-                </select>
-              </div>
-            ))
-          )}
-        </div>
-      </section>
-      </div>
-      )}
+      {/* 「資産・投資設定」タブは廃止した。
+          ・現在の貯金残高 … 予定→支払い予定の残高カードで更新できる
+          ・固定費の引落口座 … 予定→固定費の一覧で1件ずつ編集できる
+          どちらも設定側は同じことができる二重の入口で、直す場所が2つあると
+          片方だけ直して食い違う。設定には毎日は触らないマスタだけを残す。 */}
 
       {activeTab === 'cards' && (
       <section className="card p-4">
@@ -684,34 +533,6 @@ export default function SettingsPage() {
   )
 }
 
-function MoneyInput({
-  label,
-  value,
-  onChange,
-  disabled,
-}: {
-  label: string
-  value: string
-  onChange: (value: string) => void
-  disabled: boolean
-}) {
-  return (
-    <label className="block">
-      <span className="mb-1.5 block text-xs text-muted">{label}</span>
-      <span className="relative block">
-        <span className="absolute left-3.5 top-1/2 -translate-y-1/2 font-mono text-sm text-muted">¥</span>
-        <input
-          type="number"
-          inputMode="numeric"
-          value={value}
-          disabled={disabled}
-          onChange={e => onChange(e.target.value)}
-          className="w-full rounded-xl border border-border bg-surface py-3 pl-8 pr-3.5 font-mono text-base focus:border-primary focus:bg-card focus:outline-none disabled:opacity-60"
-        />
-      </span>
-    </label>
-  )
-}
 
 function DayInput({
   label,
