@@ -4,6 +4,7 @@ import {
   confirmedAmountsByMonth,
   findUnmatchedCardFixedCosts,
   matchFixedCostsToCardUsage,
+  suppressedByConfirmedCycles,
   suppressedDebitKeys,
 } from './fixed-cost-matching'
 import { projectCashflow } from '@/lib/cashflow'
@@ -198,4 +199,52 @@ test('「ガス」を含む無関係な店名は誤照合しない', () => {
     [tx({ id: 'tx-y', memo: 'クレジットカード自動連携 (ガスト 笹塚店)', card_issuer: '三井住友カード' })]
   )
   assert.equal(matches.length, 0)
+})
+
+// 確定請求額はそのサイクルの総額。電気代・ガス代も中に含まれているので、
+// 固定費の予測を足すと二重計上になる。
+test('確定額があるサイクルでは、カード払い固定費の予測を足さない', () => {
+  const smbc: CreditCardSetting = { ...rakuten, id: 'card-smbc', name: '三井住友カード' }
+  // 照合キーワードが無い＝実取引と個別に消し込めない固定費
+  const electric = fixed({
+    id: 'sp-electric', name: '電気代', amount: 2000, due_day: 1,
+    credit_card_id: 'card-smbc', match_keywords: [],
+  })
+
+  const confirmed = new Set(['card-smbc|2026-08-27'])
+  const suppressed = suppressedByConfirmedCycles([electric], [smbc], confirmed, ['2026-07'])
+
+  // 7月利用ぶんは 8/27 引き落とし → 確定額があるので取り下げる
+  assert.deepEqual([...suppressed], ['sp-electric|2026-08-27'])
+})
+
+test('確定額が無いサイクルの予測は残す（メール由来の実績は取りこぼしがあるため）', () => {
+  const smbc: CreditCardSetting = { ...rakuten, id: 'card-smbc', name: '三井住友カード' }
+  const electric = fixed({
+    id: 'sp-electric', name: '電気代', amount: 2000, due_day: 1,
+    credit_card_id: 'card-smbc', match_keywords: [],
+  })
+
+  assert.equal(
+    suppressedByConfirmedCycles([electric], [smbc], new Set(), ['2026-07']).size,
+    0
+  )
+  // 別のカードの確定額では消えない
+  assert.equal(
+    suppressedByConfirmedCycles([electric], [smbc], new Set(['card-rakuten|2026-08-27']), ['2026-07']).size,
+    0
+  )
+})
+
+test('口座引落の固定費は確定額の影響を受けない', () => {
+  const smbc: CreditCardSetting = { ...rakuten, id: 'card-smbc', name: '三井住友カード' }
+  const rent = fixed({
+    id: 'sp-rent', name: '家賃', amount: 58330, due_day: 26,
+    payment_method: 'bank_debit', credit_card_id: null, match_keywords: [],
+  })
+
+  assert.equal(
+    suppressedByConfirmedCycles([rent], [smbc], new Set(['card-smbc|2026-08-26']), ['2026-08']).size,
+    0
+  )
 })

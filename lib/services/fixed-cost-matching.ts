@@ -20,6 +20,7 @@
 import type { CreditCardSetting, ScheduledPayment } from '@/types/cashflow'
 import type { Transaction } from '@/types/transaction'
 import { resolveCardCycle } from '@/lib/cashflow'
+import { resolveMonthlyDebits } from './fixed-costs'
 
 /** 固定費1件 × 締めサイクル1つ ぶんの照合結果 */
 export type FixedCostMatch = {
@@ -136,6 +137,46 @@ export function confirmedAmountsByMonth(matches: FixedCostMatch[]): Map<string, 
     index.set(key, (index.get(key) ?? 0) + match.amount)
   }
   return index
+}
+
+/**
+ * 確定請求額が入っているサイクルに乗る、カード払い固定費の予測を取り下げる。
+ *
+ * 確定額はカード会社が出した「そのサイクルの総額」なので、電気代・ガス代なども
+ * 既に中に含まれている。そこへ固定費の予測を足すと二重計上になる。
+ * 照合キーワードで個別に消し込めるかどうかとは無関係に、
+ * 確定額があるサイクルでは予測を一切足さないのが正しい。
+ *
+ * 未確定のサイクルでは予測を残す。メール由来の実績は取りこぼしがあり得るので
+ * (それが確定額入力を用意した理由)、まだ観測できていない固定費は
+ * 予測として乗せておく方が実態に近い。
+ *
+ * @param confirmedKeys 'カードID|引き落とし日' の集合
+ * @param months        解決する対象月('YYYY-MM')
+ */
+export function suppressedByConfirmedCycles(
+  payments: ScheduledPayment[],
+  cards: CreditCardSetting[],
+  confirmedKeys: Set<string>,
+  months: string[]
+): Set<string> {
+  if (confirmedKeys.size === 0) return new Set()
+
+  const byId = new Map(payments.map(payment => [payment.id, payment]))
+  const suppressed = new Set<string>()
+
+  for (const month of months) {
+    for (const debit of resolveMonthlyDebits(payments, cards, month)) {
+      const payment = byId.get(debit.id)
+      if (!payment?.credit_card_id) continue
+      if (payment.payment_method !== 'credit_card') continue
+      if (confirmedKeys.has(`${payment.credit_card_id}|${debit.date}`)) {
+        suppressed.add(`${debit.id}|${debit.date}`)
+      }
+    }
+  }
+
+  return suppressed
 }
 
 /** 照合キーワードが無いカード払い固定費。実取引と二重計上している可能性がある */

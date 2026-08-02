@@ -14,8 +14,10 @@ import { loadFxRates } from '@/lib/repositories/fx-rates'
 import {
   findUnmatchedCardFixedCosts,
   matchFixedCostsToCardUsage,
+  suppressedByConfirmedCycles,
   suppressedDebitKeys,
 } from '@/lib/services/fixed-cost-matching'
+import { addMonths as addMonthKey } from '@/lib/services/fixed-costs'
 import type { CreditCardSetting, ScheduledPayment } from '@/types/cashflow'
 import type { Transaction } from '@/types/transaction'
 
@@ -114,6 +116,20 @@ export async function GET(request: NextRequest) {
   // 二重に残高から引かれる。
   const fixedCostMatches = matchFixedCostsToCardUsage(scheduledPayments, creditCards, transactions)
 
+  // 確定請求額が入っているサイクルでは、カード払い固定費の予測を一切足さない。
+  // 確定額はそのサイクルの総額なので、電気代・ガス代なども既に含まれている。
+  const thisMonth = new Date().toISOString().slice(0, 7)
+  const projectionMonths = [-1, 0, 1, 2, 3].map(offset => addMonthKey(thisMonth, offset))
+  const suppressedDebits = new Set([
+    ...suppressedDebitKeys(fixedCostMatches),
+    ...suppressedByConfirmedCycles(
+      scheduledPayments,
+      creditCards,
+      new Set(confirmedStatements.keys()),
+      projectionMonths
+    ),
+  ])
+
   const projectedDays = projectCashflow(
     currentBalance,
     [...scheduledPayments, ...generatedPayments],
@@ -124,7 +140,7 @@ export async function GET(request: NextRequest) {
       // カード払いの固定費をカードの支払日・引落口座へ付け替えるために渡す
       creditCards,
       fxRates,
-      suppressedDebits: suppressedDebitKeys(fixedCostMatches),
+      suppressedDebits,
     }
   )
 
