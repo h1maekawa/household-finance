@@ -28,6 +28,37 @@ type CardResolution =
   | { status: 'missing'; cardName: string }
   | { status: 'ambiguous'; cardName: string; candidates: { id: string; name: string }[] }
 
+type AccountResolution =
+  | { status: 'resolved'; accountId: string; accountName: string }
+  | { status: 'missing'; accountName: string }
+  | { status: 'ambiguous'; accountName: string; candidates: { id: string; name: string }[] }
+
+type AccountRow = { id: string; name: string }
+
+/**
+ * 口座名 → 口座ID。カードと同じく、同名が複数あるときは自動で決めない。
+ * 別口座に紐づけると「どの口座にいくら残すべきか」が丸ごと嘘になる。
+ */
+function resolveAccount(
+  accountName: string | undefined,
+  accounts: AccountRow[]
+): AccountResolution | null {
+  if (!accountName) return null
+  const target = normalizeName(accountName)
+  const matches = accounts.filter(account => normalizeName(account.name) === target)
+  if (matches.length === 1) {
+    return { status: 'resolved', accountId: matches[0].id, accountName: matches[0].name }
+  }
+  if (matches.length > 1) {
+    return {
+      status: 'ambiguous',
+      accountName,
+      candidates: matches.map(account => ({ id: account.id, name: account.name })),
+    }
+  }
+  return { status: 'missing', accountName }
+}
+
 /**
  * カード名 → カードID。同名が複数あるときは自動で決めず ambiguous を返す。
  * 勝手に片方へ寄せると、引き落とし日も口座も違うカードに紐づく事故になる。
@@ -55,8 +86,10 @@ type PreviewItem = {
   paymentMethod: string
   dueDay: number | null
   matchKeywords: string[]
+  businessDayRule: string
   note?: string
   card: CardResolution | null
+  account: AccountResolution | null
   /** 既存の同一固定費。あれば keep / update / skip をユーザーに選ばせる */
   existing: { id: string; name: string; amount: number } | null
   /** 支払日・引落口座が埋まっていない。予測には出せるが「確認が必要」と出す */
@@ -64,22 +97,26 @@ type PreviewItem = {
 }
 
 async function loadContext(userId: string) {
-  const [cardsRes, paymentsRes] = await Promise.all([
+  const [cardsRes, paymentsRes, accountsRes] = await Promise.all([
     supabaseAdmin.from('credit_cards').select('*').eq('user_id', userId),
     supabaseAdmin.from('scheduled_payments').select('*').eq('user_id', userId),
+    supabaseAdmin.from('accounts').select('id,name').eq('user_id', userId),
   ])
   if (cardsRes.error) throw new Error(cardsRes.error.message)
   if (paymentsRes.error) throw new Error(paymentsRes.error.message)
+  if (accountsRes.error) throw new Error(accountsRes.error.message)
   return {
     cards: (cardsRes.data ?? []) as CreditCardSetting[],
     payments: (paymentsRes.data ?? []) as ScheduledPayment[],
+    accounts: (accountsRes.data ?? []) as AccountRow[],
   }
 }
 
 function buildPreview(
   items: FixedCostPresetItem[],
   cards: CreditCardSetting[],
-  payments: ScheduledPayment[]
+  payments: ScheduledPayment[],
+  accounts: AccountRow[]
 ): PreviewItem[] {
   // 既存データを「名前 + 支払方法 + カード」で引けるようにする。
   // 名前だけで判定すると、口座引落の水道代とカード払いの水道代を取り違える。
@@ -97,6 +134,7 @@ function buildPreview(
   return items.map(item => {
     const card = resolveCard(item.cardName, cards)
     const cardId = card?.status === 'resolved' ? card.cardId : null
+    const account = resolveAccount(item.accountName, accounts)
     const existing = existingByIdentity.get(
       fixedCostIdentity({ name: item.name, paymentMethod: item.paymentMethod, cardId })
     )
@@ -109,12 +147,20 @@ function buildPreview(
       paymentMethod: item.paymentMethod,
       dueDay: item.dueDay,
       matchKeywords: item.matchKeywords,
+      businessDayRule: item.businessDayRule ?? 'none',
       note: item.note,
       card,
+      account,
       existing: existing
         ? { id: existing.id, name: existing.name, amount: existing.amount }
         : null,
-      needsConfirmation: item.dueDay === null || (item.paymentMethod === 'credit_card' && !cardId),
+      // カード払いは引き落とし日がカードの締めサイクルで決まるので、
+      // due_day が無くても確認は要らない（due_day は「カード利用日」の意味しか持たない）。
+      // 口座引落だけ、支払日と引落口座の両方が揃って初めて確定する。
+      needsConfirmation:
+        item.paymentMethod === 'credit_card'
+          ? !cardId
+          : item.dueDay === null || account?.status !== 'resolved',
     }
   })
 }
@@ -124,8 +170,8 @@ export async function GET(request: NextRequest) {
   if (!user) return unauthorized()
 
   try {
-    const { cards, payments } = await loadContext(user.id)
-    const preview = buildPreview(FIXED_COST_PRESET, cards, payments)
+    const { cards, payments, accounts } = await loadContext(user.id)
+    const preview = buildPreview(FIXED_COST_PRESET, cards, payments, accounts)
     return Response.json({
       items: preview,
       totals: {
@@ -159,8 +205,8 @@ export async function POST(request: NextRequest) {
     : FIXED_COST_PRESET
 
   try {
-    const { cards, payments } = await loadContext(user.id)
-    const preview = buildPreview(selected, cards, payments)
+    const { cards, payments, accounts } = await loadContext(user.id)
+    const preview = buildPreview(selected, cards, payments, accounts)
 
     const created: string[] = []
     const updated: string[] = []
@@ -175,6 +221,14 @@ export async function POST(request: NextRequest) {
         skipped.push({ name: item.name, reason: `カード「${item.card.cardName}」が未登録です` })
         continue
       }
+      if (item.account?.status === 'ambiguous') {
+        skipped.push({ name: item.name, reason: `口座「${item.account.accountName}」が複数あるため自動で決められません` })
+        continue
+      }
+      if (item.account?.status === 'missing') {
+        skipped.push({ name: item.name, reason: `口座「${item.account.accountName}」が未登録です` })
+        continue
+      }
 
       const cardId = item.card?.status === 'resolved' ? item.card.cardId : null
       const row = {
@@ -184,6 +238,8 @@ export async function POST(request: NextRequest) {
         // 支払日が未確認の項目は 1 を入れて「未設定」として扱う。
         // due_day は NOT NULL なので値は要るが、needsConfirmation で警告に回す。
         due_day: item.dueDay ?? 1,
+        // 26日が土日祝なら翌営業日へずらす等。確認できた項目にだけ入る
+        business_day_rule: item.businessDayRule,
         category: item.category,
         type: 'fixed',
         is_active: true,
@@ -192,8 +248,9 @@ export async function POST(request: NextRequest) {
         credit_card_id: cardId,
         amount_type: item.amountType,
         match_keywords: item.matchKeywords,
-        // 引落口座は推測しない。カード払いはカード側の引落口座に合流する
-        debit_account_id: null,
+        // 口座引落だけ引落口座を持つ。カード払いはカード側の引落口座に合流するので null。
+        // 解決できなかった口座名は上で skip 済みなので、ここで推測は起きない。
+        debit_account_id: item.account?.status === 'resolved' ? item.account.accountId : null,
       }
 
       if (item.existing) {

@@ -8,7 +8,7 @@
 // 支払日・引落口座が分からない項目は、ここでは埋めない。推測した日付を入れると
 // キャッシュフローが「それらしいが間違っている」状態になり、
 // 未設定として警告が出るより検知しにくくなるため。
-import type { AmountType, PaymentMethod } from '@/types/cashflow'
+import type { AmountType, BusinessDayRule, PaymentMethod } from '@/types/cashflow'
 
 export type FixedCostPresetItem = {
   name: string
@@ -18,8 +18,16 @@ export type FixedCostPresetItem = {
   paymentMethod: PaymentMethod
   /** カード払いのとき、紐づけるカードの表示名。サーバー側で ID へ解決する */
   cardName?: string
+  /** 口座引落のとき、引落口座の表示名。サーバー側で ID へ解決する */
+  accountName?: string
   /** 支払日。分からない項目は null のままにして「確認が必要」を出す */
   dueDay: number | null
+  /**
+   * 支払日が土日祝のときの補正。
+   * 銀行引落は翌営業日にずれるのが一般的だが、契約によって前営業日のこともあるので
+   * 既定では補正しない。ユーザーが確認できた項目にだけ 'next' を入れる。
+   */
+  businessDayRule?: BusinessDayRule
   /**
    * カード利用メールとの照合キーワード。
    * 実際に届いている摘要から取ったものだけを入れる。
@@ -41,9 +49,11 @@ export const FIXED_COST_PRESET: FixedCostPresetItem[] = [
     category: '住居費',
     amountType: 'fixed',
     paymentMethod: 'bank_debit',
-    dueDay: null,
+    accountName: '三井住友銀行',
+    dueDay: 26,
+    // 26日が土日祝なら翌営業日（例: 2026-09-26は土曜 → 9/28に引き落とし）
+    businessDayRule: 'next',
     matchKeywords: [],
-    note: '支払日・引落口座は未確認',
   },
   {
     name: '保険',
@@ -51,9 +61,11 @@ export const FIXED_COST_PRESET: FixedCostPresetItem[] = [
     category: '保険',
     amountType: 'variable',
     paymentMethod: 'bank_debit',
-    dueDay: null,
+    accountName: '三井住友銀行',
+    dueDay: 26,
+    businessDayRule: 'next',
     matchKeywords: [],
-    note: '平均額。支払日・引落口座は未確認',
+    note: '平均額。確定額が分かったら更新してください',
   },
   {
     name: '電気代',

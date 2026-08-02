@@ -14,6 +14,11 @@ type CardResolution =
   | { status: 'missing'; cardName: string }
   | { status: 'ambiguous'; cardName: string; candidates: { id: string; name: string }[] }
 
+type AccountResolution =
+  | { status: 'resolved'; accountId: string; accountName: string }
+  | { status: 'missing'; accountName: string }
+  | { status: 'ambiguous'; accountName: string; candidates: { id: string; name: string }[] }
+
 type PreviewItem = {
   name: string
   amount: number
@@ -22,8 +27,10 @@ type PreviewItem = {
   paymentMethod: string
   dueDay: number | null
   matchKeywords: string[]
+  businessDayRule: string
   note?: string
   card: CardResolution | null
+  account: AccountResolution | null
   existing: { id: string; name: string; amount: number } | null
   needsConfirmation: boolean
 }
@@ -140,6 +147,10 @@ export default function BulkFixedCostImport({ onImported }: { onImported: () => 
                       <p className="mt-0.5 text-[11px] text-muted">
                         {item.category} / {item.paymentMethod === 'credit_card' ? 'クレジットカード' : '口座引落'}
                         {item.card?.status === 'resolved' && ` / ${item.card.cardName}`}
+                        {item.account?.status === 'resolved' && ` / ${item.account.accountName}`}
+                        {item.dueDay !== null && ` / 毎月${item.dueDay}日`}
+                        {item.businessDayRule === 'next' && '（土日祝は翌営業日）'}
+                        {item.paymentMethod === 'credit_card' && ' / 引き落とし日はカードの締めに従う'}
                       </p>
                       {item.note && <p className="mt-0.5 text-[11px] text-muted">{item.note}</p>}
 
@@ -153,9 +164,20 @@ export default function BulkFixedCostImport({ onImported }: { onImported: () => 
                           「{item.card.cardName}」が{item.card.candidates.length}件あります。自動では決められません
                         </p>
                       )}
-                      {item.dueDay === null && (
+                      {/* カード払いは引き落とし日がカードの締めサイクルで決まるので警告しない */}
+                      {item.paymentMethod !== 'credit_card' && item.dueDay === null && (
                         <p className="mt-1 text-[11px] font-bold text-warning">
-                          支払日・引落口座が未設定です（確認が必要）
+                          支払日が未設定です（確認が必要）
+                        </p>
+                      )}
+                      {item.account?.status === 'missing' && (
+                        <p className="mt-1 text-[11px] font-bold text-danger">
+                          口座「{item.account.accountName}」が未登録です。先に登録してください
+                        </p>
+                      )}
+                      {item.account?.status === 'ambiguous' && (
+                        <p className="mt-1 text-[11px] font-bold text-danger">
+                          「{item.account.accountName}」が{item.account.candidates.length}件あります。自動では決められません
                         </p>
                       )}
                       {item.paymentMethod === 'credit_card' && item.matchKeywords.length === 0 && (

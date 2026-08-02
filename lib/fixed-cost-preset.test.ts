@@ -23,11 +23,21 @@ test('カードへの紐付けは三井住友3件・楽天3件', () => {
   assert.deepEqual(byCard('楽天カード'), ['水道代', '楽天モバイル', '積立NISA'])
 })
 
-test('家賃と保険は口座引落で、支払日は未設定のまま', () => {
+test('家賃と保険は 三井住友銀行 から毎月26日・翌営業日補正で引き落とす', () => {
   for (const name of ['家賃', '保険']) {
     const item = FIXED_COST_PRESET.find(i => i.name === name)!
     assert.equal(item.paymentMethod, 'bank_debit')
-    assert.equal(item.dueDay, null, `${name} の支払日を推測してはいけない`)
+    assert.equal(item.dueDay, 26)
+    assert.equal(item.accountName, '三井住友銀行')
+    // 2026-09-26 は土曜。補正が無いと土曜に引き落とされる予測になる
+    assert.equal(item.businessDayRule, 'next')
+  }
+})
+
+test('カード払いの固定費に引落口座を持たせない（カード側の口座に合流するため）', () => {
+  for (const item of FIXED_COST_PRESET) {
+    if (item.paymentMethod !== 'credit_card') continue
+    assert.equal(item.accountName, undefined, `${item.name} は口座を持ってはいけない`)
   }
 })
 
