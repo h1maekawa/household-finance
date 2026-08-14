@@ -2,6 +2,7 @@
 import { NextRequest } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
 import { getAuthenticatedUser, unauthorized } from '@/lib/auth'
+import { pickAllowed } from '@/lib/patch'
 import { TransactionInput } from '@/types/transaction'
 
 export async function GET(request: NextRequest) {
@@ -58,13 +59,21 @@ export async function POST(request: NextRequest) {
   const user = await getAuthenticatedUser(request)
   if (!user) return unauthorized()
 
-  const body: TransactionInput = await request.json()
-  const kind = body.kind ?? 'expense'
+  const body: Partial<TransactionInput> = await request.json()
+  const kind = body.kind === 'income' ? 'income' : 'expense'
   const selectedCategory = String(body.manual_category ?? body.category ?? '').trim()
   const category = selectedCategory || (kind === 'income' ? 'その他収入' : '未分類')
 
+  // マスアサインメント対策: リクエストボディをそのまま insert せず、
+  // 許可した入力フィールドだけを抜き出す。id/created_at/updated_at や
+  // account_id 等のサーバー管理カラムをクライアントから設定させない。
+  const INSERTABLE_FIELDS = [
+    'date', 'amount', 'payment_method', 'memo', 'source', 'external_id', 'card_issuer',
+  ] as const satisfies readonly (keyof TransactionInput)[]
+  const allowed = pickAllowed<TransactionInput, keyof TransactionInput>(body, INSERTABLE_FIELDS)
+
   const record: Record<string, unknown> = {
-    ...body,
+    ...allowed,
     kind,
     category,
     manual_category: selectedCategory || null,
