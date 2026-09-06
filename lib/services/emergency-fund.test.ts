@@ -53,3 +53,12 @@ test('0か月なら必要額は0で充足扱い', () => {
   assert.equal(r.requiredReserve, 0)
   assert.equal(r.status, 'funded')
 })
+
+test('生活費情報が不足しているときに funded と言わない', () => {
+  // 必要額0円 → 充足済み、と見えると設定漏れが安全な状態に化ける
+  const r = computeEmergencyFund({
+    monthlyEssentialExpenses: null, currentLiquidCash: 0, targetMonths: 3,
+  })
+  assert.equal(r.status, 'unknown')
+  assert.notEqual(r.status, 'funded')
+})

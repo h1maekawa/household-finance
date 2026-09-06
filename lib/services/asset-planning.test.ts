@@ -4,7 +4,12 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
-import { buildAssetPlan, essentialMonthlyExpenses, GOAL_STATUS_LABEL } from './asset-planning'
+import {
+  buildAssetPlan,
+  essentialMonthlyExpenses,
+  GOAL_STATUS_LABEL,
+  monthlyAssetContribution,
+} from './asset-planning'
 import { computeEmergencyFund } from './emergency-fund'
 import { computeInvestmentCapacity } from './investment-capacity'
 import { projectAssets } from './projection'
@@ -56,7 +61,7 @@ function plan(over: { availableCash?: number | null } = {}) {
     month: '2026-09', budget, capacity, emergencyFund, goals,
     projection: projectAssets({
       currentAssets: over.availableCash === undefined ? 500000 : over.availableCash,
-      monthlyContribution: capacity.asset_building_capacity ?? 0,
+      monthlyContribution: monthlyAssetContribution(capacity) ?? 0,
       horizons: [1],
     }),
   })
@@ -71,6 +76,8 @@ test('free_to_spend は budget-engine の値をそのまま使う', () => {
 test('必須生活費は生活固定費＋変動費予算（積立投資を含めない）', () => {
   assert.equal(essentialMonthlyExpenses({ livingFixed: 120000, variableBudget: 100000 }), 220000)
   assert.equal(essentialMonthlyExpenses({ livingFixed: null, variableBudget: 100000 }), null)
+  // 情報不足で0円になるときは「生活費0円」と言わず null にする
+  assert.equal(essentialMonthlyExpenses({ livingFixed: 0, variableBudget: 0 }), null)
 })
 
 test('Goal は既存の status をラベルに写すだけ', () => {
@@ -89,10 +96,9 @@ test('GoalTrackStatus の5状態すべてにラベルがある', () => {
 
 test('入力不足のときは0円と言わず null を返し confidence を下げる', () => {
   const p = plan({ availableCash: null })
-  assert.equal(p.capacity.allocatableCash, null)
-  assert.equal(p.capacity.savingCapacity, null)
-  assert.equal(p.capacity.assetBuildingCapacity, null)
-  assert.equal(p.capacity.freeCash, null)
+  assert.equal(p.allocatableCash, null)
+  for (const v of Object.values(p.allocation)) assert.equal(v, null)
+  assert.equal(p.monthlyAssetContribution, null)
   assert.equal(p.confidence, 'low')
   assert.ok(p.missingData.some(m => m.includes('口座残高')))
   assert.deepEqual(p.projection, [])
@@ -109,6 +115,6 @@ test('Orchestrator は計算式を持たない（契約）', () => {
   // 自由に使えるお金を独自に計算し直さない
   assert.doesNotMatch(src, /income\s*-\s*/)
   // 配分は investment-capacity の結果をそのまま写す
-  assert.match(src, /capacity\.saving_capacity/)
-  assert.match(src, /capacity\.asset_building_capacity/)
+  assert.match(src, /capacity\.allocation\.emergency_fund/)
+  assert.match(src, /capacity\.allocation\.asset_building/)
 })

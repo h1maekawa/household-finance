@@ -4,9 +4,11 @@ import { supabaseAdmin } from '@/lib/supabase'
 import { loadBudget } from '@/lib/services/budget-loader'
 import { computeInvestmentCapacity } from '@/lib/services/investment-capacity'
 import { getMergedCategories } from '@/lib/categories'
+import { readFailed } from '@/lib/api-errors'
 import { computeEmergencyFund } from '@/lib/services/emergency-fund'
+import { loadLiquidCash } from '@/lib/services/liquid-cash-loader'
 import { essentialMonthlyExpenses } from '@/lib/services/asset-planning'
-import { isInvestmentCategory } from '@/lib/services/money-plan'
+import { isCardBillPayment, isInvestmentCategory } from '@/lib/services/money-plan'
 
 export const dynamic = 'force-dynamic'
 
@@ -25,11 +27,6 @@ function todayJst(): string {
     month: '2-digit',
     day: '2-digit',
   }).format(new Date())
-}
-
-function isCardBill(name: string, memo?: string | null): boolean {
-  const text = `${name} ${memo ?? ''}`.toLowerCase()
-  return text.includes('カード') || text.includes('card')
 }
 
 /**
@@ -52,15 +49,9 @@ export async function GET(request: NextRequest) {
   const monthEnd = `${month}-31`
 
   try {
-    const [budgetLoad, balanceRes, scheduledRes, investmentRes, categories, profileRes] = await Promise.all([
+    const [budgetLoad, liquidCash, scheduledRes, investmentRes, categories, profileRes] = await Promise.all([
       loadBudget(userId, month, today, supabaseAdmin),
-      supabaseAdmin
-        .from('account_balance')
-        .select('balance, recorded_at')
-        .eq('user_id', userId)
-        .order('recorded_at', { ascending: false })
-        .limit(1)
-        .maybeSingle(),
+      loadLiquidCash(userId, supabaseAdmin),
       supabaseAdmin
         .from('scheduled_payments')
         .select('name, amount, memo, type, is_active, scheduled_date, category')
@@ -80,11 +71,21 @@ export async function GET(request: NextRequest) {
         .maybeSingle(),
     ])
 
+    // 金融計算では「DB取得失敗 = 0円」にしない。欠損のまま計算すると
+    // 未払い予定が0円になり、投資余力が実態より大きく出る
+    for (const [label, res] of [
+      ['scheduled_payments', scheduledRes],
+      ['investment_transactions', investmentRes],
+      ['users_profile', profileRes],
+    ] as const) {
+      if (res.error) throw new Error(`${label} の取得に失敗しました: ${res.error.message}`)
+    }
+
     const budget = budgetLoad.summary
     const missingData: string[] = []
 
     // 口座残高。未登録なら投資余力は算出できない
-    const availableCash = balanceRes.data?.balance ?? null
+    const availableCash = liquidCash.amount
     if (availableCash === null) missingData.push('口座残高が未登録です')
     if (budget.income.planned === 0) missingData.push('月収の設定がありません')
 
@@ -100,7 +101,7 @@ export async function GET(request: NextRequest) {
     let investmentFixed = 0
     for (const payment of scheduled) {
       const amount = Number(payment.amount) || 0
-      if (isCardBill(payment.name, payment.memo)) {
+      if (isCardBillPayment(payment)) {
         pendingCardAmount += amount
       } else if (isInvestmentCategory(payment.category)) {
         investmentFixed += amount
@@ -159,12 +160,12 @@ export async function GET(request: NextRequest) {
         daily_allowance: budget.variable.dailyAllowance,
         pace: budget.variable.pace,
       },
-      balance_recorded_at: balanceRes.data?.recorded_at ?? null,
+      balance_recorded_at: liquidCash.recordedAt,
+      liquid_cash_source: liquidCash.source,
       source: budgetLoad.source,
     })
   } catch (error) {
-    const message = error instanceof Error ? error.message : '投資可能額の算出に失敗しました'
-    console.error('[investment-capacity] 失敗:', message)
-    return Response.json({ error: message }, { status: 500 })
+    // DBやライブラリの詳細をクライアントへ返さない（詳細はサーバーログへ）
+    return readFailed('api/integrations/investment-capacity', error)
   }
 }

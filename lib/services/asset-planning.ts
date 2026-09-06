@@ -49,13 +49,23 @@ export type AssetPlanningResult = {
     dailyAllowance: number
     daysLeft: number
   }
-  capacity: {
-    /** 再配分できる現金。null は入力不足で算出不能 */
-    allocatableCash: number | null
-    savingCapacity: number | null
-    assetBuildingCapacity: number | null
-    freeCash: number | null
+  /** 再配分できる現金。null は入力不足で算出不能 */
+  allocatableCash: number | null
+  /**
+   * 今月のお金の配分。合計は必ず max(allocatableCash, 0) と一致する。
+   * emergencyFund は「手元の現金の振り替え」で、毎月の積立ではない。
+   */
+  allocation: {
+    emergencyFund: number | null
+    savings: number | null
+    assetBuilding: number | null
+    unallocatedCash: number | null
   }
+  /**
+   * 将来予測に使う毎月の積立額 = 通常貯金 + 資産形成。
+   * 防衛資金は既存現金の振り替えなので含めない。
+   */
+  monthlyAssetContribution: number | null
   emergencyFund: EmergencyFundResult
   goals: AssetPlanGoal[]
   projection: ProjectionPoint[]
@@ -74,12 +84,27 @@ export type AssetPlanningResult = {
  * 小さくすると防衛資金を過小に見積もるので、変動費予算をそのまま使う
  * 安全側の見積りにする（不足していることは missingData で伝える）。
  */
+/**
+ * 将来予測に使う毎月の積立額。
+ *
+ * 通常貯金 + 資産形成。防衛資金は手元の現金を振り替えるだけで毎月増えるもの
+ * ではないので含めない。式をここで作らず、配分結果を足すだけにする。
+ */
+export function monthlyAssetContribution(capacity: CapacityResult): number | null {
+  const { savings, asset_building } = capacity.allocation
+  if (savings === null || asset_building === null) return null
+  return savings + asset_building
+}
+
 export function essentialMonthlyExpenses(input: {
   livingFixed: number | null
   variableBudget: number
 }): number | null {
   if (input.livingFixed === null) return null
-  return yen(input.livingFixed) + Math.max(yen(input.variableBudget), 0)
+  const total = yen(input.livingFixed) + Math.max(yen(input.variableBudget), 0)
+  // 「本当に生活費0円」ではなく「予算が未設定」の可能性が高い。
+  // 0円を返すと必要額0円=充足済みと表示され、設定漏れが安全な状態に見える
+  return total > 0 ? total : null
 }
 
 export function buildAssetPlan(input: {
@@ -115,12 +140,14 @@ export function buildAssetPlan(input: {
       dailyAllowance: yen(budget.variable.dailyAllowance),
       daysLeft: budget.variable.daysLeft,
     },
-    capacity: {
-      allocatableCash: capacity.allocatable_cash,
-      savingCapacity: capacity.saving_capacity,
-      assetBuildingCapacity: capacity.asset_building_capacity,
-      freeCash: capacity.free_cash,
+    allocatableCash: capacity.allocatable_cash,
+    allocation: {
+      emergencyFund: capacity.allocation.emergency_fund,
+      savings: capacity.allocation.savings,
+      assetBuilding: capacity.allocation.asset_building,
+      unallocatedCash: capacity.allocation.unallocated_cash,
     },
+    monthlyAssetContribution: monthlyAssetContribution(capacity),
     emergencyFund,
     goals: goals.map(goal => ({
       goalId: goal.goalId,

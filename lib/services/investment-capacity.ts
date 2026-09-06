@@ -61,15 +61,24 @@ export type CapacityResult = {
   investable_amount: number | null
   /**
    * 再配分できる現金の総額。investable_amount と同じ原資の別名。
-   * saving / asset_building / free_cash はこれを分け合う（別々の財布ではない）。
+   * allocation の4つはこれを分け合う（別々の財布ではない）。
    */
   allocatable_cash: number | null
-  /** 貯金へ確保できる額（防衛資金の補充 + 貯蓄目標） */
-  saving_capacity: number | null
-  /** 貯金を確保したうえで資産形成へ追加配分してよい額 */
-  asset_building_capacity: number | null
-  /** どこにも配分されていない余力。必ず0以上 */
-  free_cash: number | null
+  /**
+   * 原資の配分。「上限いくらまで使える」という capacity ではなく、
+   * 「今月いくらをどこへ充てるか」という allocation。
+   * 4つの合計は必ず max(allocatable_cash, 0) と一致する。
+   */
+  allocation: {
+    /** 手元の現金から防衛資金として確保する額。毎月の積立ではない */
+    emergency_fund: number | null
+    /** 通常の貯金へ配分する額（budget.savings.target が上限） */
+    savings: number | null
+    /** 資産形成へ配分する額（budget.investment.target が上限） */
+    asset_building: number | null
+    /** どこにも配分していない余力。必ず0以上 */
+    unallocated_cash: number | null
+  }
   data_freshness: 'current' | 'stale' | 'unknown'
   confidence: 'high' | 'medium' | 'low'
   missing_data: string[]
@@ -94,11 +103,12 @@ function allocate(
   reserveGap: number,
   savingsTarget: number,
   investmentTarget: number
-): { saving: number; assetBuilding: number; free: number } {
+): { emergencyFund: number; savings: number; assetBuilding: number; unallocated: number } {
   let rest = Math.max(pool, 0)
 
-  const reserve = Math.min(rest, Math.max(yen(reserveGap), 0))
-  rest -= reserve
+  // 手元の現金の振り替え。毎月の積立とは意味が違うので通常貯金と分けて出す
+  const emergencyFund = Math.min(rest, Math.max(yen(reserveGap), 0))
+  rest -= emergencyFund
 
   const savings = Math.min(rest, Math.max(yen(savingsTarget), 0))
   rest -= savings
@@ -106,7 +116,7 @@ function allocate(
   const assetBuilding = Math.min(rest, Math.max(yen(investmentTarget), 0))
   rest -= assetBuilding
 
-  return { saving: reserve + savings, assetBuilding, free: rest }
+  return { emergencyFund, savings, assetBuilding, unallocated: rest }
 }
 
 export function computeInvestmentCapacity(input: CapacityInput): CapacityResult {
@@ -171,9 +181,12 @@ export function computeInvestmentCapacity(input: CapacityInput): CapacityResult 
     personal_cash_floor: personalCashFloor,
     investable_amount: investable,
     allocatable_cash: investable,
-    saving_capacity: allocation?.saving ?? null,
-    asset_building_capacity: allocation?.assetBuilding ?? null,
-    free_cash: allocation?.free ?? null,
+    allocation: {
+      emergency_fund: allocation?.emergencyFund ?? null,
+      savings: allocation?.savings ?? null,
+      asset_building: allocation?.assetBuilding ?? null,
+      unallocated_cash: allocation?.unallocated ?? null,
+    },
     data_freshness: input.availableCash === null ? 'unknown' : 'current',
     confidence,
     missing_data: missing,

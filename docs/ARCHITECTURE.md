@@ -55,7 +55,8 @@ AIへ渡すのは計算済みの Context だけです。AIの出力を金額と�
 |---|---|
 | `lib/services/budget-engine.ts` | 予算の主計算。収入・固定費の突合・変動費の実績・カテゴリ別統計から `BudgetSummary` を作る |
 | `lib/services/money-plan.ts` | Money Flow の組み立て。`BudgetSummary` を滝の6ステップへ変換する |
-| `lib/services/investment-capacity.ts` | 再配分できる現金と、その配分（貯金 / 資産形成 / 自由） |
+| `lib/services/investment-capacity.ts` | 再配分できる現金と、その配分（防衛資金 / 貯金 / 資産形成 / 未配分） |
+| `lib/services/liquid-cash.ts` | 流動現金の合計（純関数）。I/Oは `liquid-cash-loader.ts` |
 | `lib/services/emergency-fund.ts` | 現金防衛資金の必要額と不足額 |
 | `lib/services/projection.ts` | 将来資産の単純予測（利回り0%） |
 | `lib/services/asset-planning.ts` | 上記を束ねる Orchestration 層。計算式を持たない |
@@ -91,23 +92,65 @@ budget-engine → money-plan → investment-capacity → goal-progress
           API / Dashboard / AI Coach
 ```
 
-### 3つの capacity は同じ原資の配分
+### capacity ではなく allocation
 
-`saving_capacity` / `asset_building_capacity` / `free_cash` を「別々に使えるお金」
-として扱うと二重計上になります。1つの原資（`allocatable_cash`）を次の順に
-分けたものです。
+`allocation` は「安全上いくらまで使えるか（capacity）」ではなく
+「今月いくらをどこへ充てるか（allocation）」です。上限はユーザーが設定した
+目標額なので、`asset_building = 30,000` は「3万円までしか投資できない」ではなく
+「目標として3万円を配分している」という意味です。この違いをUIへ持ち込まないこと。
+
+4つを「別々に使えるお金」として扱うと二重計上になります。1つの原資
+（`allocatable_cash`）を次の順に分けたものです。
 
 ```
 allocatable_cash
-  → 防衛資金の補充
-  → 貯蓄目標（budget.savings.target）
-  → 投資目標（budget.investment.target）
-  → 残り（free_cash）
+  → emergency_fund   防衛資金の補充（手元現金の振り替え）
+  → savings          通常の貯金（budget.savings.target が上限）
+  → asset_building   資産形成（budget.investment.target が上限）
+  → unallocated_cash 残り
 ```
 
-`saving + asset_building + free === max(allocatable_cash, 0)` が常に成り立ちます
-（`capacity-allocation.test.ts`）。防衛資金が不足しているときに資産形成へ
-全額が回らないのは、この順序によるものです。
+合計は常に `max(allocatable_cash, 0)` と一致します（`capacity-allocation.test.ts`）。
+防衛資金が不足しているときに資産形成へ全額が回らないのは、この順序によります。
+
+**防衛資金の確保と通常貯金を合算しないでください。** 前者は手元にある現金の
+振り替え、後者は今月の貯蓄目標で、意味が違います。合算すると
+「今月19万円貯金できる」のように見えてしまいます。
+
+### 毎月の積立額
+
+将来予測に使う積立額は `savings + asset_building` です（`monthlyAssetContribution`）。
+防衛資金は既存現金の振り替えなので**含めません**。式を各所で組み立てず、
+配分結果を足すだけにします。
+
+### 流動現金は1箇所で数える
+
+Dashboard / Assets / Investment Capacity / Emergency Fund が別々に現金を数えると
+必ずズレるので、`liquid-cash.ts` に集約します。
+
+```
+accounts + 各口座の最新 account_balances（bank / cash / emoney）
+  → 無ければ legacy の account_balance の最新1件
+  → どちらも無ければ null
+```
+
+証券口座（`securities`）は投資資産なので流動現金に含めません。残高が一度も
+記録されていない口座を0円として数えません（数えると「残高データがある」と
+誤判定します）。
+
+### 将来予測の currentAssets
+
+`projection` に渡す `currentAssets` は**総資産**です。
+`流動現金 + 株式 + 投資信託 + その他対象資産` を合わせたものを渡してください。
+`account_balance` のような現金だけの値を渡すと、資産推移が実態より低く出ます。
+統一した Asset Summary Loader はまだ無いので、Phase 4 で用意します。
+
+### 防衛資金は安全側の見積り
+
+必須生活費を `生活固定費 + 変動費予算` としているため、娯楽なども含んだ
+やや大きめの必要額になります。UIでは「防衛資金の目安」「安全側に計算した」と
+分かる表記にしてください。将来カテゴリへ `essential` / `discretionary` を
+持たせて精度を上げる余地を残しています。
 
 ### null と 0 を区別する
 

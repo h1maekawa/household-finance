@@ -93,6 +93,14 @@ export function isInvestmentPayment(payment: ResolvedScheduledPayment): boolean 
  * だけ使い、支出カテゴリの集計には入れない（要件 §11）。
  */
 function isCardBill(payment: ResolvedScheduledPayment): boolean {
+  return isCardBillPayment(payment)
+}
+
+/**
+ * カード請求か。構造化された type を見る。名前や memo から推測しない
+ * （「カード」を含む固定費名を誤判定するため）。判定はこの1箇所だけに置く。
+ */
+export function isCardBillPayment(payment: { type?: string | null }): boolean {
   return payment.type === 'credit'
 }
 
