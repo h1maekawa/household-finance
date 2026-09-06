@@ -34,28 +34,32 @@ export async function upsertSubscription(input: SubscriptionUpsert): Promise<voi
 
 /** Stripe の customer から利用者を引く。subscription 系イベントは user_id を持たないため */
 export async function findUserIdByCustomer(customerId: string): Promise<string | null> {
-  const { data } = await supabaseAdmin
+  const { data, error } = await supabaseAdmin
     .from('user_subscriptions')
     .select('user_id')
     .eq('stripe_customer_id', customerId)
     .maybeSingle()
+  if (error) throw new Error(`user_subscriptions の参照に失敗しました: ${error.message}`)
   return data?.user_id ?? null
 }
 
 export async function getSubscription(userId: string): Promise<SubscriptionState> {
-  const { data } = await supabaseAdmin
+  const { data, error } = await supabaseAdmin
     .from('user_subscriptions')
     .select('status, current_period_end')
     .eq('user_id', userId)
     .maybeSingle()
+  // 読めなかったことを「契約なし」と混同しない。Proユーザーを黙って降格させない
+  if (error) throw new Error(`user_subscriptions の参照に失敗しました: ${error.message}`)
   return data ? { status: data.status, current_period_end: data.current_period_end } : null
 }
 
 export async function getEntitlement(userId: string): Promise<EntitlementState> {
-  const { data } = await supabaseAdmin
+  const { data, error } = await supabaseAdmin
     .from('user_entitlements')
     .select('plan, status')
     .eq('user_id', userId)
     .maybeSingle()
+  if (error) throw new Error(`user_entitlements の参照に失敗しました: ${error.message}`)
   return data ? { plan: data.plan, status: data.status } : null
 }

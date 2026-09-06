@@ -2,95 +2,68 @@
 //
 // Stripe Webhook の冪等性。
 //
-// 「event_id を保存したが業務処理に失敗し、再送されても処理されない」状態を
-// 作らないため、受理と完了を分けて記録する。判断は純関数に切り出してテストする。
+// 「event_id を保存したが業務処理に失敗し、再送されても処理されない」状態と、
+// 「同じイベントが同時に2回届いて両方処理される」状態の両方を防ぐ。
+//
+// 受理の判定は SQL 関数 claim_stripe_event に閉じている。アプリ側で
+// SELECT → 判定 → UPSERT に分けると、その間に別ワーカーが割り込めるため。
+// 判定ロジックをTS側にも書くと正が2箇所になるので、ここには置かない。
 import { supabaseAdmin } from '@/lib/supabase'
-
-export type StripeEventRow = {
-  event_id: string
-  event_type: string
-  status: 'processing' | 'processed' | 'failed'
-  attempts: number
-  received_at: string
-}
-
-export type EventAction = 'process' | 'skip' | 'retry'
 
 /**
  * processing のまま放置されたイベントを引き取るまでの猶予。
- * 他のワーカーが処理中の可能性があるので即座には奪わない。
+ * SQL 関数の既定値と揃えること（025_claim_stripe_event.sql）。
  */
-export const STALE_PROCESSING_MS = 5 * 60 * 1000
+export const STALE_PROCESSING = '5 minutes'
 
 /**
- * 既存レコードから、このイベントをどう扱うか決める。
+ * このイベントを処理する権利を取る。
  *
- * - 未登録            → process（新規に受理する）
- * - processed         → skip（二重適用しない）
- * - failed            → retry（前回失敗したので処理し直す）
- * - processing（新しい）→ skip（別のワーカーが処理中）
- * - processing（古い） → retry（異常終了したとみなして引き取る）
+ * true を返したワーカーだけが業務処理へ進む。false は次のいずれか。
+ *   - 既に processed（二重適用しない）
+ *   - 別のワーカーが処理中
  */
-export function decideEventAction(
-  existing: StripeEventRow | null,
-  now: Date = new Date()
-): EventAction {
-  if (!existing) return 'process'
-  if (existing.status === 'processed') return 'skip'
-  if (existing.status === 'failed') return 'retry'
-
-  const age = now.getTime() - new Date(existing.received_at).getTime()
-  return age > STALE_PROCESSING_MS ? 'retry' : 'skip'
-}
-
-/** イベントを受理する。既に処理済みなら false を返して処理をスキップさせる */
 export async function claimEvent(eventId: string, eventType: string): Promise<boolean> {
-  const { data: existing, error } = await supabaseAdmin
-    .from('stripe_events')
-    .select('event_id, event_type, status, attempts, received_at')
-    .eq('event_id', eventId)
-    .maybeSingle()
+  const { data, error } = await supabaseAdmin.rpc('claim_stripe_event', {
+    p_event_id: eventId,
+    p_event_type: eventType,
+    p_stale_after: STALE_PROCESSING,
+  })
 
-  if (error) throw new Error(`stripe_events の参照に失敗しました: ${error.message}`)
-
-  const action = decideEventAction(existing as StripeEventRow | null)
-  if (action === 'skip') return false
-
-  const payload: {
-    event_id: string
-    event_type: string
-    status: string
-    attempts: number
-    received_at?: string
-  } = {
-    event_id: eventId,
-    event_type: eventType,
-    status: 'processing',
-    attempts: action === 'process' ? 1 : ((existing as StripeEventRow | null)?.attempts ?? 0) + 1,
-  }
-  // 引き取り直すときは受理時刻を更新する（次の stale 判定の起点にするため）
-  if (action === 'retry') payload.received_at = new Date().toISOString()
-
-  const { error: upsertError } = await supabaseAdmin
-    .from('stripe_events')
-    .upsert(payload, { onConflict: 'event_id' })
-
-  if (upsertError) throw new Error(`stripe_events の記録に失敗しました: ${upsertError.message}`)
-  return true
+  if (error) throw new Error(`stripe_events の受理に失敗しました: ${error.message}`)
+  return data === true
 }
 
-/** 業務処理が成功して初めて processed にする */
+/**
+ * 業務処理が成功して初めて processed にする。
+ *
+ * ここが失敗したら throw する。Webhook を200で返してしまうと Stripe が
+ * 再送しなくなり、processing のまま取り残されるため。
+ * 500を返して再送させた場合はハンドラが再実行されるので、
+ * 各ハンドラは冪等（UPSERT 基本）である必要がある。
+ */
 export async function markEventProcessed(eventId: string): Promise<void> {
-  await supabaseAdmin
+  const { error } = await supabaseAdmin
     .from('stripe_events')
     .update({ status: 'processed', processed_at: new Date().toISOString(), last_error: null })
     .eq('event_id', eventId)
+
+  if (error) throw new Error(`stripe_events の完了記録に失敗しました: ${error.message}`)
 }
 
-/** 失敗を残す。Stripe の再送で retry として拾い直せる */
+/**
+ * 失敗を残す。Stripe の再送で claim し直せる。
+ *
+ * ここが失敗しても投げない。呼び出し元は既に失敗して500を返す途中であり、
+ * 記録漏れは stale processing として猶予後に回収されるため。
+ */
 export async function markEventFailed(eventId: string, message: string): Promise<void> {
-  await supabaseAdmin
+  const { error } = await supabaseAdmin
     .from('stripe_events')
     .update({ status: 'failed', last_error: message.slice(0, 500) })
     .eq('event_id', eventId)
+
+  if (error) {
+    console.error(`[billing] stripe_events の失敗記録に失敗: ${error.message}`)
+  }
 }

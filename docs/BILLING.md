@@ -107,7 +107,19 @@ processed_at
 `event_id` の一意性だけでは「受理はしたが業務処理に失敗したイベントが二度と
 処理されない」状態が起きます。受理と完了を分けて記録し、業務処理が成功して
 初めて `processed` にします。`failed` と、放置された `processing` は
-Stripe の再送で拾い直します（`lib/billing/events.ts` の `decideEventAction`）。
+Stripe の再送で拾い直します。
+
+受理はアプリ側で「SELECT → 判定 → UPSERT」に分けません。同じイベントが
+ほぼ同時に2つ届くと両方が「未登録」と判定して処理へ進むためです。
+判定ごと `claim_stripe_event`（`025_claim_stripe_event.sql`）の1文の
+`INSERT ... ON CONFLICT DO UPDATE ... WHERE` に閉じ込め、一意インデックス上で
+直列化させます。処理権を取れるのは必ず1ワーカーだけです。
+この関数は `service_role` だけが実行できます。
+
+DB更新の失敗を成功として扱わないため、`lib/billing/` の全DB I/O は
+`error` を確認します。特に `processed` への更新が失敗した場合は Webhook を
+200で返しません（Stripe が再送しなくなるため）。再送でハンドラが
+再実行されるので、各ハンドラは冪等（UPSERT と固定値の UPDATE のみ）です。
 
 ## データ構造
 

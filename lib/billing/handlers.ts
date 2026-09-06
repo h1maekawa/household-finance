@@ -3,6 +3,9 @@
 // Stripe Event ごとの業務処理。route.ts を肥大化させないためここに置く。
 // 各ハンドラは失敗したら throw する（呼び出し側が failed として記録し、
 // Stripe の再送で処理し直せるようにするため）。
+//
+// 再送で同じイベントが再実行されうるので、各ハンドラは冪等でなければならない。
+// 状態を「加算」せず、UPSERT と固定値の UPDATE だけで書くこと。
 import type Stripe from 'stripe'
 import { supabaseAdmin } from '@/lib/supabase'
 import { findUserIdByCustomer, upsertSubscription } from './subscriptions'
@@ -112,10 +115,11 @@ export async function handleInvoicePaid(invoice: Stripe.Invoice): Promise<void> 
   const userId = await findUserIdByCustomer(customerId)
   if (!userId) throw new Error(`invoice ${invoice.id} に対応する user が見つかりません`)
 
-  await supabaseAdmin
+  const { error } = await supabaseAdmin
     .from('user_subscriptions')
     .update({ status: 'active', updated_at: new Date().toISOString() })
     .eq('user_id', userId)
+  if (error) throw new Error(`user_subscriptions の更新に失敗しました: ${error.message}`)
 }
 
 export async function handleInvoicePaymentFailed(invoice: Stripe.Invoice): Promise<void> {
@@ -124,10 +128,11 @@ export async function handleInvoicePaymentFailed(invoice: Stripe.Invoice): Promi
   const userId = await findUserIdByCustomer(customerId)
   if (!userId) return // 未知の customer は無視（未処理として残さない）
 
-  await supabaseAdmin
+  const { error } = await supabaseAdmin
     .from('user_subscriptions')
     .update({ status: 'past_due', updated_at: new Date().toISOString() })
     .eq('user_id', userId)
+  if (error) throw new Error(`user_subscriptions の更新に失敗しました: ${error.message}`)
 }
 
 /** Event を対応するハンドラへ振り分ける。未対応の型は無視する */

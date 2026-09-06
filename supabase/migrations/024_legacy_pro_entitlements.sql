@@ -23,12 +23,25 @@ on conflict (id) do nothing;
 alter table billing_legacy_cutoff enable row level security;
 -- ポリシーなし = service_role 専用
 
--- 付与。user_entitlements.user_id は主キーなので、
--- 既に entitlement を持つユーザー(買い切り済みなど)は on conflict で触らない。
--- 再実行しても二重にならない。
+-- 付与。user_entitlements.user_id は主キーなので二重行にはならない。
+--
+-- do nothing にしないのは、cutoff 以前のユーザーが「Pro 相当ではない
+-- entitlement 行」を既に持っていた場合に救済漏れになるため。
+-- fail-closed 化の目的は「以前から使えていた人を突然使えなくしない」ことなので、
+-- Pro 相当でない行は legacy_pro / active へ引き上げる。
+--
+-- 一方で、有効な買い切り Pro を上書きしてはいけない。
+-- where 句で「Pro 相当かつ active」の行だけを除外している。
+-- 再実行時は対象行が active legacy_pro になっているため条件を満たさず、何も起きない。
 insert into user_entitlements (user_id, plan, status, source, purchased_at, updated_at)
 select u.id, 'legacy_pro', 'active', 'legacy', now(), now()
 from auth.users u
 cross join billing_legacy_cutoff c
 where u.created_at <= c.cutoff_at
-on conflict (user_id) do nothing;
+on conflict (user_id) do update
+  set plan = 'legacy_pro',
+      status = 'active',
+      source = 'legacy',
+      updated_at = now()
+  where user_entitlements.status is distinct from 'active'
+     or user_entitlements.plan not in ('pro', 'pro_lifetime', 'legacy_pro');
