@@ -1,13 +1,23 @@
 import { NextRequest } from 'next/server'
 import { getAuthenticatedUser, unauthorized } from '@/lib/auth'
-import { hasActiveEntitlement } from '@/lib/entitlements'
+import { getPlan, isBillingEnforced } from '@/lib/entitlements'
+import { isProPlan } from '@/lib/billing/plan'
 
+/**
+ * GET /api/billing/status
+ *
+ * billingRequired はサーバー側で算出した値を返す。
+ * 課金制御を NEXT_PUBLIC_ の環境変数でクライアントへ出さない。
+ */
 export async function GET(request: NextRequest) {
   const user = await getAuthenticatedUser(request)
   if (!user) return unauthorized()
 
+  const plan = await getPlan(user.id)
+
   return Response.json({
-    active: await hasActiveEntitlement(user.id),
-    billingRequired: process.env.NEXT_PUBLIC_BILLING_REQUIRED === 'true',
+    active: isProPlan(plan),
+    plan,
+    billingRequired: isBillingEnforced(),
   })
 }

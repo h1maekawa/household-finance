@@ -52,7 +52,7 @@ RLS が担います。** Proxy を唯一の防御手段にしないでくださ�
 
 ### 現状
 
-44 の API ルートのうち **27 が `supabaseAdmin` を使用**しています。
+44 の API ルートのうち **25 が `supabaseAdmin` を使用**しています。
 RLSポリシーは揃っているため大半は移行可能ですが、一括置換はしません。
 テーブル単位・API単位で次の順に進めます。
 
@@ -102,7 +102,7 @@ entitlement / stripe_customer_id / scope
 
 ### 現状と移行
 
-`user_import_secrets` にはまだ `scope` 列がありません（`022_integration_token_scopes.sql` で追加予定）。
+`user_import_secrets` にはまだ `scope` 列がありません（Phase 2B で追加予定）。
 既存トークンは実用途を確認のうえ `transactions:write` で backfill します。
 
 `server-auth.ts` には環境変数による旧方式（`GAS_IMPORT_SECRET` / `GAS_IMPORT_USER_ID`）が
@@ -175,7 +175,5 @@ Integration Secret / Supabase Token / Stripe Secret
 
 | 項目 | 内容 |
 |---|---|
-| 課金 fail-open | `lib/entitlements.ts` が `NEXT_PUBLIC_BILLING_REQUIRED !== 'true'` で素通し。未設定だと全機能開放。詳細は [BILLING.md](BILLING.md) |
-| Webhook リプレイ | 署名は検証するが timestamp の鮮度を見ていない。idempotency も無い |
-| service_role の多用 | 上記のとおり27ルート |
+| service_role の多用 | 上記のとおり25ルート |
 | Rate Limit / ヘッダー | 未実装。`proxy.ts` は `/api` を対象外 |

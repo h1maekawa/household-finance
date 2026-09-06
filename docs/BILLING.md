@@ -31,16 +31,17 @@ await requireFeature(userId, 'asset_planning')
 - Production では `BILLING_REQUIRED` が**未設定でも課金チェックは有効**
 - 「未設定 = 全機能開放」には絶対にしない
 
-### 現状（未対応）
+### 実装
 
-`lib/entitlements.ts` は次のようになっており、**fail-open** です。
+`lib/billing/plan.ts` の `isBillingEnforced()` が判定します。
 
 ```ts
-if (process.env.NEXT_PUBLIC_BILLING_REQUIRED !== 'true') return true
+if (env.NODE_ENV === 'production') return true   // 設定に関わらず必ず有効
+return env.BILLING_REQUIRED !== 'false'          // 開発・テストのみ明示的に外せる
 ```
 
-未設定なら全ユーザーが全機能を通過します。加えて `NEXT_PUBLIC_` 接頭辞のため
-値がクライアントへ露出します。最優先で修正する項目です。
+`NEXT_PUBLIC_BILLING_REQUIRED` は廃止済みです。`/api/billing/status` が返す
+`billingRequired` はサーバー側で算出した値で、環境変数をクライアントへ出しません。
 
 ## 既存ユーザーの救済
 
@@ -53,18 +54,30 @@ fail-closed 化で既存利用者を突然 Free へ落とさないため、Migra
 
 新規ユーザーから `free` / `pro` を正式適用します。
 
+付与は `024_legacy_pro_entitlements.sql` が行います。切替時刻を
+`billing_legacy_cutoff` に1行だけ記録し、それ以前に作成されたユーザーだけを
+対象にします。Migration を後から再実行しても、切替後にサインアップした
+ユーザーへは付与されません。`user_entitlements.user_id` は主キーなので
+`on conflict do nothing` で二重データにもなりません。
+
 ## Stripe
 
 ### Subscription 化
 
-現在は買い切り（Checkout の `mode: 'payment'`、`user_entitlements.plan = 'pro_lifetime'`）です。
-`mode: 'subscription'` へ移行します。
+Checkout は現時点で買い切り（`mode: 'payment'`）のままです。DBとWebhookは
+Subscription を扱える状態になっており、Phase 5 で `mode` と Price を差し替えます。
 
-### 公式SDKへの移行
+### 公式SDK
 
-現在の Webhook は独自HMAC実装です。`stripe` パッケージを導入し、
-`stripe.webhooks.constructEvent()` へ移行します。公式検証は署名に加えて
-**timestamp tolerance** も見るため、現在のリプレイ耐性の欠如が構造的に解決します。
+`stripe.webhooks.constructEvent()` で検証します（`lib/billing/stripe.ts`）。
+独自のHMAC実装は残していません。公式検証は署名に加えて **timestamp tolerance**
+も見るため、古い署名の再送はここで弾かれます。
+
+検証には Stripe が送ってきた **raw body** を使います。`JSON.parse()` して
+再度 stringify したものでは署名が一致しません。
+
+`app/api/billing/webhook/route.ts` は署名検証・受理・振り分け・レスポンスだけを持ち、
+イベントごとの処理は `lib/billing/handlers.ts` にあります。
 
 ### 扱うイベント
 
@@ -79,18 +92,26 @@ invoice.payment_failed
 
 ### Idempotency
 
-Stripe の Event ID を保存し、同一 Event を二重処理しません（`024_stripe_events.sql`）。
+Stripe の Event ID を保存し、同一 Event を二重処理しません（`023_stripe_events.sql`）。
 
 ```
-event_id UNIQUE
+event_id   主キー
 event_type
+status     processing / processed / failed
+attempts
+last_error
+received_at
 processed_at
-created_at
 ```
+
+`event_id` の一意性だけでは「受理はしたが業務処理に失敗したイベントが二度と
+処理されない」状態が起きます。受理と完了を分けて記録し、業務処理が成功して
+初めて `processed` にします。`failed` と、放置された `processing` は
+Stripe の再送で拾い直します（`lib/billing/events.ts` の `decideEventAction`）。
 
 ## データ構造
 
-### 移行後（`023_subscriptions.sql`）
+### Subscription（`022_subscriptions.sql`）
 
 ```
 stripe_customer_id
@@ -104,8 +125,9 @@ cancel_at_period_end
 ### 既存テーブルの扱い
 
 `user_entitlements` は Migration で削除しません。
-Subscription の状態から Entitlement を算出する仕組みへ段階的に移行し、
-既存データを破壊しないようにします。
+権限判定は「Subscription → 無ければ user_entitlements」の順で解決します
+（`lib/billing/plan.ts` の `resolvePlan()`）。買い切りの `pro_lifetime` と
+`legacy_pro` はどちらも Pro 相当として扱われ、既存データを壊しません。
 
 ## 環境変数
 
@@ -117,7 +139,7 @@ Subscription の状態から Entitlement を算出する仕組みへ段階的に
 | `BILLING_REQUIRED` | 課金チェックの有効化。**サーバー専用**。Production では未設定でも有効 |
 | `NEXT_PUBLIC_APP_URL` | Checkout の戻り先 |
 
-`NEXT_PUBLIC_BILLING_REQUIRED` は廃止予定です。
+`NEXT_PUBLIC_BILLING_REQUIRED` は廃止済みです。
 
 ## アカウント削除との関係
 

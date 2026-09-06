@@ -1,60 +1,56 @@
-import { createHmac, timingSafeEqual } from 'crypto'
-import { supabaseAdmin } from '@/lib/supabase'
+import { claimEvent, markEventFailed, markEventProcessed } from '@/lib/billing/events'
+import { dispatchStripeEvent } from '@/lib/billing/handlers'
+import { verifyStripeEvent, WebhookVerificationError } from '@/lib/billing/stripe'
 
 export const runtime = 'nodejs'
 
+/**
+ * POST /api/billing/webhook
+ *
+ * ここは署名検証・受理・振り分け・HTTPレスポンスだけを持つ。
+ * イベントごとの業務処理は lib/billing/handlers.ts にある。
+ *
+ * service_role を使うのは Webhook がセッションを持たないため（SECURITY.md の許可範囲）。
+ */
 export async function POST(request: Request) {
-  const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET
-  const signature = request.headers.get('stripe-signature')
-  const payload = await request.text()
+  // 署名検証には Stripe が送ってきた生のボディが要る。パースして再構成しない
+  const rawBody = await request.text()
 
-  if (!webhookSecret || !signature || !verifyStripeSignature(payload, signature, webhookSecret)) {
-    return Response.json({ error: 'Invalid signature' }, { status: 400 })
+  let event
+  try {
+    event = verifyStripeEvent(
+      rawBody,
+      request.headers.get('stripe-signature'),
+      process.env.STRIPE_WEBHOOK_SECRET
+    )
+  } catch (error) {
+    if (error instanceof WebhookVerificationError) {
+      console.error('[billing/webhook] 署名検証に失敗:', error.message)
+      return Response.json({ error: 'Invalid signature' }, { status: 400 })
+    }
+    console.error('[billing/webhook] Stripe クライアントの初期化に失敗:', error)
+    return Response.json({ error: 'Webhook is not configured' }, { status: 503 })
   }
 
-  const event = JSON.parse(payload)
-  if (event.type !== 'checkout.session.completed') {
+  // 二重適用を防ぐ。processed 済みなら何もしない
+  let claimed: boolean
+  try {
+    claimed = await claimEvent(event.id, event.type)
+  } catch (error) {
+    console.error('[billing/webhook] イベントの受理に失敗:', error)
+    return Response.json({ error: 'Failed to record event' }, { status: 500 })
+  }
+  if (!claimed) return Response.json({ received: true, duplicate: true })
+
+  try {
+    await dispatchStripeEvent(event)
+    await markEventProcessed(event.id)
     return Response.json({ received: true })
+  } catch (error) {
+    // failed として残す。Stripe の再送で retry として拾い直す
+    const message = error instanceof Error ? error.message : String(error)
+    console.error(`[billing/webhook] ${event.type} の処理に失敗:`, message)
+    await markEventFailed(event.id, message).catch(() => {})
+    return Response.json({ error: 'Event processing failed' }, { status: 500 })
   }
-
-  const session = event.data?.object
-  const userId = session?.metadata?.user_id ?? session?.client_reference_id
-  if (!userId) {
-    return Response.json({ error: 'Missing user id' }, { status: 400 })
-  }
-
-  const { error } = await supabaseAdmin
-    .from('user_entitlements')
-    .upsert({
-      user_id: userId,
-      plan: 'pro_lifetime',
-      status: 'active',
-      source: 'stripe',
-      stripe_customer_id: session.customer ?? null,
-      stripe_checkout_session_id: session.id ?? null,
-      purchased_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    }, { onConflict: 'user_id' })
-
-  if (error) return Response.json({ error: error.message }, { status: 500 })
-  return Response.json({ received: true })
-}
-
-function verifyStripeSignature(payload: string, signature: string, secret: string) {
-  const timestamp = signature.split(',').find(part => part.startsWith('t='))?.slice(2)
-  const signatures = signature
-    .split(',')
-    .filter(part => part.startsWith('v1='))
-    .map(part => part.slice(3))
-
-  if (!timestamp || signatures.length === 0) return false
-
-  const signedPayload = `${timestamp}.${payload}`
-  const expected = createHmac('sha256', secret).update(signedPayload).digest('hex')
-
-  return signatures.some(sig => {
-    const a = Buffer.from(sig)
-    const b = Buffer.from(expected)
-    return a.length === b.length && timingSafeEqual(a, b)
-  })
 }
