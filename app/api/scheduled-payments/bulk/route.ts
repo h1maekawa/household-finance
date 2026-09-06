@@ -6,7 +6,8 @@
 // GET  … 登録前のプレビュー。カード・口座の解決結果と、既存データとの衝突を返す。
 // POST … 実際の登録。衝突した項目は mode('keep' | 'update' | 'skip') に従う。
 import { NextRequest } from 'next/server'
-import { supabaseAdmin } from '@/lib/supabase'
+import { createSupabaseServerClient } from '@/lib/supabase/server'
+import { writeFailed } from '@/lib/api-errors'
 import { getAuthenticatedUser, unauthorized } from '@/lib/auth'
 import {
   FIXED_COST_PRESET,
@@ -96,11 +97,13 @@ type PreviewItem = {
   needsConfirmation: boolean
 }
 
-async function loadContext(userId: string) {
+type ServerClient = Awaited<ReturnType<typeof createSupabaseServerClient>>
+
+async function loadContext(supabase: ServerClient, userId: string) {
   const [cardsRes, paymentsRes, accountsRes] = await Promise.all([
-    supabaseAdmin.from('credit_cards').select('*').eq('user_id', userId),
-    supabaseAdmin.from('scheduled_payments').select('*').eq('user_id', userId),
-    supabaseAdmin.from('accounts').select('id,name').eq('user_id', userId),
+    supabase.from('credit_cards').select('*').eq('user_id', userId),
+    supabase.from('scheduled_payments').select('*').eq('user_id', userId),
+    supabase.from('accounts').select('id,name').eq('user_id', userId),
   ])
   if (cardsRes.error) throw new Error(cardsRes.error.message)
   if (paymentsRes.error) throw new Error(paymentsRes.error.message)
@@ -169,8 +172,10 @@ export async function GET(request: NextRequest) {
   const user = await getAuthenticatedUser(request)
   if (!user) return unauthorized()
 
+  const supabase = await createSupabaseServerClient()
+
   try {
-    const { cards, payments, accounts } = await loadContext(user.id)
+    const { cards, payments, accounts } = await loadContext(supabase, user.id)
     const preview = buildPreview(FIXED_COST_PRESET, cards, payments, accounts)
     return Response.json({
       items: preview,
@@ -198,6 +203,8 @@ export async function POST(request: NextRequest) {
   const user = await getAuthenticatedUser(request)
   if (!user) return unauthorized()
 
+  const supabase = await createSupabaseServerClient()
+
   const body = (await request.json().catch(() => ({}))) as PostBody
   const onConflict = body.onConflict === 'update' ? 'update' : body.onConflict === 'keep' ? 'keep' : 'skip'
   const selected = Array.isArray(body.names) && body.names.length > 0
@@ -205,7 +212,7 @@ export async function POST(request: NextRequest) {
     : FIXED_COST_PRESET
 
   try {
-    const { cards, payments, accounts } = await loadContext(user.id)
+    const { cards, payments, accounts } = await loadContext(supabase, user.id)
     const preview = buildPreview(selected, cards, payments, accounts)
 
     const created: string[] = []
@@ -258,18 +265,18 @@ export async function POST(request: NextRequest) {
           skipped.push({ name: item.name, reason: '既に登録済み' })
           continue
         }
-        const { error } = await supabaseAdmin
+        const { error } = await supabase
           .from('scheduled_payments')
           .update(row)
           .eq('id', item.existing.id)
           .eq('user_id', user.id)
-        if (error) return Response.json({ error: error.message }, { status: 500 })
+        if (error) return writeFailed('api/scheduled-payments/bulk', error)
         updated.push(item.name)
         continue
       }
 
-      const { error } = await supabaseAdmin.from('scheduled_payments').insert([row])
-      if (error) return Response.json({ error: error.message }, { status: 500 })
+      const { error } = await supabase.from('scheduled_payments').insert([row])
+      if (error) return writeFailed('api/scheduled-payments/bulk', error)
       created.push(item.name)
     }
 

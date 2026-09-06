@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server'
 import { getAuthenticatedUser, unauthorized } from '@/lib/auth'
 import { decideTransactionCategory, MerchantRule } from '@/lib/category-rules'
-import { supabaseAdmin } from '@/lib/supabase'
+import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { Transaction } from '@/types/transaction'
 
 type Body = {
@@ -21,8 +21,10 @@ export async function POST(request: NextRequest) {
   const user = await getAuthenticatedUser(request)
   if (!user) return unauthorized()
 
+  const supabase = await createSupabaseServerClient()
+
   const body: Body = await request.json().catch(() => ({}))
-  let query = supabaseAdmin
+  let query = supabase
     .from('transactions')
     .select('*')
     .eq('user_id', user.id)
@@ -39,7 +41,7 @@ export async function POST(request: NextRequest) {
 
   const [transactionsRes, rulesRes] = await Promise.all([
     query,
-    supabaseAdmin
+    supabase
       .from('merchant_rules')
       .select('id,merchant_pattern,category,payment_method,confidence')
       .eq('user_id', user.id),
@@ -69,7 +71,7 @@ export async function POST(request: NextRequest) {
 
     if (!shouldUpdate) continue
 
-    const { error } = await supabaseAdmin
+    const { error } = await supabase
       .from('transactions')
       .update({
         // Suggestions never overwrite a user's category choice.

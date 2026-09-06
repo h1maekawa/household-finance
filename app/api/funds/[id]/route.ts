@@ -1,9 +1,10 @@
 import { NextRequest } from 'next/server'
-import { supabaseAdmin } from '@/lib/supabase'
+import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { getAuthenticatedUser, unauthorized } from '@/lib/auth'
 import { requireActiveEntitlement } from '@/lib/entitlements'
 import { pickAllowed } from '@/lib/patch'
 import { FundHoldingInput } from '@/types/fund'
+import { writeFailed } from '@/lib/api-errors'
 
 type Context = { params: Promise<{ id: string }> }
 
@@ -15,13 +16,15 @@ const PATCHABLE_FIELDS = [
 export async function PATCH(request: NextRequest, { params }: Context) {
   const user = await getAuthenticatedUser(request)
   if (!user) return unauthorized()
+
+  const supabase = await createSupabaseServerClient()
   if (!await requireActiveEntitlement(user.id)) return Response.json({ error: 'Pro purchase required' }, { status: 402 })
 
   const { id } = await params
   const body: Partial<FundHoldingInput> = await request.json()
   const patch = pickAllowed<FundHoldingInput, keyof FundHoldingInput>(body, PATCHABLE_FIELDS)
 
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await supabase
     .from('fund_holdings')
     .update({ ...patch, updated_at: new Date().toISOString() })
     .eq('id', id)
@@ -29,23 +32,25 @@ export async function PATCH(request: NextRequest, { params }: Context) {
     .select()
     .single()
 
-  if (error) return Response.json({ error: error.message }, { status: 500 })
+  if (error) return writeFailed('api/funds/[id]', error)
   return Response.json(data)
 }
 
 export async function DELETE(request: NextRequest, { params }: Context) {
   const user = await getAuthenticatedUser(request)
   if (!user) return unauthorized()
+
+  const supabase = await createSupabaseServerClient()
   if (!await requireActiveEntitlement(user.id)) return Response.json({ error: 'Pro purchase required' }, { status: 402 })
 
   const { id } = await params
 
-  const { error } = await supabaseAdmin
+  const { error } = await supabase
     .from('fund_holdings')
     .delete()
     .eq('id', id)
     .eq('user_id', user.id)
 
-  if (error) return Response.json({ error: error.message }, { status: 500 })
+  if (error) return writeFailed('api/funds/[id]', error)
   return Response.json({ success: true })
 }

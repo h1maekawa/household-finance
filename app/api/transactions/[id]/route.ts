@@ -1,9 +1,10 @@
 // app/api/transactions/[id]/route.ts
 import { NextRequest } from 'next/server'
-import { supabaseAdmin } from '@/lib/supabase'
+import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { getAuthenticatedUser, unauthorized } from '@/lib/auth'
 import { pickAllowed } from '@/lib/patch'
 import { TransactionInput } from '@/types/transaction'
+import { writeFailed } from '@/lib/api-errors'
 
 type Context = { params: Promise<{ id: string }> }
 
@@ -17,16 +18,18 @@ export async function DELETE(request: NextRequest, { params }: Context) {
   const user = await getAuthenticatedUser(request)
   if (!user) return unauthorized()
 
+  const supabase = await createSupabaseServerClient()
+
   const { id } = await params
 
-  const { error } = await supabaseAdmin
+  const { error } = await supabase
     .from('transactions')
     .delete()
     .eq('id', id)
     .eq('user_id', user.id)
 
   if (error) {
-    return Response.json({ error: error.message }, { status: 500 })
+    return writeFailed('api/transactions/[id]', error)
   }
 
   return Response.json({ success: true })
@@ -36,6 +39,8 @@ export async function PATCH(request: NextRequest, { params }: Context) {
   const user = await getAuthenticatedUser(request)
   if (!user) return unauthorized()
 
+  const supabase = await createSupabaseServerClient()
+
   const { id } = await params
   const body: Partial<TransactionInput> = await request.json()
   const patch = pickAllowed<TransactionInput, keyof TransactionInput>(body, PATCHABLE_FIELDS)
@@ -43,7 +48,7 @@ export async function PATCH(request: NextRequest, { params }: Context) {
     ? { category: body.category, manual_category: body.category }
     : {}
 
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await supabase
     .from('transactions')
     .update({
       ...patch,
@@ -58,7 +63,7 @@ export async function PATCH(request: NextRequest, { params }: Context) {
     .single()
 
   if (error) {
-    return Response.json({ error: error.message }, { status: 500 })
+    return writeFailed('api/transactions/[id]', error)
   }
 
   return Response.json(data)

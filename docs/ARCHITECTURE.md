@@ -133,7 +133,44 @@ supabase/
 
 | 項目 | 現状 |
 |---|---|
+| Schema Reproducibility Debt | 後述 |
 | service_role の多用 | 44 の API ルートのうち 25 が `supabaseAdmin` を使い RLS をバイパスしている。RLSポリシー自体は揃っているため、多くはセッションクライアントへ移行できる |
 | Rate Limit | 未実装。`proxy.ts` はページのログイン判定のみで、matcher が `/api` を除外している |
 | セキュリティヘッダー | 未設定（`next.config.ts` は turbopack 設定のみ） |
 | `investment-capacity` | `investable_amount` の1本のみで、貯金余力と資産形成余力を分離していない |
+
+## Schema Reproducibility Debt
+
+`supabase/migrations/` はスキーマの完全な定義ではありません。次の4テーブルは
+`create table` がどのマイグレーションにも存在せず、001 より前に別経路
+（Supabase の SQL Editor 等）で作成されています。
+
+```
+transactions
+scheduled_payments
+account_balance
+stock_holdings
+```
+
+RLS とポリシーは `001_multi_user_rls.sql` の動的ループが
+`to_regclass` で存在を確認してから付与しているため、**現行のDBに穴はありません**。
+問題は再現性のほうです。
+
+影響するのは次の場面です。
+
+- clean environment の構築
+- disaster recovery
+- CI でのDB再構築
+- staging 環境の作成
+
+いずれも「migrations を空のDBへ順に流す」ことが前提になりますが、上記4テーブルは
+作成されないため 001 のループが空振りし、後続のマイグレーションも失敗します。
+
+**新しい `create table` マイグレーションを足して解決してはいけません。**
+既存の Production DB と衝突する可能性があります。別タスクとして次の順で扱います。
+
+```
+現DB schema dump → migrations との差分確認 → baseline 作成 → clean DB 再構築テスト
+```
+
+`supabase db dump` によるスナップショットを baseline に据える案を検討中です。

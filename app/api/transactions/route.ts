@@ -1,13 +1,16 @@
 // app/api/transactions/route.ts
 import { NextRequest } from 'next/server'
-import { supabaseAdmin } from '@/lib/supabase'
+import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { getAuthenticatedUser, unauthorized } from '@/lib/auth'
 import { pickAllowed } from '@/lib/patch'
 import { TransactionInput } from '@/types/transaction'
+import { readFailed, writeFailed } from '@/lib/api-errors'
 
 export async function GET(request: NextRequest) {
   const user = await getAuthenticatedUser(request)
   if (!user) return unauthorized()
+
+  const supabase = await createSupabaseServerClient()
 
   const { searchParams } = request.nextUrl
   const year = searchParams.get('year') ?? new Date().getFullYear().toString()
@@ -20,7 +23,7 @@ export async function GET(request: NextRequest) {
     ? `${parseInt(year) + 1}-01-01`
     : `${year}-${String(parseInt(month) + 1).padStart(2, '0')}-01`)
 
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await supabase
     .from('transactions')
     .select('*')
     .eq('user_id', user.id)
@@ -29,7 +32,7 @@ export async function GET(request: NextRequest) {
     .order('date', { ascending: false })
 
   if (error) {
-    return Response.json({ error: error.message }, { status: 500 })
+    return readFailed('api/transactions', error)
   }
 
   // サマリ計算(収入は支出の集計・カテゴリ内訳には含めない)
@@ -59,6 +62,8 @@ export async function POST(request: NextRequest) {
   const user = await getAuthenticatedUser(request)
   if (!user) return unauthorized()
 
+  const supabase = await createSupabaseServerClient()
+
   const body: Partial<TransactionInput> = await request.json()
   const kind = body.kind === 'income' ? 'income' : 'expense'
   const selectedCategory = String(body.manual_category ?? body.category ?? '').trim()
@@ -87,7 +92,7 @@ export async function POST(request: NextRequest) {
   async function insertResilient() {
     let attempt = { ...record }
     for (let i = 0; i <= OPTIONAL_COLUMNS.length; i++) {
-      const res = await supabaseAdmin.from('transactions').insert([attempt]).select().single()
+      const res = await supabase.from('transactions').insert([attempt]).select().single()
       if (!res.error) return res
       // 「列が見つからない」系エラー（PGRST204 / 42703）のときだけ、該当列を落として再試行
       const missing = OPTIONAL_COLUMNS.find(
@@ -97,13 +102,13 @@ export async function POST(request: NextRequest) {
       attempt = { ...attempt }
       delete attempt[missing]
     }
-    return supabaseAdmin.from('transactions').insert([attempt]).select().single()
+    return supabase.from('transactions').insert([attempt]).select().single()
   }
 
   const { data, error } = await insertResilient()
 
   if (error) {
-    return Response.json({ error: error.message }, { status: 500 })
+    return writeFailed('api/transactions', error)
   }
 
   return Response.json(data, { status: 201 })

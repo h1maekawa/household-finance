@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server'
 import { getAuthenticatedUser, unauthorized } from '@/lib/auth'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
+import { writeFailed } from '@/lib/api-errors'
 
 type SettingsBody = {
   initial_balance?: number
@@ -104,7 +105,7 @@ export async function PATCH(request: NextRequest) {
     .single()
 
   if (profileError) {
-    return Response.json({ error: profileError.message }, { status: 500 })
+    return writeFailed('api/settings', profileError)
   }
 
   // 残高スナップショットは、残高が実際に送られてきたときだけ積む
@@ -117,7 +118,7 @@ export async function PATCH(request: NextRequest) {
       .single()
 
     if (balanceError) {
-      return Response.json({ error: balanceError.message }, { status: 500 })
+      return writeFailed('api/settings', balanceError)
     }
     balance = data
   }

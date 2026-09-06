@@ -25,6 +25,7 @@ import { parseChatInput } from '@/lib/gemini'
 import { getMergedCategories } from '@/lib/categories'
 import { decideCategory, MerchantRule } from '@/lib/category-rules'
 import { CATEGORIES, INCOME_CATEGORIES, Kind } from '@/types/transaction'
+import { writeFailed } from '@/lib/api-errors'
 
 function hasEnv(name: string): boolean {
   const value = process.env[name]
@@ -169,7 +170,7 @@ export async function POST(request: NextRequest) {
   const externalId: string | undefined = body.external_id
   const merchantRules = await getMerchantRules(targetUserId)
   // カスタムカテゴリ(チャットボット追加分)も取り込み時の有効カテゴリとして扱う
-  const mergedCategories = await getMergedCategories(targetUserId)
+  const mergedCategories = await getMergedCategories(targetUserId, supabaseAdmin)
   const customNames = {
     expense: mergedCategories.expense.map(c => c.name),
     income: mergedCategories.income.map(c => c.name),
@@ -220,7 +221,7 @@ export async function POST(request: NextRequest) {
       if (error.code === '23505') {
         return Response.json({ duplicate: true }, { status: 200 })
       }
-      return Response.json({ error: error.message }, { status: 500 })
+      return writeFailed('api/transactions/import', error)
     }
 
     return Response.json({ scheduledPayment: data }, { status: 201 })
@@ -324,7 +325,7 @@ export async function POST(request: NextRequest) {
 
       return Response.json({ duplicate: true, repaired: Object.keys(patch).length > 1 }, { status: 200 })
     }
-    return Response.json({ error: error.message }, { status: 500 })
+    return writeFailed('api/transactions/import', error)
   }
 
   return Response.json({ transaction: data }, { status: 201 })

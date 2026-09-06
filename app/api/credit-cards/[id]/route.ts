@@ -1,8 +1,9 @@
 import { NextRequest } from 'next/server'
-import { supabaseAdmin } from '@/lib/supabase'
+import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { getAuthenticatedUser, unauthorized } from '@/lib/auth'
 import { describeMissingColumn } from '@/lib/credit-card-errors'
 import type { CardType, CardPlan } from '@/lib/card-payment-rules'
+import { writeFailed } from '@/lib/api-errors'
 
 type Context = { params: Promise<{ id: string }> }
 
@@ -69,13 +70,15 @@ export async function PATCH(request: NextRequest, { params }: Context) {
   const user = await getAuthenticatedUser(request)
   if (!user) return unauthorized()
 
+  const supabase = await createSupabaseServerClient()
+
   const { id } = await params
   const patch = toPatch(await request.json())
   if (!patch) {
     return Response.json({ error: 'カード名・締め日・引き落とし日を入力してください' }, { status: 400 })
   }
 
-  let { data, error } = await supabaseAdmin
+  let { data, error } = await supabase
     .from('credit_cards')
     .update(patch)
     .eq('id', id)
@@ -87,7 +90,7 @@ export async function PATCH(request: NextRequest, { params }: Context) {
   if (error?.message.includes('debit_account_id')) {
     const fallback = { ...patch }
     delete (fallback as Partial<typeof patch>).debit_account_id
-    ;({ data, error } = await supabaseAdmin
+    ;({ data, error } = await supabase
       .from('credit_cards')
       .update(fallback)
       .eq('id', id)
@@ -110,15 +113,17 @@ export async function DELETE(request: NextRequest, { params }: Context) {
   const user = await getAuthenticatedUser(request)
   if (!user) return unauthorized()
 
+  const supabase = await createSupabaseServerClient()
+
   const { id } = await params
-  const { error } = await supabaseAdmin
+  const { error } = await supabase
     .from('credit_cards')
     .delete()
     .eq('id', id)
     .eq('user_id', user.id)
 
   if (error) {
-    return Response.json({ error: error.message }, { status: 500 })
+    return writeFailed('api/credit-cards/[id]', error)
   }
 
   return Response.json({ success: true })

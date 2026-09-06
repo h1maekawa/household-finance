@@ -1,7 +1,7 @@
 import { addDays, addMonths, endOfMonth, format, startOfMonth } from 'date-fns'
 import { NextRequest } from 'next/server'
 import { getAuthenticatedUser, unauthorized } from '@/lib/auth'
-import { supabaseAdmin } from '@/lib/supabase'
+import { createSupabaseServerClient } from '@/lib/supabase/server'
 
 type HouseholdTransaction = {
   date: string
@@ -39,6 +39,8 @@ export async function GET(request: NextRequest) {
   const user = await getAuthenticatedUser(request)
   if (!user) return unauthorized()
 
+  const supabase = await createSupabaseServerClient()
+
   const { searchParams } = request.nextUrl
   const months = Math.min(Math.max(Number(searchParams.get('months') ?? 6), 1), 24)
   const today = new Date()
@@ -52,35 +54,35 @@ export async function GET(request: NextRequest) {
     stocksRes,
     fundsRes,
   ] = await Promise.all([
-    supabaseAdmin
+    supabase
       .from('account_balance')
       .select('balance')
       .eq('user_id', user.id)
       .order('recorded_at', { ascending: false })
       .limit(1)
       .maybeSingle(),
-    supabaseAdmin
+    supabase
       .from('users_profile')
       .select('initial_balance')
       .eq('user_id', user.id)
       .maybeSingle(),
-    supabaseAdmin
+    supabase
       .from('transactions')
       .select('date,amount,kind')
       .eq('user_id', user.id)
       .gte('date', format(firstMonth, 'yyyy-MM-dd'))
       .lte('date', format(today, 'yyyy-MM-dd')),
-    supabaseAdmin
+    supabase
       .from('investment_transactions')
       .select('trade_date,trade_type,amount_jpy')
       .eq('user_id', user.id)
       .gte('trade_date', format(firstMonth, 'yyyy-MM-dd'))
       .lte('trade_date', format(today, 'yyyy-MM-dd')),
-    supabaseAdmin
+    supabase
       .from('stock_holdings')
       .select('broker_current_value,shares,average_cost')
       .eq('user_id', user.id),
-    supabaseAdmin
+    supabase
       .from('fund_holdings')
       .select('current_value')
       .eq('user_id', user.id),

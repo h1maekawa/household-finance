@@ -1,7 +1,8 @@
 import { NextRequest } from 'next/server'
 import { getAuthenticatedUser, unauthorized } from '@/lib/auth'
-import { supabaseAdmin } from '@/lib/supabase'
+import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { getMergedCategories } from '@/lib/categories'
+import { readFailed, writeFailed } from '@/lib/api-errors'
 
 type RuleBody = {
   merchant_pattern?: string
@@ -18,14 +19,16 @@ export async function GET(request: NextRequest) {
   const user = await getAuthenticatedUser(request)
   if (!user) return unauthorized()
 
-  const { data, error } = await supabaseAdmin
+  const supabase = await createSupabaseServerClient()
+
+  const { data, error } = await supabase
     .from('merchant_rules')
     .select('*')
     .eq('user_id', user.id)
     .order('created_at', { ascending: false })
 
   if (error) {
-    return Response.json({ error: error.message }, { status: 500 })
+    return readFailed('api/category-rules', error)
   }
 
   return Response.json(data ?? [])
@@ -35,6 +38,8 @@ export async function POST(request: NextRequest) {
   const user = await getAuthenticatedUser(request)
   if (!user) return unauthorized()
 
+  const supabase = await createSupabaseServerClient()
+
   const body: RuleBody = await request.json()
   const merchantPattern = String(body.merchant_pattern ?? '').trim()
   const category = String(body.category ?? '').trim()
@@ -43,7 +48,7 @@ export async function POST(request: NextRequest) {
     return Response.json({ error: '分類したい文字とカテゴリを選んでください' }, { status: 400 })
   }
 
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await supabase
     .from('merchant_rules')
     .insert([{
       user_id: user.id,
@@ -56,7 +61,7 @@ export async function POST(request: NextRequest) {
     .single()
 
   if (error) {
-    return Response.json({ error: error.message }, { status: 500 })
+    return writeFailed('api/category-rules', error)
   }
 
   return Response.json(data, { status: 201 })

@@ -1,8 +1,9 @@
 import { NextRequest } from 'next/server'
-import { supabaseAdmin } from '@/lib/supabase'
+import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { getAuthenticatedUser, unauthorized } from '@/lib/auth'
 import { describeMissingColumn } from '@/lib/credit-card-errors'
 import type { CardType, CardPlan } from '@/lib/card-payment-rules'
+import { readFailed } from '@/lib/api-errors'
 
 const VALID_CARD_TYPES = new Set<CardType>(['rakuten', 'smbc', 'generic'])
 const VALID_CARD_PLANS = new Set<CardPlan>([
@@ -68,14 +69,16 @@ export async function GET(request: NextRequest) {
   const user = await getAuthenticatedUser(request)
   if (!user) return unauthorized()
 
-  const { data, error } = await supabaseAdmin
+  const supabase = await createSupabaseServerClient()
+
+  const { data, error } = await supabase
     .from('credit_cards')
     .select('*')
     .eq('user_id', user.id)
     .order('name', { ascending: true })
 
   if (error) {
-    return Response.json({ error: error.message }, { status: 500 })
+    return readFailed('api/credit-cards', error)
   }
 
   return Response.json(data ?? [])
@@ -85,12 +88,14 @@ export async function POST(request: NextRequest) {
   const user = await getAuthenticatedUser(request)
   if (!user) return unauthorized()
 
+  const supabase = await createSupabaseServerClient()
+
   const row = toRow(await request.json(), user.id)
   if (!row) {
     return Response.json({ error: 'カード名・締め日・引き落とし日を入力してください' }, { status: 400 })
   }
 
-  let { data, error } = await supabaseAdmin
+  let { data, error } = await supabase
     .from('credit_cards')
     .insert([row])
     .select()
@@ -101,7 +106,7 @@ export async function POST(request: NextRequest) {
   if (error?.message.includes('debit_account_id')) {
     const fallback = { ...row }
     delete (fallback as Partial<typeof row>).debit_account_id
-    ;({ data, error } = await supabaseAdmin
+    ;({ data, error } = await supabase
       .from('credit_cards')
       .insert([fallback])
       .select()

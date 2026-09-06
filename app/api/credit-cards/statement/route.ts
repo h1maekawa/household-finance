@@ -15,9 +15,10 @@
 //   既存の予測パイプライン(projectCashflow)にそのまま乗る。
 //   external_id の unique 制約(migration 011)が同一サイクルの二重登録を防ぐ。
 import { NextRequest } from 'next/server'
-import { supabaseAdmin } from '@/lib/supabase'
+import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { getAuthenticatedUser, unauthorized } from '@/lib/auth'
 import { statementExternalId } from '@/lib/cashflow'
+import { writeFailed } from '@/lib/api-errors'
 
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/
 
@@ -30,6 +31,8 @@ type StatementBody = {
 export async function PUT(request: NextRequest) {
   const user = await getAuthenticatedUser(request)
   if (!user) return unauthorized()
+
+  const supabase = await createSupabaseServerClient()
 
   const body = (await request.json().catch(() => ({}))) as StatementBody
   const cardId = String(body.card_id ?? '').trim()
@@ -44,14 +47,14 @@ export async function PUT(request: NextRequest) {
   }
 
   // 他人のカードIDを渡して行を作られないよう、必ず本人のカードか確認する
-  const { data: card, error: cardError } = await supabaseAdmin
+  const { data: card, error: cardError } = await supabase
     .from('credit_cards')
     .select('id, name, debit_account_id')
     .eq('id', cardId)
     .eq('user_id', user.id)
     .maybeSingle()
 
-  if (cardError) return Response.json({ error: cardError.message }, { status: 500 })
+  if (cardError) return writeFailed('api/credit-cards/statement', cardError)
   if (!card) return Response.json({ error: 'カードが見つかりません' }, { status: 404 })
 
   const externalId = statementExternalId(card.id, paymentDate)
@@ -74,7 +77,7 @@ export async function PUT(request: NextRequest) {
   // upsert は使えない。external_id の一意インデックス(migration 011)は
   // `where external_id is not null` の部分インデックスで、Postgres の ON CONFLICT は
   // 述語込みでないと推論できず "no unique or exclusion constraint matching" になる。
-  const updated = await supabaseAdmin
+  const updated = await supabase
     .from('scheduled_payments')
     .update(row)
     .eq('user_id', user.id)
@@ -85,7 +88,7 @@ export async function PUT(request: NextRequest) {
   if (updated.error) return Response.json({ error: updated.error.message }, { status: 500 })
   if (updated.data) return Response.json(updated.data)
 
-  const inserted = await supabaseAdmin
+  const inserted = await supabase
     .from('scheduled_payments')
     .insert([row])
     .select()
@@ -93,14 +96,14 @@ export async function PUT(request: NextRequest) {
 
   // 同時に2回叩かれた場合は部分インデックスが二重登録を弾く。既にある行を返す。
   if (inserted.error?.code === '23505') {
-    const { data, error } = await supabaseAdmin
+    const { data, error } = await supabase
       .from('scheduled_payments')
       .update(row)
       .eq('user_id', user.id)
       .eq('external_id', externalId)
       .select()
       .single()
-    if (error) return Response.json({ error: error.message }, { status: 500 })
+    if (error) return writeFailed('api/credit-cards/statement', error)
     return Response.json(data)
   }
 
@@ -113,20 +116,22 @@ export async function DELETE(request: NextRequest) {
   const user = await getAuthenticatedUser(request)
   if (!user) return unauthorized()
 
+  const supabase = await createSupabaseServerClient()
+
   const cardId = request.nextUrl.searchParams.get('card_id') ?? ''
   const paymentDate = request.nextUrl.searchParams.get('payment_date') ?? ''
   if (!cardId || !DATE_PATTERN.test(paymentDate)) {
     return Response.json({ error: 'カードと引き落とし日を指定してください' }, { status: 400 })
   }
 
-  const { error } = await supabaseAdmin
+  const { error } = await supabase
     .from('scheduled_payments')
     .delete()
     .eq('user_id', user.id)
     .eq('external_id', statementExternalId(cardId, paymentDate))
     .eq('source', 'card_statement')
 
-  if (error) return Response.json({ error: error.message }, { status: 500 })
+  if (error) return writeFailed('api/credit-cards/statement', error)
 
   return Response.json({ ok: true })
 }

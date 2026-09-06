@@ -1,11 +1,13 @@
 import { NextRequest } from 'next/server'
-import { supabaseAdmin } from '@/lib/supabase'
+import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { getAuthenticatedUser, unauthorized } from '@/lib/auth'
 import { getMergedCategories } from '@/lib/categories'
 
 export async function GET(request: NextRequest) {
   const user = await getAuthenticatedUser(request)
   if (!user) return unauthorized()
+
+  const supabase = await createSupabaseServerClient()
 
   const { searchParams } = request.nextUrl
   const year  = searchParams.get('year')  ?? new Date().getFullYear().toString()
@@ -42,7 +44,7 @@ export async function GET(request: NextRequest) {
 
   const [curRes, p1Res, p2Res, p3Res] = await Promise.all(
     ranges.map(r =>
-      supabaseAdmin
+      supabase
         .from('transactions')
         .select('category, amount')
         .eq('user_id', user.id)

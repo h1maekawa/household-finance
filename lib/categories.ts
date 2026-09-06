@@ -1,4 +1,6 @@
+import type { SupabaseClient } from '@supabase/supabase-js'
 import { supabaseAdmin } from '@/lib/supabase'
+import { createSupabaseServerClient } from '@/lib/supabase/server'
 import {
   CATEGORIES,
   INCOME_CATEGORIES,
@@ -24,11 +26,18 @@ interface CustomCategoryRow {
 /**
  * 既定カテゴリ + ユーザーのカスタムカテゴリをマージして返す。
  * custom_categories テーブルが未作成でも既定カテゴリだけで動作する。
+ *
+ * ユーザー起点のAPIからはセッションのクライアントで呼ぶ（RLSを通す）。
+ * サーバー間連携（セッションが無い経路）だけ supabaseAdmin を渡す。
  */
-export async function getMergedCategories(userId: string): Promise<MergedCategories> {
+export async function getMergedCategories(
+  userId: string,
+  client?: SupabaseClient
+): Promise<MergedCategories> {
+  const supabase = client ?? (await createSupabaseServerClient())
   let custom: CustomCategoryRow[] = []
   try {
-    const { data, error } = await supabaseAdmin
+    const { data, error } = await supabase
       .from('custom_categories')
       .select('name, icon, kind, is_fixed')
       .eq('user_id', userId)

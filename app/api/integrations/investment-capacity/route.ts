@@ -67,7 +67,7 @@ export async function GET(request: NextRequest) {
         .eq('user_id', userId)
         .gte('trade_date', monthStart)
         .lte('trade_date', monthEnd),
-      getMergedCategories(userId),
+      getMergedCategories(userId, supabaseAdmin),
     ])
 
     const budget = budgetLoad.summary

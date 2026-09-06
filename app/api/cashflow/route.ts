@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server'
-import { supabaseAdmin } from '@/lib/supabase'
+import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { getAuthenticatedUser, unauthorized } from '@/lib/auth'
 import {
   buildCardCycles,
@@ -45,31 +45,33 @@ export async function GET(request: NextRequest) {
   const user = await getAuthenticatedUser(request)
   if (!user) return unauthorized()
 
+  const supabase = await createSupabaseServerClient()
+
   const projectionDays = 90
   const [balanceRes, paymentsRes, profileRes, cardsRes, transactionsRes] = await Promise.all([
-    supabaseAdmin
+    supabase
       .from('account_balance')
       .select('*')
       .eq('user_id', user.id)
       .order('recorded_at', { ascending: false })
       .limit(1)
       .maybeSingle(),
-    supabaseAdmin
+    supabase
       .from('scheduled_payments')
       .select('*')
       .eq('user_id', user.id)
       .order('due_day', { ascending: true }),
-    supabaseAdmin
+    supabase
       .from('users_profile')
       .select('*')
       .eq('user_id', user.id)
       .maybeSingle(),
-    supabaseAdmin
+    supabase
       .from('credit_cards')
       .select('*')
       .eq('user_id', user.id)
       .order('name', { ascending: true }),
-    supabaseAdmin
+    supabase
       .from('transactions')
       .select('*')
       .eq('user_id', user.id)
