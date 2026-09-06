@@ -49,3 +49,17 @@ export function normalizeScopes(raw: unknown): IntegrationScope[] {
 export function scopesForIntegration(integration: string): IntegrationScope[] {
   return isIntegration(integration) ? [...ALLOWED_SCOPES[integration]] : []
 }
+
+/**
+ * その Token が実際に持つ権限。
+ *
+ * DBに保存された scopes をそのまま信じない。API 側で scope をサーバー決定
+ * していても、DBが直接書き換えられた場合や過去データの不整合がありうるため、
+ * 「保存値 ∩ 既知scope ∩ その連携先に許された scope」まで絞る。
+ * 未知の integration は fail-closed で空にする。
+ */
+export function effectiveScopes(integration: string, rawScopes: unknown): IntegrationScope[] {
+  if (!isIntegration(integration)) return []
+  const allowed = new Set<IntegrationScope>(ALLOWED_SCOPES[integration])
+  return normalizeScopes(rawScopes).filter(scope => allowed.has(scope))
+}

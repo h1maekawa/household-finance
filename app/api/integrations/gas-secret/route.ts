@@ -38,7 +38,7 @@ export async function POST(request: NextRequest) {
 
   try {
     // 既存Tokenは失効させない。新旧を併存させてから古い方を revoke できる
-    const { secret, record } = await issueToken(supabase, user.id, 'gas', 'GAS')
+    const { secret, record } = await issueToken(supabase, 'gas', 'GAS')
     return Response.json({ secret, record }, { status: 201 })
   } catch (error) {
     return writeFailed('api/integrations/gas-secret', error)

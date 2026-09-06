@@ -9,7 +9,7 @@
 // （scope escalation の防止）。
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { createIntegrationSecret, hashImportSecret } from '@/lib/import-secrets'
-import { scopesForIntegration, type Integration } from './scopes'
+import type { Integration } from './scopes'
 
 /**
  * クライアントへ返してよい列。
@@ -32,29 +32,24 @@ export type IntegrationTokenRecord = {
 /**
  * Token を発行する。平文はこの戻り値でしか手に入らない。
  * DBにはハッシュだけを保存し、再表示はできない。
+ *
+ * 発行は SECURITY DEFINER の関数を通す（027）。authenticated ロールから
+ * user_import_secrets への直接INSERTは剥がしてあるので、REST を直接
+ * 叩いても scope 付きの行は作れない。対象ユーザーは関数内の auth.uid() が
+ * 決めるため、user_id をクライアントから渡さない。
  */
 export async function issueToken(
   supabase: SupabaseClient,
-  userId: string,
   integration: Integration,
   label: string
 ): Promise<{ secret: string; record: IntegrationTokenRecord }> {
   const secret = createIntegrationSecret(integration)
 
-  const { data, error } = await supabase
-    .from('user_import_secrets')
-    .insert([
-      {
-        user_id: userId,
-        secret_hash: hashImportSecret(secret),
-        label,
-        integration,
-        // クライアントの指定は使わない。連携先から一意に決める
-        scopes: scopesForIntegration(integration),
-      },
-    ])
-    .select(TOKEN_PUBLIC_COLUMNS)
-    .single()
+  const { data, error } = await supabase.rpc('issue_integration_token', {
+    p_secret_hash: hashImportSecret(secret),
+    p_integration: integration,
+    p_label: label,
+  })
 
   if (error) throw error
   return { secret, record: data as IntegrationTokenRecord }
@@ -78,20 +73,18 @@ export async function listTokens(
 /**
  * Token を失効させる。物理削除しないので、いつ誰が失効させたか追える。
  * 認証側は is_active かつ revoked_at is null だけを通す。
+ *
+ * 失効は不可逆。DBのトリガーが復活を拒否するので、一度失効させたTokenは
+ * 戻せない（必要なら新しいTokenを発行する）。
  */
 export async function revokeToken(
   supabase: SupabaseClient,
-  userId: string,
   tokenId: string
 ): Promise<boolean> {
-  const { data, error } = await supabase
-    .from('user_import_secrets')
-    .update({ is_active: false, revoked_at: new Date().toISOString() })
-    .eq('id', tokenId)
-    .eq('user_id', userId)
-    .is('revoked_at', null)
-    .select('id')
+  const { data, error } = await supabase.rpc('revoke_integration_token', {
+    p_token_id: tokenId,
+  })
 
   if (error) throw error
-  return (data ?? []).length > 0
+  return data === true
 }

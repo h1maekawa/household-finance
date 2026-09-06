@@ -8,6 +8,7 @@ import assert from 'node:assert/strict'
 import type { NextRequest } from 'next/server'
 import { hashImportSecret, createIntegrationSecret } from '@/lib/import-secrets'
 import { hasIntegrationScope, type IntegrationAuthContext } from '@/lib/server-auth'
+import { effectiveScopes } from './scopes'
 
 const gasToken: IntegrationAuthContext = {
   userId: 'user-1', tokenId: 't1', integration: 'gas',
@@ -50,6 +51,35 @@ test('Token が無ければ何の scope も持たない', () => {
 test('未知の scope を持たせても権限は広がらない', () => {
   const weird = { ...gasToken, scopes: ['admin:*'] as never }
   assert.equal(hasIntegrationScope(weird, 'transactions:write'), false)
+})
+
+/* ── 認証側の Defense in Depth ─────────────────────────── */
+
+test('DBのscopeが壊れていても integration の許可範囲を超えない', () => {
+  // GAS の行に assets:read が入っていても、取込権限だけが有効になる
+  assert.deepEqual(
+    effectiveScopes('gas', ['transactions:write', 'assets:read']),
+    ['transactions:write']
+  )
+  // AI Company の行に書き込みが入っていても無効
+  assert.deepEqual(
+    effectiveScopes('ai_company', ['finance-summary:read', 'transactions:write']),
+    ['finance-summary:read']
+  )
+})
+
+test('未知の integration は権限ゼロ（fail-closed）', () => {
+  assert.deepEqual(effectiveScopes('unknown', ['assets:read']), [])
+  assert.deepEqual(effectiveScopes('', ['transactions:write']), [])
+})
+
+test('未知の scope 文字列で権限が広がらない', () => {
+  assert.deepEqual(effectiveScopes('gas', ['admin:*', 'transactions:write']), ['transactions:write'])
+  assert.deepEqual(effectiveScopes('gas', ['*']), [])
+})
+
+test('other は発行も権限も無い', () => {
+  assert.deepEqual(effectiveScopes('other', ['assets:read']), [])
 })
 
 /* ── DB結合テスト（接続情報があるときだけ）────────────────── */
@@ -119,5 +149,44 @@ test('Token の照合・revoke・rotation・last_used_at', { skip }, async () =>
     assert.equal(await resolveIntegrationAuth(req()), null)
   } finally {
     await db.from('user_import_secrets').delete().in('id', created!.map(r => r.id))
+  }
+})
+
+test('APIを通さずDBを直接叩いても scope escalation できない', { skip }, async () => {
+  const { createClient } = await import('@supabase/supabase-js')
+  const db = createClient(dbUrl!, dbKey!, { auth: { persistSession: false } })
+
+  const secret = createIntegrationSecret('gas')
+  const { data: created, error } = await db
+    .from('user_import_secrets')
+    .insert([{
+      user_id: testUserId!, secret_hash: hashImportSecret(secret), label: 'test-escalation',
+      integration: 'gas', scopes: ['transactions:write'],
+    }])
+    .select('id').single()
+  assert.equal(error, null)
+
+  try {
+    // service_role で scopes を書き換えても（＝最悪のケースでも）、
+    // 認証Contextは integration の許可範囲までしか出さない
+    await db.from('user_import_secrets')
+      .update({ scopes: ['transactions:write', 'assets:read', 'finance-summary:read'] })
+      .eq('id', created!.id)
+
+    const { resolveIntegrationAuth } = await import('@/lib/server-auth')
+    const auth = await resolveIntegrationAuth(req(secret))
+    assert.deepEqual(auth?.scopes, ['transactions:write'], 'DBの改ざんが権限に反映されている')
+
+    // 失効させたTokenは復活できない（トリガー）
+    await db.from('user_import_secrets')
+      .update({ is_active: false, revoked_at: new Date().toISOString() })
+      .eq('id', created!.id)
+    const revive = await db.from('user_import_secrets')
+      .update({ is_active: true, revoked_at: null })
+      .eq('id', created!.id)
+    assert.notEqual(revive.error, null, '失効したTokenが復活できてしまう')
+    assert.equal(await resolveIntegrationAuth(req(secret)), null)
+  } finally {
+    await db.from('user_import_secrets').delete().eq('id', created!.id)
   }
 })

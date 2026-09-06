@@ -130,9 +130,27 @@ allowlist が担保します。
 **AI Company のTokenに `transactions:write` を付けません。**
 GAS のTokenに読み取り系を付けません（Least Privilege）。
 
-scope はクライアントから受け取らず、`integration` からサーバー側で決めます
-（scope escalation の防止）。DBに未知の scope が入っていてもアプリは
-落ちませんが、認可では「権限なし」として fail-closed に扱います。
+scope はクライアントから受け取らず、`integration` からサーバー側で決めます。
+
+**これは API だけでなく DB でも守ります。** 以前は authenticated ロールが
+`user_import_secrets` を直接 UPDATE できたため、Supabase の REST を叩いて
+自分の Token の `scopes` を書き換えられました。027 で次のようにしています。
+
+- authenticated から INSERT / UPDATE / DELETE の権限とポリシーを剥奪（SELECT のみ残す）
+- 発行・失効は `SECURITY DEFINER` の関数（`issue_integration_token` /
+  `revoke_integration_token`）経由のみ
+- 関数は `auth.uid()` で対象ユーザーを決める。`user_id` をクライアントから受け取らない
+- 発行関数は `scopes` を引数に取らず、`integration` から決める
+
+さらに認証側でも二重に絞ります。`resolveIntegrationAuth()` が返す scope は
+
+```
+保存値 ∩ 既知scope ∩ ALLOWED_SCOPES[integration]
+```
+
+です。DBが何らかの理由で書き換わっていても、`integration='gas'` の Token が
+`assets:read` を持つことはありません。未知の `integration` は権限ゼロとして
+fail-closed に扱います。
 
 ### 認証と認可
 
@@ -166,6 +184,12 @@ revoke は物理削除しません。`is_active = false` と `revoked_at = now()
 行は監査のために残します。認証が通るのは `is_active` かつ
 `revoked_at is null` のTokenだけです。
 
+**失効は不可逆です。** トリガー `user_import_secrets_no_revival` が
+`revoked_at` を null に戻す更新と `is_active` の再有効化を拒否します。
+権限を剥がしただけでは service_role 経由やSQL Editorでの手作業で復活できて
+しまうため、DB 側で保証しています。失効した Token は戻さず、新しい Token を
+発行してください。
+
 ### last_used_at
 
 **認証に成功した時点で更新します。** この後 scope 不足で 403 になっても
@@ -197,10 +221,18 @@ Integration API を呼べる状態にはしません。**
 Token 本文・ハッシュ・userId は出しません。
 
 ```
-Stage A  DB Token + Legacy Env Secret を併存        ← いまここ
-Stage B  Legacy 使用時に Warning Log（Stage A で実施済み）
-Stage C  Phase 7 または正式リリース前に停止
+Stage A  DB Token + Legacy Env Secret を併存        実装済み
+Stage B  Legacy 使用時に Warning Log                実装済み
+Stage C  Legacy Secret の完全停止                   保留
 ```
+
+**Legacy Secret removal: Pending consumer migration.**
+
+Stage C は、GAS 側が新しい Token へ移行済みであることを確認できるまで
+実施しません（移行前に止めると取込が壊れます）。判断は Phase 7 の
+Production Release Checklist で行います。移行が済んだかは
+`user_import_secrets` の `integration='gas'` な Token の `last_used_at` と、
+Legacy 使用時の deprecated ログの有無で確認できます。
 
 ## Rate Limit
 

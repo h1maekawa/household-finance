@@ -47,7 +47,7 @@ export async function POST(request: NextRequest) {
   const label = String(body.label ?? integration).slice(0, 60)
 
   try {
-    const { secret, record } = await issueToken(supabase, user.id, integration, label)
+    const { secret, record } = await issueToken(supabase, integration, label)
     return Response.json({ secret, record }, { status: 201 })
   } catch (error) {
     return writeFailed('api/integrations/tokens', error)

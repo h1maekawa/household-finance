@@ -2,7 +2,7 @@ import { timingSafeEqual } from 'crypto'
 import type { NextRequest } from 'next/server'
 import { hashImportSecret } from '@/lib/import-secrets'
 import {
-  normalizeScopes,
+  effectiveScopes,
   type IntegrationScope,
 } from '@/lib/integrations/scopes'
 import { supabaseAdmin } from '@/lib/supabase'
@@ -58,17 +58,23 @@ export async function resolveIntegrationAuth(
   }
 
   if (data?.user_id) {
-    await supabaseAdmin
+    // 監査情報の更新。失敗しても認証は続けるが、黙って消さない
+    const { error: touchError } = await supabaseAdmin
       .from('user_import_secrets')
       .update({ last_used_at: new Date().toISOString() })
       .eq('id', data.id)
+    if (touchError) {
+      console.warn(`[integration-auth] last_used_at の更新に失敗: ${touchError.message}`)
+    }
 
+    const integration = data.integration ?? 'gas'
     return {
       userId: data.user_id,
       tokenId: data.id,
-      integration: data.integration ?? 'gas',
-      // DBに未知の scope が入っていても落とさない。理解できるものだけ採用する
-      scopes: normalizeScopes(data.scopes),
+      integration,
+      // 保存値をそのまま信じない。既知scope かつ その連携先に許された scope だけ。
+      // DBを直接書き換えられても、integration の範囲を超えた権限にはならない
+      scopes: effectiveScopes(integration, data.scopes),
       legacy: false,
     }
   }
