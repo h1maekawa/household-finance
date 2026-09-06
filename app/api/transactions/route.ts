@@ -53,6 +53,8 @@ export async function GET(request: NextRequest) {
       total: expense_total, // 後方互換: 既存UIは「今月の支出」としてこの値を使う
       expense_total,
       income_total,
+      // 収支。画面側で income - expense を書かせないためAPIで出す
+      net: income_total - expense_total,
       by_category,
     },
   })

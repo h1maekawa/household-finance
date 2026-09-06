@@ -9,14 +9,20 @@ import { ICON_STROKE } from '@/lib/nav'
  * ヘッダー右上のアバター。設定系はすべてここから入る。
  * 毎日触らないものを下部タブへ置くと、日常の導線が薄まるため。
  */
+/**
+ * 実際に開ける画面だけを並べる。存在しない設定セクションへのリンクを置くと
+ * 「押せるのに移動しない」導線になる。プロフィール・課金・データ管理は
+ * まだ独立したセクションが無いので、実装後に追加する。
+ *
+ * section の値は settings 側の SETTING_TABS と一致していること
+ * （lib/security/ui-contract.test.ts が突き合わせる）。
+ */
 const MENU = [
-  { href: '/settings?section=profile', label: 'プロフィール' },
   { href: '/investments?tab=accounts', label: '口座・カード' },
-  { href: '/settings?section=integrations', label: '連携' },
+  { href: '/settings?section=integrations', label: '連携・取込' },
   { href: '/settings?section=categories', label: 'カテゴリ' },
-  { href: '/settings?section=billing', label: 'プラン・課金' },
-  { href: '/settings?section=data', label: 'データ管理' },
-  { href: '/settings', label: '設定' },
+  { href: '/settings?section=display', label: '表示設定' },
+  { href: '/settings?section=account', label: 'アカウント' },
 ]
 
 export default function AccountMenu() {

@@ -40,7 +40,9 @@ import PaymentMethodSummaryCard from '@/components/PaymentMethodSummaryCard'
 import { fetcher } from '@/lib/fetcher'
 import PageTabs, { useActiveTab, type PageTab } from '@/components/PageTabs'
 import AlertBanner from '@/components/AlertBanner'
+import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { CATEGORY_COLORS } from '@/lib/category-colors'
+import { ICON_STROKE } from '@/lib/nav'
 
 type PeriodKey = 'thisMonth' | 'lastMonth' | 'threeMonths' | 'year'
 type ChartMode = 'monthly' | 'category'
@@ -54,9 +56,10 @@ const PERIODS: { key: PeriodKey; label: string }[] = [
 ]
 
 
-function periodRange(period: PeriodKey) {
+/** 月移動ぶんのオフセットを効かせた期間。0 なら従来どおり */
+function periodRange(period: PeriodKey, monthOffset = 0) {
   const today = new Date()
-  const thisMonth = startOfMonth(today)
+  const thisMonth = addMonths(startOfMonth(today), monthOffset)
 
   if (period === 'lastMonth') {
     const start = subMonths(thisMonth, 1)
@@ -79,8 +82,8 @@ function monthKey(date: string) {
 }
 
 const TABS: PageTab[] = [
-  { key: 'list', label: '取引' },
-  { key: 'analysis', label: '分析' },
+  { key: 'list', label: '取引一覧' },
+  { key: 'analysis', label: 'カテゴリ別' },
   { key: 'review', label: '確認待ち' },
 ]
 
@@ -88,13 +91,15 @@ export default function TransactionTabs() {
   const tab = useActiveTab(TABS)
   const { expense: expenseCategories, income: incomeCategories, iconOf } = useCategories()
   const [period, setPeriod] = useState<PeriodKey>('thisMonth')
+  // 月単位の前後移動。期間プリセットとは独立に効かせる
+  const [monthOffset, setMonthOffset] = useState(0)
   const [chartMode, setChartMode] = useState<ChartMode>('monthly')
   const [activeCategory, setActiveCategory] = useState<string | null>(null)
   const [activeIssuer, setActiveIssuer] = useState<string | null>(null)
   const [showInput, setShowInput] = useState(false)
   const [inputMode, setInputMode] = useState<InputMode>('form')
 
-  const range = periodRange(period)
+  const range = periodRange(period, monthOffset)
   const start = format(range.start, 'yyyy-MM-dd')
   const end = format(range.end, 'yyyy-MM-dd')
 
@@ -172,17 +177,36 @@ export default function TransactionTabs() {
   return (
     <div className="mx-auto max-w-xl lg:max-w-4xl">
       <div className="sticky top-0 z-10 border-b border-border bg-background px-4 pb-3 pt-6 lg:static lg:border-0 lg:bg-transparent lg:px-0 lg:pt-0">
-        <div className="flex items-end justify-between gap-3">
-          <div>
-            <h1 className="text-xl font-bold">収支</h1>
-            <p className="mt-1 text-xs text-muted">
-              {format(range.start, 'yyyy年M月d日', { locale: ja })} - {format(addMonths(range.end, 0), 'yyyy年M月d日', { locale: ja })}
-            </p>
-          </div>
-          <div className="text-right">
-            <p className="text-[11px] text-muted">表示中</p>
-            <p className="font-mono text-sm font-bold">{transactions.length}件</p>
-          </div>
+        <h1 className="text-xl font-bold">家計簿</h1>
+
+        <div className="mt-2 flex items-center justify-between">
+          <button
+            type="button"
+            onClick={() => setMonthOffset(v => v - 1)}
+            aria-label="前の月"
+            className="flex size-9 items-center justify-center rounded-full text-muted transition-base active:opacity-70"
+          >
+            <ChevronLeft size={20} strokeWidth={ICON_STROKE} aria-hidden />
+          </button>
+          <p className="text-[15px] font-bold tabular-nums">
+            {format(range.start, 'yyyy年M月', { locale: ja })}
+          </p>
+          <button
+            type="button"
+            onClick={() => setMonthOffset(v => v + 1)}
+            aria-label="次の月"
+            disabled={monthOffset >= 0}
+            className="flex size-9 items-center justify-center rounded-full text-muted transition-base active:opacity-70 disabled:opacity-30"
+          >
+            <ChevronRight size={20} strokeWidth={ICON_STROKE} aria-hidden />
+          </button>
+        </div>
+
+        {/* 収支は API の summary をそのまま表示する。画面側で計算しない */}
+        <div className="mt-2 grid grid-cols-3 gap-2">
+          <SummaryCell label="支出" value={data?.summary.expense_total} />
+          <SummaryCell label="収入" value={data?.summary.income_total} />
+          <SummaryCell label="収支" value={data?.summary.net} signed />
         </div>
       </div>
 
@@ -483,6 +507,32 @@ function SummaryBox({ label, value, tone }: { label: string; value: number; tone
       <p className={`mt-1 font-mono text-lg font-bold ${tone === 'danger' ? 'text-danger' : 'text-success'}`}>
         {value.toLocaleString()}円
       </p>
+    </div>
+  )
+}
+
+/** 月次サマリの1マス。null と 0円 を混同しない */
+function SummaryCell({
+  label,
+  value,
+  signed,
+}: {
+  label: string
+  value: number | undefined
+  signed?: boolean
+}) {
+  const tone = signed && value !== undefined ? (value < 0 ? 'text-danger' : 'text-success') : ''
+  return (
+    <div className="rounded-[12px] bg-card p-2.5">
+      <p className="text-[11px] text-muted">{label}</p>
+      {value === undefined ? (
+        <div className="skeleton mt-1 h-5 w-full rounded" />
+      ) : (
+        <p className={`mt-0.5 text-[15px] font-bold tabular-nums ${tone}`}>
+          {signed && value > 0 ? '+' : ''}
+          ¥{Math.abs(value).toLocaleString('ja-JP')}
+        </p>
+      )}
     </div>
   )
 }

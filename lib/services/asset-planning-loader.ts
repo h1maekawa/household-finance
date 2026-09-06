@@ -59,7 +59,7 @@ export async function loadAssetPlanning(
         .select('emergency_fund_months')
         .eq('user_id', userId)
         .maybeSingle(),
-      listGoals(userId),
+      listGoals(userId, client),
       getMergedCategories(userId, client),
     ])
   const resolvedPayments = await loadResolvedScheduledPayments(userId, month, client)

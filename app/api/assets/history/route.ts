@@ -2,7 +2,8 @@ import { addDays, addMonths, endOfMonth, format, startOfMonth } from 'date-fns'
 import { NextRequest } from 'next/server'
 import { getAuthenticatedUser, unauthorized } from '@/lib/auth'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
-import { stockCurrentValue } from '@/lib/services/asset-value'
+import { loadAssetSummary } from '@/lib/services/asset-summary-loader'
+import { readFailed } from '@/lib/api-errors'
 
 type HouseholdTransaction = {
   date: string
@@ -37,21 +38,9 @@ export async function GET(request: NextRequest) {
   const today = new Date()
   const firstMonth = startOfMonth(addMonths(today, -(months - 1)))
 
-  const [
-    balanceRes,
-    profileRes,
-    transactionsRes,
-    investmentTransactionsRes,
-    stocksRes,
-    fundsRes,
-  ] = await Promise.all([
-    supabase
-      .from('account_balance')
-      .select('balance')
-      .eq('user_id', user.id)
-      .order('recorded_at', { ascending: false })
-      .limit(1)
-      .maybeSingle(),
+  // 現在の残高・保有は loadAssetSummary が読む。ここでは過去の推移を
+  // 遡るための取引履歴と、口座残高が未登録なときの初期残高だけを取る
+  const [profileRes, transactionsRes, investmentTransactionsRes, summary] = await Promise.all([
     supabase
       .from('users_profile')
       .select('initial_balance')
@@ -69,26 +58,20 @@ export async function GET(request: NextRequest) {
       .eq('user_id', user.id)
       .gte('trade_date', format(firstMonth, 'yyyy-MM-dd'))
       .lte('trade_date', format(today, 'yyyy-MM-dd')),
-    supabase
-      .from('stock_holdings')
-      .select('broker_current_value,shares,average_cost')
-      .eq('user_id', user.id),
-    supabase
-      .from('fund_holdings')
-      .select('current_value')
-      .eq('user_id', user.id),
+    loadAssetSummary(user.id, supabase),
   ])
 
-  for (const res of [balanceRes, profileRes, transactionsRes, investmentTransactionsRes, stocksRes, fundsRes]) {
-    if (res.error) return Response.json({ error: res.error.message }, { status: 500 })
+  for (const res of [profileRes, transactionsRes, investmentTransactionsRes]) {
+    if (res.error) return readFailed('api/assets/history', res.error)
   }
 
   const householdTransactions = (transactionsRes.data ?? []) as HouseholdTransaction[]
   const investmentTransactions = (investmentTransactionsRes.data ?? []) as InvestmentTransaction[]
-  const currentCash = Number(balanceRes.data?.balance ?? profileRes.data?.initial_balance ?? 0)
-  const currentInvestment =
-    (stocksRes.data ?? []).reduce((sum, holding) => sum + stockCurrentValue(holding), 0) +
-    (fundsRes.data ?? []).reduce((sum, fund) => sum + Number(fund.current_value ?? 0), 0)
+  // 現在値は Home / Assets と同じ asset-summary-loader を正とする。
+  // ここで別に集計すると、同じ「総資産」が画面ごとに違う額になる。
+  // 過去の推移は当月の実績から遡って計算するので従来どおり。
+  const currentCash = summary.liquidCash ?? Number(profileRes.data?.initial_balance ?? 0)
+  const currentInvestment = summary.stockValue + summary.fundValue
 
   const points = Array.from({ length: months }).map((_, index) => {
     const monthDate = addMonths(firstMonth, index)

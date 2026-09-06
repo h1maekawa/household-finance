@@ -1,4 +1,5 @@
 // lib/repositories/goals.ts
+import type { SupabaseClient } from '@supabase/supabase-js'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { yen } from '@/lib/services/money'
 import type { GoalInput, LifeGoal } from '@/types/goal'
@@ -24,8 +25,12 @@ function toGoal(row: Record<string, unknown>): LifeGoal {
   }
 }
 
-export async function listGoals(userId: string): Promise<LifeGoal[]> {
-  const supabase = await createSupabaseServerClient()
+export async function listGoals(
+  userId: string,
+  /** サーバー間連携（セッションが無い経路）では supabaseAdmin を渡す */
+  client?: SupabaseClient
+): Promise<LifeGoal[]> {
+  const supabase = client ?? (await createSupabaseServerClient())
   const { data, error } = await supabase
     .from('life_goals')
     .select(COLUMNS)

@@ -135,7 +135,7 @@ export default function HomePage() {
                   href="/plan?tab=payments"
                   tone="danger"
                   title="残高が不足する見込みです"
-                  detail={`${format(new Date(negativeDay.date), 'M月d日', { locale: ja })}に ${yen(negativeDay.balance)}`}
+                  detail={`${format(new Date(negativeDay.date), 'M月d日', { locale: ja })}に 不足 ${yen(Math.abs(negativeDay.balance))}`}
                 />
               )}
               {emergency?.status === 'underfunded' && emergency.reserveGap! > 0 && (
