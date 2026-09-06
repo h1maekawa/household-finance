@@ -69,11 +69,19 @@ export type MoneyPlan = {
  * 積立NISA を「固定費」と「投資」の両方に数えると、収入から二重に引かれて
  * 自由に使える額が実態より少なく出る。片方だけに置くこと。
  */
-const INVESTMENT_CATEGORY = '投資'
+export const INVESTMENT_CATEGORY = '投資'
+
+/**
+ * 積立投資のカテゴリか。カテゴリだけで判定し、名前からは推測しない。
+ * 「生活固定費」と「積立投資」を分ける判定はこの1箇所だけに置く。
+ */
+export function isInvestmentCategory(category: string | null | undefined): boolean {
+  return category === INVESTMENT_CATEGORY
+}
 
 /** 積立投資か。カテゴリだけで判定し、名前からは推測しない */
 export function isInvestmentPayment(payment: ResolvedScheduledPayment): boolean {
-  return payment.category === INVESTMENT_CATEGORY
+  return isInvestmentCategory(payment.category)
 }
 
 /**

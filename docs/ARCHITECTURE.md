@@ -55,7 +55,10 @@ AIへ渡すのは計算済みの Context だけです。AIの出力を金額と�
 |---|---|
 | `lib/services/budget-engine.ts` | 予算の主計算。収入・固定費の突合・変動費の実績・カテゴリ別統計から `BudgetSummary` を作る |
 | `lib/services/money-plan.ts` | Money Flow の組み立て。`BudgetSummary` を滝の6ステップへ変換する |
-| `lib/services/investment-capacity.ts` | 当月の投資可能額。口座残高・入金予定・支払予定・生活維持資金から算出 |
+| `lib/services/investment-capacity.ts` | 再配分できる現金と、その配分（貯金 / 資産形成 / 自由） |
+| `lib/services/emergency-fund.ts` | 現金防衛資金の必要額と不足額 |
+| `lib/services/projection.ts` | 将来資産の単純予測（利回り0%） |
+| `lib/services/asset-planning.ts` | 上記を束ねる Orchestration 層。計算式を持たない |
 | `lib/services/goal-progress.ts` | 目標の逆算と達成見込み判定 |
 | `lib/services/fixed-costs.ts` / `fixed-cost-matching.ts` | 固定費の解決と、予定と実績の突合 |
 | `lib/services/upcoming-debits.ts` | 直近の引落予定 |
@@ -75,8 +78,9 @@ AIへ渡すのは計算済みの Context だけです。AIの出力を金額と�
 
 ### Asset Planning は計算エンジンではない
 
-`lib/services/asset-planning.ts`（未実装）は Orchestration / Composition Layer です。
-既存エンジンの結果を束ねるだけで、**同じ計算式を再実装してはいけません**。
+`lib/services/asset-planning.ts` は Orchestration / Composition Layer です。
+既存エンジンの結果を束ねるだけで、**同じ計算式を再実装してはいけません**
+（`asset-planning.test.ts` が契約として固定しています）。
 
 ```
 budget-engine → money-plan → investment-capacity → goal-progress
@@ -86,6 +90,36 @@ budget-engine → money-plan → investment-capacity → goal-progress
                       ↓
           API / Dashboard / AI Coach
 ```
+
+### 3つの capacity は同じ原資の配分
+
+`saving_capacity` / `asset_building_capacity` / `free_cash` を「別々に使えるお金」
+として扱うと二重計上になります。1つの原資（`allocatable_cash`）を次の順に
+分けたものです。
+
+```
+allocatable_cash
+  → 防衛資金の補充
+  → 貯蓄目標（budget.savings.target）
+  → 投資目標（budget.investment.target）
+  → 残り（free_cash）
+```
+
+`saving + asset_building + free === max(allocatable_cash, 0)` が常に成り立ちます
+（`capacity-allocation.test.ts`）。防衛資金が不足しているときに資産形成へ
+全額が回らないのは、この順序によるものです。
+
+### null と 0 を区別する
+
+`0` は「計算した結果0円」、`null` は「入力不足で計算できない」です。
+口座残高が未登録なのに `saving_capacity = 0` と返してはいけません。
+何が足りないかは `missingData` で伝え、UI が設定を促せるようにします。
+
+### 金融計算に時刻を持ち込まない
+
+純関数の中で `new Date()` を呼ぶと、同じ入力でも結果が変わりテストできません。
+算出時刻は I/O 境界（API ルート）で付けます。`計算に使う「今日」`も
+`budget-engine` と同じく引数で受け取ります。
 
 ## データフロー
 
