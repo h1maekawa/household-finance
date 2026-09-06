@@ -10,7 +10,7 @@ export async function GET(request: NextRequest) {
 
   const supabase = await createSupabaseServerClient()
 
-  const merged = await getMergedCategories(user.id)
+  const merged = await getMergedCategories(user.id, supabase)
   return Response.json(merged)
 }
 
@@ -40,7 +40,7 @@ export async function POST(request: NextRequest) {
     return Response.json({ error: 'カテゴリ名は10文字以内にしてください' }, { status: 400 })
   }
 
-  const merged = await getMergedCategories(user.id)
+  const merged = await getMergedCategories(user.id, supabase)
   const existing = kind === 'income' ? merged.income : merged.expense
   if (existing.some(c => c.name === name)) {
     return Response.json({ error: `「${name}」は既に存在します` }, { status: 409 })

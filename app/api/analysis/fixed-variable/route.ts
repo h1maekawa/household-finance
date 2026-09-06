@@ -57,7 +57,7 @@ export async function GET(request: NextRequest) {
   if (curRes.error) return Response.json({ error: curRes.error.message }, { status: 500 })
 
   // 既定の固定費カテゴリ + カスタムカテゴリで固定費指定されたもの
-  const merged = await getMergedCategories(user.id)
+  const merged = await getMergedCategories(user.id, supabase)
   const fixedSet = new Set<string>(merged.fixedNames)
 
   function split(rows: { category: string; amount: number }[]) {
