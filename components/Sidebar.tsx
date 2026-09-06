@@ -1,7 +1,7 @@
 'use client'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { NAV_ITEMS, isActiveNav } from '@/lib/nav'
+import { ICON_STROKE, NAV_ITEMS, isActiveNav } from '@/lib/nav'
 
 // デスクトップ幅(lg以上)でのみ表示するサイドナビ。
 // モバイルでは MobileNav(ハンバーガー + ドロワー)が同じ NAV_ITEMS を描画する。
@@ -17,6 +17,7 @@ export default function Sidebar() {
       <nav className="flex flex-col gap-1">
         {NAV_ITEMS.map(item => {
           const isActive = isActiveNav(pathname, item.href)
+          const Icon = item.icon
           return (
             <Link
               key={item.href}
@@ -26,7 +27,7 @@ export default function Sidebar() {
                 isActive ? 'bg-primary/10 font-medium text-primary' : 'text-muted'
               }`}
             >
-              <span className="text-base leading-none">{item.icon}</span>
+              <Icon size={18} strokeWidth={ICON_STROKE} aria-hidden />
               {item.label}
             </Link>
           )

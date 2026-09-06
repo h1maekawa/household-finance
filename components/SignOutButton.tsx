@@ -3,9 +3,10 @@
 import { useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createSupabaseBrowserClient } from '@/lib/supabase/client'
+import { LogOut } from 'lucide-react'
 import { useToast } from '@/components/Toast'
 
-export default function SignOutButton() {
+export default function SignOutButton({ variant = 'pill' }: { variant?: 'pill' | 'menu' } = {}) {
   const router = useRouter()
   const { showToast } = useToast()
   const supabase = useMemo(() => createSupabaseBrowserClient(), [])
@@ -32,13 +33,14 @@ export default function SignOutButton() {
     router.refresh()
   }
 
+  const className =
+    variant === 'menu'
+      ? 'flex w-full items-center gap-2 px-4 py-2.5 text-left text-[13px] text-danger transition-base active:bg-surface disabled:opacity-50'
+      : 'rounded-full bg-white/15 px-3 py-1.5 text-xs font-medium text-white transition-base active:opacity-80 disabled:opacity-50'
+
   return (
-    <button
-      type="button"
-      onClick={handleSignOut}
-      disabled={isSigningOut}
-      className="rounded-full bg-white/15 px-3 py-1.5 text-xs font-medium text-white transition-base active:opacity-80 disabled:opacity-50"
-    >
+    <button type="button" onClick={handleSignOut} disabled={isSigningOut} className={className}>
+      {variant === 'menu' && <LogOut size={15} strokeWidth={1.75} aria-hidden />}
       {isSigningOut ? '処理中' : 'ログアウト'}
     </button>
   )

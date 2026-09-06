@@ -11,6 +11,7 @@ import {
   monthlyAssetContribution,
 } from './asset-planning'
 import { computeEmergencyFund } from './emergency-fund'
+import { buildMoneyPlan } from './money-plan'
 import { computeInvestmentCapacity } from './investment-capacity'
 import { projectAssets } from './projection'
 import type { BudgetSummary } from '@/types/budget'
@@ -59,6 +60,9 @@ function plan(over: { availableCash?: number | null } = {}) {
   })
   return buildAssetPlan({
     month: '2026-09', budget, capacity, emergencyFund, goals,
+    moneyPlan: buildMoneyPlan({
+      month: '2026-09', budget, categoryBudgets: [], fixedPayments: [], goals,
+    }),
     projection: projectAssets({
       currentAssets: over.availableCash === undefined ? 500000 : over.availableCash,
       monthlyContribution: monthlyAssetContribution(capacity) ?? 0,

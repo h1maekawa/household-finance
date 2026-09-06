@@ -1,7 +1,7 @@
 import { redirect } from 'next/navigation'
 
-// /fixed・/goals・/ai はマネープラン(/plan)へ統合した。
-// 既存のブックマークとナビ履歴を壊さないようリダイレクトだけ残す。
+// /ai は AI Coach 専用ページ(/coach)へ統合した。
+// 以前は /plan へ寄せていたが、コーチは独立した役割なので /coach を正とする。
 export default function Page() {
-  redirect('/plan')
+  redirect('/coach')
 }

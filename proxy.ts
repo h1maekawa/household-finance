@@ -15,6 +15,7 @@ const protectedPaths = [
   '/investments',
   '/goals',
   '/ai',
+  '/coach',
   '/settings',
   '/accounts',
   '/onboarding',

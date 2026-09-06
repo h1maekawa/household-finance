@@ -2,6 +2,7 @@ import { addDays, addMonths, endOfMonth, format, startOfMonth } from 'date-fns'
 import { NextRequest } from 'next/server'
 import { getAuthenticatedUser, unauthorized } from '@/lib/auth'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
+import { stockCurrentValue } from '@/lib/services/asset-value'
 
 type HouseholdTransaction = {
   date: string
@@ -23,16 +24,6 @@ function signedInvestmentAmount(tx: InvestmentTransaction) {
   if (/売|sell|解約|換金|償還/.test(tradeType)) return -amount
   if (/買|buy|購入|積立|再投資/.test(tradeType)) return amount
   return rawAmount
-}
-
-function stockCurrentValue(holding: {
-  broker_current_value?: number | null
-  shares?: number | null
-  average_cost?: number | null
-}) {
-  const brokerValue = Number(holding.broker_current_value ?? 0)
-  if (brokerValue > 0) return brokerValue
-  return Number(holding.shares ?? 0) * Number(holding.average_cost ?? 0)
 }
 
 export async function GET(request: NextRequest) {
