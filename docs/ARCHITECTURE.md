@@ -133,9 +133,7 @@ supabase/
 
 | 項目 | 現状 |
 |---|---|
-| service_role の多用 | 44 の API ルートのうち 27 が `supabaseAdmin` を使い RLS をバイパスしている。RLSポリシー自体は揃っているため、多くはセッションクライアントへ移行できる |
-| 課金チェック | `NEXT_PUBLIC_BILLING_REQUIRED` が未設定だと全機能が開放される fail-open |
-| Stripe Webhook | 自作HMAC。署名は検証するが timestamp の鮮度を見ておらず、idempotency も無い |
+| service_role の多用 | 44 の API ルートのうち 25 が `supabaseAdmin` を使い RLS をバイパスしている。RLSポリシー自体は揃っているため、多くはセッションクライアントへ移行できる |
 | Rate Limit | 未実装。`proxy.ts` はページのログイン判定のみで、matcher が `/api` を除外している |
 | セキュリティヘッダー | 未設定（`next.config.ts` は turbopack 設定のみ） |
 | `investment-capacity` | `investable_amount` の1本のみで、貯金余力と資産形成余力を分離していない |
