@@ -106,9 +106,11 @@ export async function ensureBudget(userId: string, month: string): Promise<Budge
 
 export async function listBudgetCategories(
   userId: string,
-  budgetId: string
+  budgetId: string,
+  /** サーバー間連携（セッションが無い経路）では supabaseAdmin を渡す */
+  client?: SupabaseLike
 ): Promise<CategoryBudget[]> {
-  const supabase = await createSupabaseServerClient()
+  const supabase = client ?? (await createSupabaseServerClient())
   const { data, error } = await supabase
     .from('budget_categories')
     .select('category, amount, source')

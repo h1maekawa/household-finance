@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { getAuthenticatedUser, unauthorized } from '@/lib/auth'
 import { getMergedCategories } from '@/lib/categories'
+import { getExpenseTrendState } from '@/lib/services/expense-intelligence'
 
 export async function GET(request: NextRequest) {
   const user = await getAuthenticatedUser(request)
@@ -78,7 +79,8 @@ export async function GET(request: NextRequest) {
 
   const alerts: { type: string; message: string; severity: 'warning' | 'info' }[] = []
 
-  if (p1.fixed > 0 && cur.fixed > p1.fixed * 1.05) {
+  // しきい値は expense-intelligence.ts が唯一の定義。ここに数値を書き写さない
+  if (getExpenseTrendState(cur.fixed, p1.fixed, { isFixed: true }) === 'increased') {
     const diff = cur.fixed - p1.fixed
     alerts.push({
       type: 'fixed_high',
@@ -87,7 +89,7 @@ export async function GET(request: NextRequest) {
     })
   }
 
-  if (avg3Variable > 0 && cur.variable > avg3Variable * 1.15) {
+  if (getExpenseTrendState(cur.variable, avg3Variable) === 'increased') {
     const rate = Math.round((cur.variable / avg3Variable - 1) * 100)
     alerts.push({
       type: 'variable_high',
