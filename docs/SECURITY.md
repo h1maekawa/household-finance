@@ -52,16 +52,28 @@ RLS が担います。** Proxy を唯一の防御手段にしないでくださ�
 
 ### 現状
 
-44 の API ルートのうち **25 が `supabaseAdmin` を使用**しています。
-RLSポリシーは揃っているため大半は移行可能ですが、一括置換はしません。
-テーブル単位・API単位で次の順に進めます。
+`supabaseAdmin` を使う API ルートは **3本**です（25本から削減）。
 
-```
-RLSポリシー確認 → Session Client へ変更 → GET確認 → INSERT確認
-→ UPDATE確認 → DELETE確認 → テスト
-```
+| route | 理由 |
+|---|---|
+| `billing/webhook` | Stripe 署名で認証。セッションが存在しない |
+| `integrations/investment-capacity` | Integration Token で user_id を解決。セッションが存在しない |
+| `transactions/import` | 同上（GAS取込） |
 
-RLS違反は例外ではなく **0件** として表面化します。必ず各操作を確認してください。
+これは `lib/security/api-ownership.test.ts` が許可リストとして固定しており、
+ユーザー起点のAPIに `supabaseAdmin` が戻ると失敗します。
+
+`lib/` 側で service_role が残るのは次の3つです。
+
+| 場所 | 理由 |
+|---|---|
+| `lib/server-auth.ts` | Integration Token の照合。認証前なのでセッションが無い |
+| `lib/repositories/fx-rates.ts` | `fx_rates` は全ユーザー共有で書き込みポリシーを持たない |
+| `lib/billing/*` | Webhook と、セッションの無い経路からの権限判定で共用。Phase 5 の `requireFeature()` 再設計とあわせて整理する |
+
+新しくテーブルを追加したときは、4操作すべてのポリシーを書いてから
+Session Client で使ってください。RLS違反は例外ではなく **0件** として
+表面化するため、GET / INSERT / UPDATE / DELETE を個別に確認します。
 
 ## Mass Assignment
 
@@ -175,5 +187,4 @@ Integration Secret / Supabase Token / Stripe Secret
 
 | 項目 | 内容 |
 |---|---|
-| service_role の多用 | 上記のとおり25ルート |
 | Rate Limit / ヘッダー | 未実装。`proxy.ts` は `/api` を対象外 |

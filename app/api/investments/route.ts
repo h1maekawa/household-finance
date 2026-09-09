@@ -4,7 +4,7 @@
 // 以前はサンプルデータ(lib/investments.ts)を返すだけだったが、
 // 実際のstock_holdingsとYahoo Financeのライブ価格から計算するようにした。
 import { NextRequest } from 'next/server'
-import { supabaseAdmin } from '@/lib/supabase'
+import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { getAuthenticatedUser, unauthorized } from '@/lib/auth'
 import { getStockPrice, getUsdToJpy } from '@/lib/stock'
 
@@ -12,12 +12,14 @@ export async function GET(request: NextRequest) {
   const user = await getAuthenticatedUser(request)
   if (!user) return unauthorized()
 
+  const supabase = await createSupabaseServerClient()
+
   const [holdingsRes, fundsRes] = await Promise.all([
-    supabaseAdmin
+    supabase
       .from('stock_holdings')
       .select('*')
       .eq('user_id', user.id),
-    supabaseAdmin
+    supabase
       .from('fund_holdings')
       .select('current_value')
       .eq('user_id', user.id),

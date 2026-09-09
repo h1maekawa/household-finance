@@ -1,11 +1,14 @@
 import { NextRequest } from 'next/server'
 import { getAuthenticatedUser, unauthorized } from '@/lib/auth'
-import { supabaseAdmin } from '@/lib/supabase'
+import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { getMergedCategories } from '@/lib/categories'
+import { writeFailed } from '@/lib/api-errors'
 
 export async function GET(request: NextRequest) {
   const user = await getAuthenticatedUser(request)
   if (!user) return unauthorized()
+
+  const supabase = await createSupabaseServerClient()
 
   const merged = await getMergedCategories(user.id)
   return Response.json(merged)
@@ -21,6 +24,8 @@ type AddCategoryBody = {
 export async function POST(request: NextRequest) {
   const user = await getAuthenticatedUser(request)
   if (!user) return unauthorized()
+
+  const supabase = await createSupabaseServerClient()
 
   const body: AddCategoryBody = await request.json()
   const name = String(body.name ?? '').trim()
@@ -41,14 +46,14 @@ export async function POST(request: NextRequest) {
     return Response.json({ error: `「${name}」は既に存在します` }, { status: 409 })
   }
 
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await supabase
     .from('custom_categories')
     .insert([{ user_id: user.id, name, icon, kind, is_fixed: isFixed }])
     .select()
     .single()
 
   if (error) {
-    return Response.json({ error: error.message }, { status: 500 })
+    return writeFailed('api/categories', error)
   }
 
   return Response.json({ category: data }, { status: 201 })
@@ -58,6 +63,8 @@ export async function DELETE(request: NextRequest) {
   const user = await getAuthenticatedUser(request)
   if (!user) return unauthorized()
 
+  const supabase = await createSupabaseServerClient()
+
   const { searchParams } = new URL(request.url)
   const name = String(searchParams.get('name') ?? '').trim()
   const kind = searchParams.get('kind') === 'income' ? 'income' : 'expense'
@@ -66,7 +73,7 @@ export async function DELETE(request: NextRequest) {
     return Response.json({ error: '削除するカテゴリ名を指定してください' }, { status: 400 })
   }
 
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await supabase
     .from('custom_categories')
     .delete()
     .eq('user_id', user.id)
@@ -75,7 +82,7 @@ export async function DELETE(request: NextRequest) {
     .select()
 
   if (error) {
-    return Response.json({ error: error.message }, { status: 500 })
+    return writeFailed('api/categories', error)
   }
   if (!data || data.length === 0) {
     return Response.json(

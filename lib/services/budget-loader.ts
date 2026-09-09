@@ -78,7 +78,8 @@ export async function loadBudget(
         .eq('user_id', userId)
         .gte('date', monthsAgoStart(month, 3))
         .lte('date', monthEnd(month)),
-      getMergedCategories(userId),
+      // サーバー間連携では client=supabaseAdmin が渡る。セッションが無いので同じものを使う
+      getMergedCategories(userId, client),
     ])
 
   if (profileRes.error) throw new Error(profileRes.error.message)
