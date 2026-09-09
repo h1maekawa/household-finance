@@ -207,3 +207,32 @@ export async function parseAssistantInput(text: string, lists: CategoryLists = D
   const parsed = validateTransaction(raw as unknown as ParsedTransaction, lists)
   return { type: 'transaction', parsed }
 }
+
+/**
+ * 計算済みの数字を「説明」させる。
+ *
+ * AIに金額を作らせないための約束をここで固定する。Flow+ の金額はすべて
+ * 決定的エンジンが出したもので、AIはそれを言い換えるだけ。
+ */
+export async function explainFinance(question: string, context: string): Promise<string> {
+  const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' })
+  const prompt = [
+    'あなたは家計アプリ Flow+ のアシスタントです。',
+    '以下の「計算済みデータ」だけを根拠にユーザーの質問へ日本語で答えてください。',
+    '',
+    '厳守すること:',
+    '- 金額は計算済みデータにある数字のみを使う。自分で計算し直さない',
+    '- データに無い金額を推測して答えない。分からないときは「まだ計算できていません」と伝える',
+    '- 新しい投資額や貯金額を独自に決めない。提案する場合もデータ内の数字の範囲で述べる',
+    '- 3〜4文程度で簡潔に。断定できないことは断定しない',
+    '',
+    '# 計算済みデータ',
+    context,
+    '',
+    '# 質問',
+    question,
+  ].join('\n')
+
+  const result = await model.generateContent(prompt)
+  return result.response.text().trim()
+}

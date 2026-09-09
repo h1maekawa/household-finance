@@ -1,6 +1,7 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { Suspense, useEffect, useState } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { useToast } from '@/components/Toast'
 import { useCategories } from '@/lib/useCategories'
 import { useAccounts } from '@/lib/useAccounts'
@@ -59,11 +60,18 @@ function describeCardRule(card: CreditCardSetting) {
   return `${card.closing_day_int ?? 31}日締め / ${monthLabel}${card.payment_day_int ?? 27}日引き落とし`
 }
 
-export default function SettingsPage() {
+function SettingsContent() {
   const { expense: expenseCategories, mutate: refreshCategories } = useCategories()
   const { showToast } = useToast()
   const { accounts } = useAccounts()
-  const [activeTab, setActiveTab] = useState<SettingTab>('integrations')
+  // AccountMenu から ?section= で目的のタブへ直接着地させる。
+  // 未知の値はここで弾き、既定タブへ落とす
+  const searchParams = useSearchParams()
+  const requestedSection = searchParams.get('section')
+  const initialTab = SETTING_TABS.some(tab => tab.key === requestedSection)
+    ? (requestedSection as SettingTab)
+    : 'integrations'
+  const [activeTab, setActiveTab] = useState<SettingTab>(initialTab)
   const [creditCards, setCreditCards] = useState<CreditCardSetting[]>([])
   const [cardName, setCardName] = useState('')
   const [closingDay, setClosingDay] = useState('31')
@@ -592,5 +600,20 @@ function SelectInput({
         ))}
       </select>
     </label>
+  )
+}
+
+// useSearchParams を使うため、静的レンダリング時の Suspense 境界が要る
+export default function SettingsPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="mx-auto max-w-xl p-4">
+          <div className="skeleton h-64 w-full rounded-xl" />
+        </div>
+      }
+    >
+      <SettingsContent />
+    </Suspense>
   )
 }

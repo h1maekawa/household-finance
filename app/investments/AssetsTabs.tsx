@@ -22,9 +22,10 @@ import PageShell from '@/components/PageShell'
 import PageTabs, { useActiveTab, type PageTab } from '@/components/PageTabs'
 import AccountsPanel from '@/components/AccountsPanel'
 import AssetOverview from '@/components/AssetOverview'
+import TotalAssetsCard from '@/components/assets/TotalAssetsCard'
 
 const TABS: PageTab[] = [
-  { key: 'overview', label: '資産全体' },
+  { key: 'overview', label: '概要' },
   { key: 'accounts', label: '口座' },
   { key: 'investments', label: '投資' },
 ]
@@ -52,6 +53,9 @@ export default function AssetsTabs() {
     <PageShell title="資産" description={DESCRIPTIONS[tab]}>
       <div className="flex flex-col gap-4">
         <PageTabs tabs={TABS} active={tab} />
+
+        {/* 総資産は全タブ共通。Home と同じ asset-summary-loader が出した値 */}
+        <TotalAssetsCard />
 
         {tab === 'accounts' && <AccountsPanel />}
 

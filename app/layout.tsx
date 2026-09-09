@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from 'next'
 import './globals.css'
 import MobileNav from '@/components/MobileNav'
 import Sidebar from '@/components/Sidebar'
+import QuickAdd from '@/components/QuickAdd'
 import SWRProvider from '@/components/SWRProvider'
 import { ToastProvider } from '@/components/Toast'
 
@@ -37,6 +38,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               <main className="min-w-0 flex-1 pb-[calc(4rem+env(safe-area-inset-bottom))] lg:pb-0">
                 {children}
               </main>
+              <QuickAdd />
             </div>
           </ToastProvider>
         </SWRProvider>

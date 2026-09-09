@@ -16,6 +16,7 @@
 import type { BudgetSummary } from '@/types/budget'
 import type { GoalProgress, GoalTrackStatus } from '@/types/goal'
 import type { CapacityResult } from './investment-capacity'
+import type { MoneyPlan } from './money-plan'
 import type { EmergencyFundResult } from './emergency-fund'
 import type { ProjectionPoint } from './projection'
 import { yen } from './money'
@@ -48,7 +49,11 @@ export type AssetPlanningResult = {
     freeToSpend: number
     dailyAllowance: number
     daysLeft: number
+    /** 1.0超で使いすぎ傾向。budget-engine が出した値をそのまま持つ */
+    pace: number
   }
+  /** お金の流れ。money-plan が正。UIで組み立て直さない */
+  moneyPlan: MoneyPlan
   /** 再配分できる現金。null は入力不足で算出不能 */
   allocatableCash: number | null
   /**
@@ -114,6 +119,7 @@ export function buildAssetPlan(input: {
   emergencyFund: EmergencyFundResult
   goals: GoalProgress[]
   projection: ProjectionPoint[]
+  moneyPlan: MoneyPlan
 }): AssetPlanningResult {
   const { month, budget, capacity, emergencyFund, goals, projection } = input
 
@@ -139,7 +145,9 @@ export function buildAssetPlan(input: {
       freeToSpend: yen(budget.variable.remaining),
       dailyAllowance: yen(budget.variable.dailyAllowance),
       daysLeft: budget.variable.daysLeft,
+      pace: budget.variable.pace,
     },
+    moneyPlan: input.moneyPlan,
     allocatableCash: capacity.allocatable_cash,
     allocation: {
       emergencyFund: capacity.allocation.emergency_fund,

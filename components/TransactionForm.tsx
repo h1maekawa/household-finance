@@ -9,6 +9,8 @@ import { fetcher } from '@/lib/fetcher'
 
 interface Props {
   onSuccess?: () => void
+  /** Quick Add から「収入を追加」で開いたときの初期選択 */
+  initialKind?: 'expense' | 'income'
 }
 
 const empty = (): TransactionInput => ({
@@ -21,9 +23,13 @@ const empty = (): TransactionInput => ({
   kind: 'expense',
 })
 
-export default function TransactionForm({ onSuccess }: Props) {
+export default function TransactionForm({ onSuccess, initialKind }: Props) {
   const { showToast } = useToast()
-  const [form, setForm] = useState<TransactionInput>(empty())
+  const [form, setForm] = useState<TransactionInput>(() =>
+    initialKind === 'income'
+      ? { ...empty(), kind: 'income', category: 'その他収入' }
+      : empty()
+  )
   const [loading, setLoading] = useState(false)
   const { data: categories } = useSWR<{ expense: Category[]; income: Category[] }>('/api/categories', fetcher)
   const isIncome = form.kind === 'income'
@@ -45,7 +51,7 @@ export default function TransactionForm({ onSuccess }: Props) {
       })
       if (!res.ok) throw new Error((await res.json()).error)
       showToast('保存しました', 'success')
-      setForm(empty())
+      setForm(initialKind === 'income' ? { ...empty(), kind: 'income', category: 'その他収入' } : empty())
       onSuccess?.()
     } catch (err) {
       showToast(err instanceof Error ? err.message : '保存に失敗しました', 'error')

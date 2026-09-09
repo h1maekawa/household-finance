@@ -1,7 +1,8 @@
 'use client'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { NAV_ITEMS, isActiveNav } from '@/lib/nav'
+import AccountMenu from '@/components/AccountMenu'
+import { ICON_STROKE, NAV_ITEMS, isActiveNav } from '@/lib/nav'
 
 // モバイル用ナビ。
 //
@@ -21,6 +22,9 @@ export default function MobileNav() {
         {current && (
           <span className="min-w-0 truncate text-sm text-muted">/ {current.label}</span>
         )}
+        <div className="ml-auto">
+          <AccountMenu />
+        </div>
       </header>
 
       {/* 下部固定タブ。iOS のホームインジケータに被らないよう safe-area を確保する */}
@@ -30,16 +34,18 @@ export default function MobileNav() {
       >
         {NAV_ITEMS.map(item => {
           const isActive = isActiveNav(pathname, item.href)
+          const Icon = item.icon
           return (
             <Link
               key={item.href}
               href={item.href}
               aria-current={isActive ? 'page' : undefined}
-              className={`flex flex-1 flex-col items-center gap-0.5 py-2 transition-base ${
+              // タップ領域を44px前後確保する
+              className={`flex min-h-[52px] flex-1 flex-col items-center justify-center gap-1 py-2 transition-base ${
                 isActive ? 'text-primary' : 'text-muted'
               }`}
             >
-              <span className="text-lg leading-none">{item.icon}</span>
+              <Icon size={21} strokeWidth={ICON_STROKE} aria-hidden />
               <span className={`text-[10px] ${isActive ? 'font-bold' : ''}`}>{item.label}</span>
             </Link>
           )

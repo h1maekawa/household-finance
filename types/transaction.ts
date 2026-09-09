@@ -42,6 +42,8 @@ export interface TransactionSummary {
   total: number           // 後方互換: expense_total と同じ値
   expense_total: number
   income_total: number
+  /** 収支。income_total - expense_total */
+  net: number
   by_category: Record<string, number>
 }
 

@@ -117,3 +117,14 @@ test('Token 生成APIは scopes をクライアントから受け取らない', 
     assert.doesNotMatch(r!.src, /body\.scopes/, `${rel}: scope はサーバー側で決めること`)
   }
 })
+
+test('UI向けAPIが Integration 用エンドポイントを流用していない', () => {
+  // /api/integrations/* は Token + service_role 向け。画面からは叩かない
+  const uiPages = readdirSync(path.join(process.cwd(), 'app'), { withFileTypes: true })
+  assert.ok(uiPages.length > 0)
+  const planning = routes.find(r => r.rel === 'asset-planning')
+  assert.ok(planning, 'app/api/asset-planning が無い')
+  assert.match(planning!.src, /getAuthenticatedUser/)
+  assert.match(planning!.src, /createSupabaseServerClient/)
+  assert.doesNotMatch(planning!.src, /supabaseAdmin/)
+})
