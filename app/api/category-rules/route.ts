@@ -10,8 +10,10 @@ type RuleBody = {
   payment_method?: string | null
 }
 
-async function isValidCategory(userId: string, category: string) {
-  const merged = await getMergedCategories(userId)
+type ServerClient = Awaited<ReturnType<typeof createSupabaseServerClient>>
+
+async function isValidCategory(supabase: ServerClient, userId: string, category: string) {
+  const merged = await getMergedCategories(userId, supabase)
   return [...merged.expense, ...merged.income].some(c => c.name === category)
 }
 
@@ -44,7 +46,7 @@ export async function POST(request: NextRequest) {
   const merchantPattern = String(body.merchant_pattern ?? '').trim()
   const category = String(body.category ?? '').trim()
 
-  if (!merchantPattern || !(await isValidCategory(user.id, category))) {
+  if (!merchantPattern || !(await isValidCategory(supabase, user.id, category))) {
     return Response.json({ error: '分類したい文字とカテゴリを選んでください' }, { status: 400 })
   }
 

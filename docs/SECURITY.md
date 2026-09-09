@@ -93,8 +93,27 @@ entitlement / stripe_customer_id / scope
 
 ## Integration Token
 
-サーバー間連携のトークンには用途を絞った scope を持たせ、1本のトークンで
-何でもできる状態を作りません。
+サーバー間連携（GAS取込・AI Company）は `x-import-secret` ヘッダーで認証します。
+Token は用途（integration）と権限（scopes）を持ち、**認証できただけでは
+何も呼べません**。必ず scope の確認を通します。
+
+### テーブル
+
+`user_import_secrets` が Integration Token registry です。名前はGAS時代の
+名残で、実体は汎用の Token テーブルです（rename は影響範囲が広いため別Phase）。
+
+```
+id / user_id / secret_hash / label
+integration      gas | ai_company | other
+scopes           text[]
+is_active / revoked_at / created_at / last_used_at
+```
+
+`integration` に DB の CHECK は置いていません。連携先が増えるたびに
+Migration が必要になるためで、妥当性は `lib/integrations/scopes.ts` の
+allowlist が担保します。
+
+### Scope
 
 | scope | 用途 |
 |---|---|
@@ -103,28 +122,117 @@ entitlement / stripe_customer_id / scope
 | `investment-capacity:read` | 投資可能額の参照 |
 | `assets:read` | 資産の参照 |
 
-### 用途の分離
-
-| 発行先 | 持たせる scope |
+| 発行先 | 付与される scope |
 |---|---|
 | GAS | `transactions:write` のみ |
 | AI Company | `finance-summary:read` / `investment-capacity:read` / `assets:read` のみ |
 
-**AI Company のトークンから取引の INSERT / UPDATE / DELETE を実行できないようにします。**
+**AI Company のTokenに `transactions:write` を付けません。**
+GAS のTokenに読み取り系を付けません（Least Privilege）。
 
-### 現状と移行
+scope はクライアントから受け取らず、`integration` からサーバー側で決めます。
 
-`user_import_secrets` にはまだ `scope` 列がありません（Phase 2B で追加予定）。
-既存トークンは実用途を確認のうえ `transactions:write` で backfill します。
+**これは API だけでなく DB でも守ります。** 以前は authenticated ロールが
+`user_import_secrets` を直接 UPDATE できたため、Supabase の REST を叩いて
+自分の Token の `scopes` を書き換えられました。027 で次のようにしています。
 
-`server-auth.ts` には環境変数による旧方式（`GAS_IMPORT_SECRET` / `GAS_IMPORT_USER_ID`）が
-残っています。即時削除はせず段階的に廃止します。
+- authenticated から INSERT / UPDATE / DELETE の権限とポリシーを剥奪（SELECT のみ残す）
+- 発行・失効は `SECURITY DEFINER` の関数（`issue_integration_token` /
+  `revoke_integration_token`）経由のみ
+- 関数は `auth.uid()` で対象ユーザーを決める。`user_id` をクライアントから受け取らない
+- 発行関数は `scopes` を引数に取らず、`integration` から決める
+
+さらに認証側でも二重に絞ります。`resolveIntegrationAuth()` が返す scope は
 
 ```
-Phase A  旧Secret + 新Token を併存
-Phase B  旧Secret 利用時に Warning Log
-Phase C  旧Secret 停止
+保存値 ∩ 既知scope ∩ ALLOWED_SCOPES[integration]
 ```
+
+です。DBが何らかの理由で書き換わっていても、`integration='gas'` の Token が
+`assets:read` を持つことはありません。未知の `integration` は権限ゼロとして
+fail-closed に扱います。
+
+### 認証と認可
+
+```
+Authentication → Token解決 → Scope確認 → Resource処理
+```
+
+`resolveIntegrationAuth()` が `IntegrationAuthContext`（userId / tokenId /
+integration / scopes / legacy）を返し、`requireIntegrationScope()` が
+scope を確認します。各ルートへ比較ロジックを書き写さないでください。
+
+| コード | 意味 |
+|---|---|
+| 401 | Token が無い・不正・失効・無効 |
+| 403 | Token は正しいが必要な scope が無い |
+
+`resolveIntegrationUserId()` は後方互換のラッパーとして残していますが、
+scope を見ないので単体で認可に使ってはいけません。新規コードは
+`requireIntegrationScope()` を使います。
+
+### Rotation と Revocation
+
+1ユーザー1Tokenではありません。新しいTokenを発行してから古い方を失効させる
+入れ替えができます。
+
+```
+Token A 有効 → B を発行（A と併存）→ 切替確認 → A を revoke
+```
+
+revoke は物理削除しません。`is_active = false` と `revoked_at = now()` を立て、
+行は監査のために残します。認証が通るのは `is_active` かつ
+`revoked_at is null` のTokenだけです。
+
+**失効は不可逆です。** トリガー `user_import_secrets_no_revival` が
+`revoked_at` を null に戻す更新と `is_active` の再有効化を拒否します。
+権限を剥がしただけでは service_role 経由やSQL Editorでの手作業で復活できて
+しまうため、DB 側で保証しています。失効した Token は戻さず、新しい Token を
+発行してください。
+
+### last_used_at
+
+**認証に成功した時点で更新します。** この後 scope 不足で 403 になっても
+更新済みのままにします。「そのTokenが使われた」事実自体を追跡したいためで、
+権限が足りなかったことは `last_used_at` ではなくログで分かります。
+
+### Secret の扱い
+
+平文はDBに保存しません。SHA-256 のハッシュだけを保存し、平文は発行直後の
+レスポンスで一度だけ返します（再表示不可）。
+
+接頭辞（`flow_gas_` / `flow_aic_`）はログや利用者が種別を見分けるためのもので、
+**認証の根拠にはしません**。照合は `secret_hash` の完全一致です。既存の
+`gas_...` Token もそのまま認証できます。
+
+`secret_hash` はAPIのレスポンスに含めません。RLS で自分の行が読めることと、
+APIから出してよいことは別です。
+
+ログに `x-import-secret` / secret / secret_hash を出さないでください。
+
+### Legacy 環境変数 Secret
+
+`GAS_IMPORT_SECRET` / `GAS_IMPORT_USER_ID` はまだ受け付けます（Stage A）。
+これで認証した場合は `legacy: true`、`tokenId: null`、scope は
+`transactions:write` のみとして扱います。**以前のように、通れば全ての
+Integration API を呼べる状態にはしません。**
+
+使用時は `[deprecated] Legacy GAS integration secret used` をサーバーログへ出します。
+Token 本文・ハッシュ・userId は出しません。
+
+```
+Stage A  DB Token + Legacy Env Secret を併存        実装済み
+Stage B  Legacy 使用時に Warning Log                実装済み
+Stage C  Legacy Secret の完全停止                   保留
+```
+
+**Legacy Secret removal: Pending consumer migration.**
+
+Stage C は、GAS 側が新しい Token へ移行済みであることを確認できるまで
+実施しません（移行前に止めると取込が壊れます）。判断は Phase 7 の
+Production Release Checklist で行います。移行が済んだかは
+`user_import_secrets` の `integration='gas'` な Token の `last_used_at` と、
+Legacy 使用時の deprecated ログの有無で確認できます。
 
 ## Rate Limit
 

@@ -84,3 +84,36 @@ test('DBエラーの詳細をクライアントへ返さない', () => {
     `lib/api-errors の readFailed / writeFailed を使うこと: ${offenders.join(', ')}`
   )
 })
+
+test('secret_hash をクライアントへ返す経路が無い', () => {
+  // RLS で自分の行が読めても、ハッシュはAPIから出さない
+  const offenders = routes
+    .filter(r => /select\([^)]*secret_hash/.test(r.src))
+    .map(r => r.rel)
+  assert.deepEqual(offenders, [], `secret_hash を select しないこと: ${offenders.join(', ')}`)
+})
+
+test('Integration API は scope 認可を通している', () => {
+  // Token で認証できただけで呼べる状態にしない
+  const integrationRoutes = routes.filter(
+    r => r.rel.startsWith('integrations/') && r.src.includes('x-import-secret')
+  )
+  for (const r of integrationRoutes) {
+    assert.match(
+      r.src,
+      /requireIntegrationScope/,
+      `${r.rel}: requireIntegrationScope で scope を要求すること`
+    )
+  }
+  // 取込は Integration Token 経路なので個別に確認する
+  const importRoute = routes.find(r => r.rel === 'transactions/import')
+  assert.match(importRoute!.src, /requireIntegrationScope\(request, 'transactions:write'\)/)
+})
+
+test('Token 生成APIは scopes をクライアントから受け取らない', () => {
+  for (const rel of ['integrations/tokens', 'integrations/gas-secret']) {
+    const r = routes.find(x => x.rel === rel)
+    assert.ok(r, `${rel} が見つかりません`)
+    assert.doesNotMatch(r!.src, /body\.scopes/, `${rel}: scope はサーバー側で決めること`)
+  }
+})

@@ -111,6 +111,8 @@ app/
 lib/
   services/     決定論エンジン。DB I/Oを持たない。*.test.ts を隣に置く
   repositories/ Supabaseアクセス
+  integrations/ Integration Token の scope 定義・発行・失効
+  billing/      課金。Stripe と Entitlement
   supabase/     セッションクライアント生成
 types/          ドメイン型。API のレスポンス形もここに寄せる
 supabase/

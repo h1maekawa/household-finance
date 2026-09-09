@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server'
-import { resolveIntegrationUserId } from '@/lib/server-auth'
+import { requireIntegrationScope } from '@/lib/server-auth'
 import { supabaseAdmin } from '@/lib/supabase'
 import { loadBudget } from '@/lib/services/budget-loader'
 import { computeInvestmentCapacity } from '@/lib/services/investment-capacity'
@@ -34,11 +34,13 @@ function isCardBill(name: string, memo?: string | null): boolean {
  *
  * AI Company（投資部門）向けのサーバー間API。
  * 当月の投資可能額と、その内訳を返す。
- * 認証は x-import-secret ヘッダー（GAS取込と同じ仕組み）。
+ * 認証は x-import-secret ヘッダー。scope は investment-capacity:read。
+ * GAS の取込用Token（transactions:write のみ）では呼べない。
  */
 export async function GET(request: NextRequest) {
-  const userId = await resolveIntegrationUserId(request)
-  if (!userId) return Response.json({ error: 'Unauthorized' }, { status: 401 })
+  const result = await requireIntegrationScope(request, 'investment-capacity:read')
+  if ('response' in result) return result.response
+  const userId = result.auth.userId
 
   const monthParam = request.nextUrl.searchParams.get('month')
   const month = /^\d{4}-\d{2}$/.test(monthParam ?? '') ? (monthParam as string) : currentMonthJst()

@@ -15,53 +15,20 @@
 // 必要な環境変数:
 //   GAS_IMPORT_SECRET  … GAS側と共有するランダムな秘密文字列
 //   GAS_IMPORT_USER_ID … 取り込んだ取引を紐づける Supabase の auth.users.id
-import { timingSafeEqual } from 'crypto'
 import { NextRequest } from 'next/server'
 import { getAuthenticatedUser, unauthorized } from '@/lib/auth'
 import { requireActiveEntitlement } from '@/lib/entitlements'
-import { hashImportSecret } from '@/lib/import-secrets'
 import { isSupabaseConfigured, supabaseAdmin } from '@/lib/supabase'
 import { parseChatInput } from '@/lib/gemini'
 import { getMergedCategories } from '@/lib/categories'
 import { decideCategory, MerchantRule } from '@/lib/category-rules'
 import { CATEGORIES, INCOME_CATEGORIES, Kind } from '@/types/transaction'
 import { writeFailed } from '@/lib/api-errors'
+import { requireIntegrationScope } from '@/lib/server-auth'
 
 function hasEnv(name: string): boolean {
   const value = process.env[name]
   return Boolean(value && !value.includes('placeholder'))
-}
-
-async function resolveImportUserId(request: NextRequest): Promise<string | null> {
-  const provided = request.headers.get('x-import-secret')
-  if (!provided) return null
-
-  const { data } = await supabaseAdmin
-    .from('user_import_secrets')
-    .select('id,user_id')
-    .eq('secret_hash', hashImportSecret(provided))
-    .eq('is_active', true)
-    .maybeSingle()
-
-  if (data?.user_id) {
-    await supabaseAdmin
-      .from('user_import_secrets')
-      .update({ last_used_at: new Date().toISOString() })
-      .eq('id', data.id)
-    return data.user_id
-  }
-
-  if (process.env.GAS_IMPORT_SECRET && process.env.GAS_IMPORT_USER_ID && secretsMatch(provided, process.env.GAS_IMPORT_SECRET)) {
-    return process.env.GAS_IMPORT_USER_ID
-  }
-
-  return null
-}
-
-function secretsMatch(a: string, b: string): boolean {
-  const bufA = Buffer.from(a)
-  const bufB = Buffer.from(b)
-  return bufA.length === bufB.length && timingSafeEqual(bufA, bufB)
 }
 
 function normalizeCategory(
@@ -152,10 +119,10 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const targetUserId = await resolveImportUserId(request)
-  if (!targetUserId) {
-    return Response.json({ error: 'Unauthorized' }, { status: 401 })
-  }
+  // 認証は Integration Token。GAS の取込用Tokenは transactions:write だけを持つ
+  const result = await requireIntegrationScope(request, 'transactions:write')
+  if ('response' in result) return result.response
+  const targetUserId = result.auth.userId
 
   const allowed = await requireActiveEntitlement(targetUserId)
   if (!allowed) {

@@ -74,15 +74,18 @@ AIの判断ではありません（`investment-capacity` の `missing_data` と�
 
 ## 他の Integration API
 
-| エンドポイント | scope | 用途 |
+| エンドポイント | scope | 状態 |
 |---|---|---|
-| `/api/integrations/finance-summary` | `finance-summary:read` | 家計・資産・目標の統合サマリ |
-| `/api/integrations/investment-capacity` | `investment-capacity:read` | 当月の投資可能額と内訳 |
-| `/api/integrations/gas-secret` | — | トークン発行（ユーザーセッション） |
+| `/api/integrations/finance-summary` | `finance-summary:read` | **未実装**（Phase 7）。scope だけ先に定義済み |
+| `/api/integrations/investment-capacity` | `investment-capacity:read` | 実装済み |
+| `/api/integrations/tokens` | — | Token の発行・一覧（ユーザーセッション） |
+| `/api/integrations/gas-secret` | — | GAS用 Token の発行・一覧（既存運用の互換） |
 
 ## Token
 
-AI Company に渡すトークンは read 系の scope のみを持たせます。
+AI Company 用の Token は `POST /api/integrations/tokens` に
+`{"integration": "ai_company"}` を渡して発行します。scope はサーバー側で
+決まり、read 系のみが付きます。
 
 ```
 finance-summary:read
@@ -90,10 +93,21 @@ investment-capacity:read
 assets:read
 ```
 
-`transactions:write` を含めません。AI Company から取引の
-INSERT / UPDATE / DELETE を実行できないようにします。
+**`transactions:write` は付きません。** AI Company から取引の
+INSERT / UPDATE / DELETE は実行できません。GAS 取込用の Token とは
+別物で、1本を使い回しません。
 
-GAS 取込用のトークンとは分離し、1本を使い回しません。詳細は [SECURITY.md](SECURITY.md)。
+Token は認証できただけでは何も呼べず、必ず scope の確認を通ります。
+
+| 状況 | レスポンス |
+|---|---|
+| Token が無い・不正・失効 | 401 |
+| Token は正しいが scope 不足 | 403（`required_scope` を含む） |
+
+例えば GAS の Token で `investment-capacity` を呼ぶと 403 になります。
+
+平文の Token は発行直後のレスポンスでしか手に入りません（再表示不可）。
+入れ替えは新旧を併存させてから古い方を失効させます。詳細は [SECURITY.md](SECURITY.md)。
 
 ## monthly-summary について
 
