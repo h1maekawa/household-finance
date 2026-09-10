@@ -21,6 +21,21 @@ import {
   monthlyRateFrom,
 } from './return-assumptions'
 
+/**
+ * 月数を「38年4ヶ月」の表示にする。
+ *
+ * 整形だけで、月数そのものは monthsToTarget が出したもの。
+ * 到達しない場合の言い方は画面ごとに違うので、null は呼び出し側が扱う。
+ */
+export function formatMonthsDuration(months: number): string {
+  if (months <= 0) return '達成済み'
+  const years = Math.floor(months / 12)
+  const rest = months % 12
+  if (years === 0) return `${rest}ヶ月`
+  if (rest === 0) return `${years}年`
+  return `${years}年${rest}ヶ月`
+}
+
 /** 到達しない条件で無限に回さないための上限（100年） */
 export const MAX_PROJECTION_MONTHS = 1200
 

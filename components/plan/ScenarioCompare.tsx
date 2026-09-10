@@ -9,24 +9,23 @@ import { useMemo, useState } from 'react'
 import useSWR from 'swr'
 import { fetcher } from '@/lib/fetcher'
 import { yen, NotAvailable } from '@/components/home/AmountBlock'
-import { EXPENSE_REDUCTION_RATIOS } from '@/lib/services/scenario-engine'
-import { OFFICIAL_RETURN_RATES } from '@/lib/services/return-assumptions'
+import {
+  EXPENSE_REDUCTION_RATIOS,
+  formatMonthsDuration,
+} from '@/lib/services/scenario-engine'
+import {
+  DEFAULT_SCENARIO_RETURN_RATE,
+  OFFICIAL_RETURN_RATES,
+} from '@/lib/services/return-assumptions'
 import type { ScenarioComparison, ScenarioResult } from '@/lib/services/scenario-engine'
 import type { ScenarioLoad, ScenarioTargetOption } from '@/lib/services/scenario-loader'
 import type { CategoryExpense } from '@/lib/services/expense-intelligence'
 
 const percent = (rate: number) => `${Number((rate * 100).toFixed(3))}%`
 
-/** 月数を「15年4ヶ月」にする。表示の整形だけで、計算はしない */
-function duration(months: number | null): string | null {
-  if (months === null) return null
-  if (months === 0) return '達成済み'
-  const years = Math.floor(months / 12)
-  const rest = months % 12
-  if (years === 0) return `${rest}ヶ月`
-  if (rest === 0) return `${years}年`
-  return `${years}年${rest}ヶ月`
-}
+/** 到達しない場合の言い方だけ画面ごとに決める。整形は scenario-engine が持つ */
+const duration = (months: number | null): string | null =>
+  months === null ? null : formatMonthsDuration(months)
 
 /** 'YYYY-MM' を「2041年8月」にする */
 function monthLabel(month: string | null): string | null {
@@ -58,7 +57,7 @@ export default function ScenarioCompare({
 }) {
   const [targetKind, setTargetKind] = useState<ScenarioTargetOption['kind']>(initialTargetKind)
   const [goalId, setGoalId] = useState<string | null>(null)
-  const [returnRate, setReturnRate] = useState<number>(OFFICIAL_RETURN_RATES[1])
+  const [returnRate, setReturnRate] = useState<number>(DEFAULT_SCENARIO_RETURN_RATE)
   const [adjustments, setAdjustments] = useState<Adjustments>(EMPTY)
   // 支出削減はカテゴリを選ぶだけ。金額はサーバーが Expense Intelligence から出す
   const { data: intelligence } = useSWR<{ categories: CategoryExpense[] }>(

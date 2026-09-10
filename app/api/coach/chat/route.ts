@@ -1,8 +1,7 @@
 import type { NextRequest } from 'next/server'
 import { getAuthenticatedUser, unauthorized } from '@/lib/auth'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
-import { loadAssetPlanning } from '@/lib/services/asset-planning-loader'
-import { buildCoachExplainContext } from '@/lib/services/coach-explain-context'
+import { loadAiFpAnswerSource } from '@/lib/services/ai-fp-loader'
 import { explainFinance } from '@/lib/gemini'
 import { writeFailed } from '@/lib/api-errors'
 import { currentMonthJst, todayJst } from '@/lib/jst'
@@ -10,10 +9,13 @@ import { currentMonthJst, todayJst } from '@/lib/jst'
 export const dynamic = 'force-dynamic'
 
 /**
- * POST /api/coach/chat
+ * POST /api/coach/chat — AI FP の回答（スペック §33）。
  *
- * 計算済みの結果を AI に説明させる。AI は金額を作らない。
- * 渡すのは asset-planning が出した値だけで、生の取引は送らない。
+ *   質問 → 必要な計算の判定(決定論) → Finance Engine → 計算結果 → AIが説明
+ *
+ * **AI は金額を作らない。** 質問の意図と金額の読み取りも AI にやらせず、
+ * ai-fp-intent.ts の決定論パーサが行う。AI へ渡すのは計算済みの結果だけで、
+ * 生の取引は送らない。
  */
 export async function POST(request: NextRequest) {
   const user = await getAuthenticatedUser(request)
@@ -32,14 +34,17 @@ export async function POST(request: NextRequest) {
   const supabase = await createSupabaseServerClient()
 
   try {
-    const { plan, assets } = await loadAssetPlanning(
+    const source = await loadAiFpAnswerSource(
       user.id,
+      question,
       currentMonthJst(),
       todayJst(),
       supabase
     )
-    const answer = await explainFinance(question, buildCoachExplainContext(plan, assets))
-    return Response.json({ answer })
+    const answer = await explainFinance(question, source.context)
+
+    // scenario は決定論の値。画面は AI の文章ではなくこちらを数字として出す
+    return Response.json({ answer, intent: source.intent.kind, scenario: source.scenario })
   } catch (error) {
     return writeFailed('api/coach/chat', error)
   }

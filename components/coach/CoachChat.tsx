@@ -1,26 +1,52 @@
 'use client'
-// AI Coach の対話。
+// AI FP の対話（スペック §32 / §33）。
 //
-// AIは金額を作らない。サーバー側で計算済みの結果だけを渡し、
-// ここは送受信と表示に徹する。履歴はページ滞在中のstateのみ。
+// AIは金額を作らない。サーバーが決定論で計算した結果を渡し、AIはそれを
+// 説明するだけ。条件比較の数字は **AIの文章ではなくサーバーの値** を出す。
 import { useState } from 'react'
+import useSWR from 'swr'
 import { Send } from 'lucide-react'
+import { fetcher } from '@/lib/fetcher'
 import { ICON_STROKE } from '@/lib/nav'
+import { yen } from '@/components/home/AmountBlock'
+import { QUICK_QUESTIONS, expenseCutQuestion } from '@/lib/services/ai-fp-intent'
+import { formatMonthsDuration, type ScenarioComparison } from '@/lib/services/scenario-engine'
+import type { CategoryExpense } from '@/lib/services/expense-intelligence'
 
-type Message = { role: 'user' | 'assistant'; text: string }
+type ScenarioResult = {
+  label: string
+  targetAssets: number | null
+  comparison: ScenarioComparison
+}
 
-const QUICK_PROMPTS = [
-  '今月使いすぎ？',
-  '貯金目標は達成できる？',
-  '固定費で気になるところは？',
-  '今月注意する支払いは？',
-]
+type Message = {
+  role: 'user' | 'assistant'
+  text: string
+  scenario?: ScenarioResult | null
+}
+
+const duration = (months: number | null): string =>
+  months === null ? '到達せず' : formatMonthsDuration(months)
 
 export default function CoachChat() {
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
   const [sending, setSending] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  // 「◯◯を半分にしたら？」のカテゴリはユーザーの実データから取る。
+  // システムが「タバコ」等を決め打ちしない
+  const { data: intelligence } = useSWR<{ categories: CategoryExpense[] }>(
+    '/api/expense-intelligence',
+    fetcher
+  )
+  const cutTarget = (intelligence?.categories ?? []).find(
+    category => category.reviewCandidate && category.currentMonth > 0
+  )
+  const prompts = [
+    ...QUICK_QUESTIONS,
+    ...(cutTarget ? [expenseCutQuestion(cutTarget.category)] : []),
+  ]
 
   async function ask(question: string) {
     const trimmed = question.trim()
@@ -37,12 +63,19 @@ export default function CoachChat() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ question: trimmed }),
       })
-      const json = (await res.json()) as { answer?: string; error?: string }
+      const json = (await res.json()) as {
+        answer?: string
+        scenario?: ScenarioResult | null
+        error?: string
+      }
       if (!res.ok || !json.answer) {
         setError(json.error ?? '回答を取得できませんでした')
         return
       }
-      setMessages(prev => [...prev, { role: 'assistant', text: json.answer as string }])
+      setMessages(prev => [
+        ...prev,
+        { role: 'assistant', text: json.answer as string, scenario: json.scenario ?? null },
+      ])
     } catch {
       setError('通信に失敗しました')
     } finally {
@@ -53,13 +86,14 @@ export default function CoachChat() {
   return (
     <section className="card p-4">
       <h2 className="text-[13px] font-bold">相談する</h2>
-      <p className="mt-1 text-[11px] text-muted">
-        Flow+ が計算した数字をもとに答えます。金額は計算結果のみを使います。
+      <p className="mt-1 text-[11px] leading-relaxed text-muted">
+        Flow+ が計算した数字をもとに答えます。条件を変えた場合の比較も計算します。
+        利回りは想定で、運用成果を示すものではありません。
       </p>
 
       {messages.length === 0 && (
         <div className="mt-3 flex flex-wrap gap-2">
-          {QUICK_PROMPTS.map(prompt => (
+          {prompts.map(prompt => (
             <button
               key={prompt}
               type="button"
@@ -76,19 +110,17 @@ export default function CoachChat() {
       {messages.length > 0 && (
         <ul className="mt-3 space-y-2.5">
           {messages.map((message, i) => (
-            <li
-              key={i}
-              className={message.role === 'user' ? 'flex justify-end' : 'flex justify-start'}
-            >
-              <span
-                className={`max-w-[85%] whitespace-pre-wrap rounded-[14px] px-3 py-2 text-[13px] leading-relaxed ${
-                  message.role === 'user'
-                    ? 'bg-primary text-white'
-                    : 'bg-surface text-foreground'
-                }`}
-              >
-                {message.text}
-              </span>
+            <li key={i}>
+              <div className={message.role === 'user' ? 'flex justify-end' : 'flex justify-start'}>
+                <span
+                  className={`max-w-[85%] whitespace-pre-wrap rounded-[14px] px-3 py-2 text-[13px] leading-relaxed ${
+                    message.role === 'user' ? 'bg-primary text-white' : 'bg-surface text-foreground'
+                  }`}
+                >
+                  {message.text}
+                </span>
+              </div>
+              {message.scenario && <ScenarioResultCard scenario={message.scenario} />}
             </li>
           ))}
           {sending && (
@@ -129,5 +161,57 @@ export default function CoachChat() {
         </button>
       </form>
     </section>
+  )
+}
+
+/**
+ * 条件比較の数字。**AIの文章ではなくサーバーが計算した値** を出す。
+ * AIが金額を言い違えても、ここの数字は決定論のまま残る。
+ */
+function ScenarioResultCard({ scenario }: { scenario: ScenarioResult }) {
+  const { baseline, adjusted, monthsSaved } = scenario.comparison
+
+  return (
+    <div className="ml-0 mt-2 rounded-[14px] border border-border p-3">
+      <p className="text-[11px] leading-relaxed text-muted">{scenario.label}</p>
+      {scenario.targetAssets !== null && (
+        <p className="mt-0.5 text-[11px] text-muted">目標 {yen(scenario.targetAssets)}</p>
+      )}
+
+      <div className="mt-2.5 grid grid-cols-2 gap-2">
+        <div className="rounded-xl bg-surface px-3 py-2.5">
+          <p className="text-[10px] text-muted">現在のペース</p>
+          <p className="mt-0.5 text-[12px] tabular-nums">
+            {baseline.monthlyContribution === null
+              ? '—'
+              : `毎月 ${yen(baseline.monthlyContribution)}`}
+          </p>
+          <p className="mt-1 text-[14px] font-bold tabular-nums">
+            {duration(baseline.monthsToTarget)}
+          </p>
+        </div>
+        <div className="rounded-xl bg-primary/5 px-3 py-2.5">
+          <p className="text-[10px] text-muted">変更後</p>
+          <p className="mt-0.5 text-[12px] tabular-nums">
+            {adjusted.monthlyContribution === null
+              ? '—'
+              : `毎月 ${yen(adjusted.monthlyContribution)}`}
+          </p>
+          <p className="mt-1 text-[14px] font-bold tabular-nums">
+            {duration(adjusted.monthsToTarget)}
+          </p>
+        </div>
+      </div>
+
+      <p className="mt-2 text-[11px] text-muted">
+        {monthsSaved === null
+          ? '片方が到達しないため、短縮期間は出せません'
+          : monthsSaved <= 0
+            ? '到達時期は変わりません'
+            : `${duration(monthsSaved)}早くなる想定です`}
+        {' ・ '}
+        想定利回り {Number((scenario.comparison.annualReturnRate * 100).toFixed(3))}%
+      </p>
+    </div>
   )
 }
