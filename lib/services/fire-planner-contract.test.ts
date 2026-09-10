@@ -12,6 +12,7 @@ const read = (rel: string) => readFileSync(path.join(process.cwd(), rel), 'utf8'
 const planner = read('lib/services/fire-planner.ts')
 const milestone = read('lib/services/goal-milestone.ts')
 const loader = read('lib/services/fire-planner-loader.ts')
+const returnAssumptions = read('lib/services/return-assumptions.ts')
 
 test('純関数モジュールは I/O を持たない', () => {
   for (const [name, src] of [
@@ -39,10 +40,20 @@ test('総資産と毎月の積立額は既存エンジンの値を使う', () =>
   assert.doesNotMatch(loader, /savings \+ assetBuilding/)
 })
 
-test('利回りのしきい値を書き写していない', () => {
-  // 正式シナリオの定義は fire-planner.ts の OFFICIAL_RETURN_RATES だけ
-  assert.match(planner, /export const OFFICIAL_RETURN_RATES/)
-  assert.doesNotMatch(loader, /0\.03|0\.05|0\.07/)
+test('利回りの仮定の定義は return-assumptions.ts だけ', () => {
+  // FIRE Planner と Scenario Engine が同じ前提を共有する。書き写さない
+  assert.match(returnAssumptions, /export const OFFICIAL_RETURN_RATES/)
+  for (const [name, src] of [
+    ['fire-planner', planner],
+    ['fire-planner-loader', loader],
+  ] as const) {
+    assert.doesNotMatch(src, /\[0, 0\.03, 0\.05, 0\.07\]/, `${name}: 正式シナリオを書き写している`)
+  }
+})
+
+test('税率の既定は0%（税引前）。取り崩しへ一律課税を織り込まない', () => {
+  assert.match(planner, /export const DEFAULT_TAX_RATE = 0\b/)
+  assert.match(planner, /export const SIMPLIFIED_TAX_RATE = 0\.20315/)
 })
 
 test('日付計算を再実装していない', () => {

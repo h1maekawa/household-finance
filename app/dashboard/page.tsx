@@ -9,23 +9,25 @@
 //
 // 情報の優先順:
 //   今月あと使える → 配分 → 総資産 → 今やること → 目標 → コーチ
+//
+// 「今やること」は以前ここで5つのAPIを見て条件分岐していた。何を見せるかは
+// 判断なので、action-planner(サーバー)へ移した。
 import useSWR from 'swr'
 import Link from 'next/link'
 import { format } from 'date-fns'
 import { ja } from 'date-fns/locale'
-import { ArrowRight, CircleAlert, Landmark, Target } from 'lucide-react'
+import { ArrowRight, Landmark, Target } from 'lucide-react'
 import AccountMenu from '@/components/AccountMenu'
 import CoachCard from '@/components/CoachCard'
 import CreditCardMonthlyPrompt from '@/components/CreditCardMonthlyPrompt'
 import MoneyFlow from '@/components/MoneyFlow'
+import MonthlyActions from '@/components/home/MonthlyActions'
 import SpendingPace from '@/components/home/SpendingPace'
 import { NotAvailable, Skeleton, StatCard, yen } from '@/components/home/AmountBlock'
 import { fetcher } from '@/lib/fetcher'
 import { ICON_STROKE } from '@/lib/nav'
 import type { AssetPlanningResult } from '@/lib/services/asset-planning'
 import type { AssetSummary } from '@/lib/services/asset-summary-loader'
-import type { CashflowResponse } from '@/types/cashflow'
-import type { TransactionsResponse } from '@/types/transaction'
 
 type PlanResponse = AssetPlanningResult & { assets: AssetSummary }
 
@@ -33,19 +35,9 @@ export default function HomePage() {
   const now = new Date()
 
   const { data: plan, error: planError } = useSWR<PlanResponse>('/api/asset-planning', fetcher)
-  const { data: cashflow } = useSWR<CashflowResponse>('/api/cashflow', fetcher)
-  const { data: transactionData } = useSWR<TransactionsResponse>(
-    `/api/transactions?year=${now.getFullYear()}&month=${now.getMonth() + 1}`,
-    fetcher
-  )
 
   const loading = !plan && !planError
-  const cashflowRows = cashflow?.projectedDays ?? []
-  const negativeDay = cashflowRows.find(day => day.isNegative)
-  const unassigned = cashflow?.unassignedCardUsage
-  const reviewCount = (transactionData?.transactions ?? []).filter(tx => tx.needs_review).length
   const goal = plan?.goals[0]
-  const emergency = plan?.emergencyFund
 
   return (
     <div className="mx-auto max-w-xl">
@@ -121,53 +113,8 @@ export default function HomePage() {
         {/* 今月のお金の配分。Money Flow は既存コンポーネントを再利用 */}
         {plan && <MoneyFlow plan={plan.moneyPlan} />}
 
-        {/* 今やること */}
-        {(negativeDay ||
-          emergency?.status === 'underfunded' ||
-          (unassigned?.count ?? 0) > 0 ||
-          reviewCount > 0 ||
-          plan?.missingData.length) && (
-          <section className="card p-4">
-            <h2 className="text-[13px] font-bold">今やること</h2>
-            <div className="mt-2.5 space-y-2.5">
-              {negativeDay && (
-                <ActionRow
-                  href="/plan?tab=payments"
-                  tone="danger"
-                  title="残高が不足する見込みです"
-                  detail={`${format(new Date(negativeDay.date), 'M月d日', { locale: ja })}に 不足 ${yen(Math.abs(negativeDay.balance))}`}
-                />
-              )}
-              {emergency?.status === 'underfunded' && emergency.reserveGap! > 0 && (
-                <ActionRow
-                  href="/plan"
-                  tone="warning"
-                  title={`防衛資金があと ${yen(emergency.reserveGap!)} 必要です`}
-                  detail={`現在 ${yen(emergency.currentReserve!)} / 目安 ${yen(emergency.requiredReserve!)}（生活費を安全側に見た目安）`}
-                />
-              )}
-              {(unassigned?.count ?? 0) > 0 && (
-                <ActionRow
-                  href="/plan?tab=payments"
-                  tone="warning"
-                  title="カード請求に未割当の利用があります"
-                  detail={`${unassigned!.count}件 ${yen(unassigned!.total)}`}
-                />
-              )}
-              {reviewCount > 0 && (
-                <ActionRow
-                  href="/transactions"
-                  tone="info"
-                  title="カテゴリが未確定の取引があります"
-                  detail={`${reviewCount}件`}
-                />
-              )}
-              {plan?.missingData.map(item => (
-                <ActionRow key={item} href="/settings" tone="info" title={item} detail="設定する" />
-              ))}
-            </div>
-          </section>
-        )}
+        {/* 今やること。何を出すかはサーバー(action-planner)が決める */}
+        <MonthlyActions />
 
         {/* 目標は主目標だけ。判定は goal-progress のものを表示するだけ */}
         {goal && (
@@ -202,30 +149,5 @@ function ErrorState() {
       href="/dashboard"
       cta="再読み込み"
     />
-  )
-}
-
-function ActionRow({
-  href,
-  title,
-  detail,
-  tone,
-}: {
-  href: string
-  title: string
-  detail: string
-  tone: 'danger' | 'warning' | 'info'
-}) {
-  const color =
-    tone === 'danger' ? 'text-danger' : tone === 'warning' ? 'text-warning' : 'text-primary'
-  return (
-    <Link href={href} className="flex items-start gap-2.5 transition-base active:opacity-80">
-      <CircleAlert size={16} strokeWidth={ICON_STROKE} className={`mt-0.5 shrink-0 ${color}`} aria-hidden />
-      <span className="min-w-0 flex-1">
-        <span className="block text-[13px] font-medium">{title}</span>
-        <span className="block text-[11px] text-muted">{detail}</span>
-      </span>
-      <ArrowRight size={14} strokeWidth={ICON_STROKE} className="mt-1 shrink-0 text-muted" aria-hidden />
-    </Link>
   )
 }

@@ -10,15 +10,15 @@
 // （生活固定費 + 変動費予算）をそのまま推定値にする。FIRE 用に別の
 // 生活費の定義を作ると、同じ画面の中で数字が食い違う。
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { loadAssetPlanning } from './asset-planning-loader'
+import { loadAssetPlanning, type AssetPlanningLoad } from './asset-planning-loader'
 import {
-  DEFAULT_RETURN_RATE,
   DEFAULT_TAX_RATE,
   buildFirePlan,
   isFireType,
   type FirePlan,
   type FireSettings,
 } from './fire-planner'
+import { DEFAULT_RETURN_RATE } from './return-assumptions'
 
 export type StoredFireSettings = FireSettings & {
   /** 行がまだ無い（既定値で表示している）状態 */
@@ -30,7 +30,7 @@ export function defaultFireSettings(): StoredFireSettings {
   return {
     fireType: 'semi',
     monthlyLivingCost: null,
-    sideIncomeMonthly: 0,
+    postFireMonthlyIncome: 0,
     targetAssetIncomeMonthly: null,
     assumedReturnRate: DEFAULT_RETURN_RATE,
     taxRate: DEFAULT_TAX_RATE,
@@ -45,7 +45,7 @@ export async function loadFireSettings(
   const { data, error } = await client
     .from('fire_settings')
     .select(
-      'fire_type, monthly_living_cost, side_income_monthly, target_asset_income_monthly, assumed_return_rate, tax_rate'
+      'fire_type, monthly_living_cost, post_fire_monthly_income, target_asset_income_monthly, assumed_return_rate, tax_rate'
     )
     .eq('user_id', userId)
     .maybeSingle()
@@ -61,7 +61,7 @@ export async function loadFireSettings(
       data.monthly_living_cost === null || data.monthly_living_cost === undefined
         ? null
         : Number(data.monthly_living_cost),
-    sideIncomeMonthly: Number(data.side_income_monthly ?? 0),
+    postFireMonthlyIncome: Number(data.post_fire_monthly_income ?? 0),
     targetAssetIncomeMonthly:
       data.target_asset_income_monthly === null || data.target_asset_income_monthly === undefined
         ? null
@@ -77,6 +77,31 @@ export type FirePlanLoad = {
   settings: StoredFireSettings
 }
 
+/**
+ * 設定と、既に読み込んだ asset-planning から FirePlan を組み立てる。
+ *
+ * Scenario Engine も FIRE の必要資産を目標として使うので（スペック §23 / §31）、
+ * 生活費のフォールバックを2箇所に書かないためここへ切り出す。
+ * loadAssetPlanning を2回呼ばないよう、読み込み済みの結果を受け取る。
+ */
+export function composeFirePlan(
+  settings: StoredFireSettings,
+  assetPlanning: AssetPlanningLoad,
+  month: string
+): FirePlan {
+  // 生活費の推定は「家計側の必須生活費」を借りるだけ。ここで組み立て直さない
+  const estimatedLivingCost = assetPlanning.plan.emergencyFund.monthlyEssentialExpenses
+  const usesEstimate = settings.monthlyLivingCost === null && estimatedLivingCost !== null
+
+  return buildFirePlan({
+    settings: usesEstimate ? { ...settings, monthlyLivingCost: estimatedLivingCost } : settings,
+    livingCostSource: usesEstimate ? 'budget' : 'user',
+    currentAssets: assetPlanning.assets.totalAssets,
+    monthlyContribution: assetPlanning.plan.monthlyAssetContribution,
+    asOfMonth: month,
+  })
+}
+
 export async function loadFirePlan(
   userId: string,
   month: string,
@@ -88,20 +113,5 @@ export async function loadFirePlan(
     loadAssetPlanning(userId, month, today, client),
   ])
 
-  // 生活費の推定は「家計側の必須生活費」を借りるだけ。ここで組み立て直さない
-  const estimatedLivingCost = assetPlanning.plan.emergencyFund.monthlyEssentialExpenses
-  const usesEstimate = settings.monthlyLivingCost === null && estimatedLivingCost !== null
-
-  return {
-    settings,
-    plan: buildFirePlan({
-      settings: usesEstimate
-        ? { ...settings, monthlyLivingCost: estimatedLivingCost }
-        : settings,
-      livingCostSource: usesEstimate ? 'budget' : 'user',
-      currentAssets: assetPlanning.assets.totalAssets,
-      monthlyContribution: assetPlanning.plan.monthlyAssetContribution,
-      asOfMonth: month,
-    }),
-  }
+  return { settings, plan: composeFirePlan(settings, assetPlanning, month) }
 }

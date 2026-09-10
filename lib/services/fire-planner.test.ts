@@ -1,25 +1,27 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  DEFAULT_RETURN_RATE,
   DEFAULT_TAX_RATE,
-  OFFICIAL_RETURN_RATES,
+  SIMPLIFIED_TAX_RATE,
+  TAX_RATE_PRESETS,
   buildFirePlan,
   grossAnnualAssetIncome,
   isFireType,
   requiredAssetsFor,
   requiredMonthlyAssetIncome,
+  taxAssumptionLabel,
   zeroReturnAchievementMonth,
   type FireSettings,
 } from './fire-planner'
+import { DEFAULT_RETURN_RATE, OFFICIAL_RETURN_RATES } from './return-assumptions'
 
 const settings = (patch: Partial<FireSettings> = {}): FireSettings => ({
   fireType: 'semi',
   monthlyLivingCost: 200_000,
-  sideIncomeMonthly: 100_000,
+  postFireMonthlyIncome: 100_000,
   targetAssetIncomeMonthly: null,
   assumedReturnRate: DEFAULT_RETURN_RATE,
-  taxRate: 0,
+  taxRate: DEFAULT_TAX_RATE,
   ...patch,
 })
 
@@ -32,7 +34,7 @@ test('完全FIRE は副業収入を当てにしない', () => {
 })
 
 test('副業収入が生活費を超えるなら必要な資産収入は0円', () => {
-  const result = requiredMonthlyAssetIncome(settings({ sideIncomeMonthly: 300_000 }))
+  const result = requiredMonthlyAssetIncome(settings({ postFireMonthlyIncome: 300_000 }))
   assert.equal(result, 0)
 })
 
@@ -47,17 +49,32 @@ test('資産収入目標が入っていれば生活費からの逆算より優�
   assert.equal(result, 150_000)
 })
 
-test('スペック §21 の例と一致する(税率0%・利回り4%で3,000万円)', () => {
-  const gross = grossAnnualAssetIncome(100_000, 0)
+test('スペック §21 の例と一致する(既定の税引前・利回り4%で3,000万円)', () => {
+  const gross = grossAnnualAssetIncome(100_000, DEFAULT_TAX_RATE)
   assert.equal(gross, 1_200_000)
   assert.equal(requiredAssetsFor(gross, 0.04), 30_000_000)
 })
 
-test('税率を置くと必要資産は増える(税を無視して小さく見積もらない)', () => {
-  const gross = grossAnnualAssetIncome(100_000, DEFAULT_TAX_RATE)
+test('既定は税引前。取り崩しへ一律課税を織り込まない', () => {
+  // NISA・元本取り崩し・控除で実際の税額は変わるので、既定で課税を仮定しない
+  assert.equal(DEFAULT_TAX_RATE, 0)
+  assert.equal(grossAnnualAssetIncome(100_000, DEFAULT_TAX_RATE), 1_200_000)
+  assert.equal(taxAssumptionLabel(DEFAULT_TAX_RATE), '税引前シミュレーション')
+})
+
+test('20.315% は参考シナリオとして選べる', () => {
+  assert.equal(SIMPLIFIED_TAX_RATE, 0.20315)
+  assert.deepEqual([...TAX_RATE_PRESETS], [0, 0.20315])
+  assert.equal(taxAssumptionLabel(SIMPLIFIED_TAX_RATE), '課税を単純化した参考シナリオ')
+  // 課税を仮定した場合は必要資産が増える側に動く
+  const gross = grossAnnualAssetIncome(100_000, SIMPLIFIED_TAX_RATE)
   assert.ok(gross !== null && gross > 1_200_000)
   const required = requiredAssetsFor(gross, 0.04)
   assert.ok(required !== null && required > 30_000_000)
+})
+
+test('独自の税率は参考シナリオと区別する', () => {
+  assert.equal(taxAssumptionLabel(0.15), '独自の税率の仮定')
 })
 
 test('利回り0%では必要資産は null。0円や巨大な有限額にしない', () => {
@@ -134,7 +151,7 @@ test('生活費を家計から推定したことが分かる', () => {
 
 test('副業収入だけで賄えている状態を伝える', () => {
   const plan = buildFirePlan({
-    settings: settings({ sideIncomeMonthly: 250_000 }),
+    settings: settings({ postFireMonthlyIncome: 250_000 }),
     livingCostSource: 'user',
     currentAssets: 0,
     monthlyContribution: 0,

@@ -63,6 +63,9 @@ AIへ渡すのは計算済みの Context だけです。AIの出力を金額と�
 | `lib/services/goal-progress.ts` | 目標の逆算と達成見込み判定 |
 | `lib/services/goal-milestone.ts` | 目標の通過点の到達判定と、次の通過点までの距離 |
 | `lib/services/fire-planner.ts` | FIRE に必要な資産の逆算。I/Oは `fire-planner-loader.ts` |
+| `lib/services/scenario-engine.ts` | 条件を変えたときの目標到達の比較。I/Oは `scenario-loader.ts` |
+| `lib/services/action-planner.ts` | 「今月やること」の選別と並び。I/Oは `action-planner-loader.ts` |
+| `lib/services/return-assumptions.ts` | 想定利回りの仮定（0/3/5/7%）。FIRE と Scenario が共有する |
 | `lib/services/expense-intelligence.ts` | カテゴリ別の支出分析と見直し候補。I/Oは `expense-intelligence-loader.ts` |
 | `lib/services/fixed-costs.ts` / `fixed-cost-matching.ts` | 固定費の解決と、予定と実績の突合 |
 | `lib/services/upcoming-debits.ts` | 直近の引落予定 |
@@ -84,14 +87,47 @@ AIへ渡すのは計算済みの Context だけです。AIの出力を金額と�
 
 `projection.ts` は利回り0%の単純積立だけを出します。ここは変えません。
 
-FIRE の必要資産だけは利回りの仮定を置かないと計算できないため、
-`fire-planner.ts` が 0% / 3% / 5% / 7%（正式シナリオ）と、ユーザー指定の
-Custom を並べて出します。次を守ってください。
+FIRE の必要資産と Scenario の比較だけは利回りの仮定を置かないと計算できないため、
+0% / 3% / 5% / 7%（正式シナリオ）とユーザー指定の Custom を並べて出します。
+正式シナリオの定義は `return-assumptions.ts` の1箇所だけです。次を守ってください。
 
-- 利回り0%では必要資産は `null`（「賄えない」）。0円でも巨大な有限額でもない
-- 税率を無視して必要資産を小さく見積もらない。手取りから税引前へ割り戻す
-- 到達時期は利回り0%の単純積立で出す。必要資産側の仮定と複利を二重に重ねない
-- 画面に「保証」「確実」と読める表現を出さない
+- 利回り0%では FIRE の必要資産は `null`（「賄えない」）。0円でも巨大な有限額でもない
+- **Scenario Engine の利回り0%は既存 `projection.ts` をそのまま呼ぶ。** 同じ単純積立の式を2つ持たない
+- 到達判定には必ず上限（`MAX_PROJECTION_MONTHS` = 1200ヶ月）を置く。到達しない条件で無限に回さない
+- 月次複利の途中で円へ丸めない。丸めるのは出力の一度だけ
+- 画面に「確実に」「必ず」と読める表現を出さない
+
+### 税金の扱い
+
+FIRE Planner の税率の既定は **0%（税引前シミュレーション）** です。取り崩し額へ
+一律 20.315% がかかる前提は取れません（NISA の非課税枠、元本部分の取り崩し、
+控除の状況で実際の税額は変わります）。20.315% は「課税を単純化した参考シナリオ」
+として選べるだけで、実際の税額を示すものではありません。
+
+税の計算は `fire-planner.ts` だけが持ちます。Scenario Engine は FIRE が出した
+`requiredAssets` を目標として受け取るだけで、税を再計算しません。
+
+### FIRE の「副業収入」は2種類ある
+
+混同すると意味が壊れるので、別のフィールドにしています。
+
+| 名前 | 意味 | どこが持つか |
+|---|---|---|
+| `postFireMonthlyIncome` | **FIRE後**に続く収入。必要な資産収入を減らす | `fire_settings`（保存する） |
+| `monthlyExtraContribution` | **FIREまで**の到達を早める追加積立 | Scenario の入力（保存しない） |
+
+### Action Planner も計算エンジンではない
+
+`action-planner.ts` は判定を持ちません。超過・ペース・引落不足・払い漏れの判定は
+`coach-rules.ts`、金額は `budget-engine` / `asset-planning` が出したものを使い、
+ここがやるのは **既に出ている判定を「行動」の言い方へ写し、優先順に並べ、絞る**
+ことだけです。新しい金融ルールをここへ足さないでください。
+
+「今月やること」は最大5件（Home は3件）です。全部並べると何から手を付ければ
+いいか分からなくなり、結局どれもやらない画面になります。
+
+以前この選別は Home の JSX の中に条件分岐として書かれていました。**「何を見せるか」
+は判断であって整形ではない**ので、UI に置かないでください。
 
 ### Asset Planning は計算エンジンではない
 

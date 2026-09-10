@@ -13,6 +13,7 @@
 // 使うかは呼び出し側（Loader）が決め、この関数は渡された値だけを使う。
 import { addMonthsToMonth } from './goal-progress'
 import { yen } from './money'
+import { OFFICIAL_RETURN_RATES, isOfficialReturnRate } from './return-assumptions'
 
 export const FIRE_TYPES = ['full', 'semi'] as const
 export type FireType = (typeof FIRE_TYPES)[number]
@@ -32,23 +33,40 @@ export function isFireType(value: unknown): value is FireType {
 }
 
 /**
- * 正式シナリオの利回り（スペック §22）。
- * これ以外の利回りは Custom Scenario として扱い、正式値と混ぜない。
+ * 税率の既定は **0%（税引前シミュレーション）**。
+ *
+ * 取り崩し額に一律 20.315% がかかる、という前提は取れない。NISA の非課税枠、
+ * 元本部分の取り崩し、譲渡益の有無、控除の状況で実際の税額は大きく変わる。
+ * 既定で課税を織り込むと「税引後で必要な額」を装った数字になってしまうので、
+ * 既定は税引前とし、課税を見たいユーザーだけが仮定を置く。
  */
-export const OFFICIAL_RETURN_RATES = [0, 0.03, 0.05, 0.07] as const
+export const DEFAULT_TAX_RATE = 0
 
-/** 上場株式等の申告分離課税（所得税・住民税・復興特別所得税） */
-export const DEFAULT_TAX_RATE = 0.20315
+/**
+ * 課税を単純化した参考シナリオ（上場株式等の申告分離課税）。
+ * 実際の税額を示すものではなく、あくまで比較用の仮定として提示する。
+ */
+export const SIMPLIFIED_TAX_RATE = 0.20315
 
-/** 想定利回りの既定値。いわゆる4%ルールに合わせる（あくまで仮定） */
-export const DEFAULT_RETURN_RATE = 0.04
+export const TAX_RATE_PRESETS = [DEFAULT_TAX_RATE, SIMPLIFIED_TAX_RATE] as const
+
+/** 税率の仮定の呼び名。保証と読める表現は使わない */
+export function taxAssumptionLabel(taxRate: number): string {
+  if (taxRate <= 0) return '税引前シミュレーション'
+  if (taxRate === SIMPLIFIED_TAX_RATE) return '課税を単純化した参考シナリオ'
+  return '独自の税率の仮定'
+}
 
 export type FireSettings = {
   fireType: FireType
   /** 月の生活費。未入力なら null（0円ではない） */
   monthlyLivingCost: number | null
-  /** 副業・事業収入。完全FIREでは計算に使わない */
-  sideIncomeMonthly: number
+  /**
+   * **FIRE後**に継続する副業・事業収入。完全FIREでは計算に使わない。
+   * FIREまでの資産形成を加速する追加積立（Scenario Engine の
+   * monthlyExtraContribution）とは別物なので、同じ名前に寄せない。
+   */
+  postFireMonthlyIncome: number
   /** ユーザーが直接指定した資産収入目標。null なら生活費から逆算する */
   targetAssetIncomeMonthly: number | null
   assumedReturnRate: number
@@ -73,7 +91,7 @@ export type FirePlan = {
   monthlyLivingCost: number | null
   /** 生活費をユーザー入力から取ったか、家計から推定したか */
   livingCostSource: 'user' | 'budget' | 'unknown'
-  sideIncomeMonthly: number
+  postFireMonthlyIncome: number
   /** 資産収入目標をユーザーが直接指定したか、生活費から逆算したか */
   assetIncomeSource: 'user' | 'derived' | 'unknown'
   /** 毎月必要な資産収入（手取り）。算出できないなら null */
@@ -81,6 +99,8 @@ export type FirePlan = {
   /** 年間で必要な資産収入（税引前）。算出できないなら null */
   requiredAnnualAssetIncomeGross: number | null
   taxRate: number
+  /** 税率の仮定の呼び名。既定は「税引前シミュレーション」 */
+  taxAssumptionLabel: string
   assumedReturnRate: number
   /** 想定利回りでのシナリオ。画面の主表示はこれ */
   primary: FireScenario
@@ -110,7 +130,7 @@ export function requiredMonthlyAssetIncome(settings: FireSettings): number | nul
   const living = Math.max(yen(settings.monthlyLivingCost), 0)
   if (settings.fireType === 'full') return living
 
-  const side = Math.max(yen(settings.sideIncomeMonthly), 0)
+  const side = Math.max(yen(settings.postFireMonthlyIncome), 0)
   return Math.max(living - side, 0)
 }
 
@@ -151,7 +171,7 @@ function buildScenario(
   currentAssets: number | null
 ): FireScenario {
   const requiredAssets = requiredAssetsFor(grossAnnual, returnRate)
-  const isOfficial = OFFICIAL_RETURN_RATES.some(rate => rate === returnRate)
+  const isOfficial = isOfficialReturnRate(returnRate)
 
   if (requiredAssets === null || currentAssets === null) {
     return { returnRate, isOfficial, requiredAssets, fundedRatio: null, shortfall: null }
@@ -212,7 +232,7 @@ export function buildFirePlan(input: FirePlanInput): FirePlan {
     monthlyLivingCost:
       settings.monthlyLivingCost === null ? null : yen(settings.monthlyLivingCost),
     livingCostSource: settings.monthlyLivingCost === null ? 'unknown' : input.livingCostSource,
-    sideIncomeMonthly: Math.max(yen(settings.sideIncomeMonthly), 0),
+    postFireMonthlyIncome: Math.max(yen(settings.postFireMonthlyIncome), 0),
     assetIncomeSource:
       settings.targetAssetIncomeMonthly !== null
         ? 'user'
@@ -222,6 +242,7 @@ export function buildFirePlan(input: FirePlanInput): FirePlan {
     requiredMonthlyAssetIncome: monthlyNet,
     requiredAnnualAssetIncomeGross: grossAnnual,
     taxRate: settings.taxRate,
+    taxAssumptionLabel: taxAssumptionLabel(settings.taxRate),
     assumedReturnRate: settings.assumedReturnRate,
     primary,
     scenarios,
