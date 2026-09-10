@@ -65,6 +65,8 @@ AIへ渡すのは計算済みの Context だけです。AIの出力を金額と�
 | `lib/services/fire-planner.ts` | FIRE に必要な資産の逆算。I/Oは `fire-planner-loader.ts` |
 | `lib/services/scenario-engine.ts` | 条件を変えたときの目標到達の比較。I/Oは `scenario-loader.ts` |
 | `lib/services/action-planner.ts` | 「今月やること」の選別と並び。I/Oは `action-planner-loader.ts` |
+| `lib/services/ai-fp-intent.ts` | AI FP への質問から「どの計算が必要か」を決める。I/Oは `ai-fp-loader.ts` |
+| `lib/services/ai-fp-context.ts` | AI へ渡す計算済みデータの組み立て |
 | `lib/services/return-assumptions.ts` | 想定利回りの仮定（0/3/5/7%）。FIRE と Scenario が共有する |
 | `lib/services/expense-intelligence.ts` | カテゴリ別の支出分析と見直し候補。I/Oは `expense-intelligence-loader.ts` |
 | `lib/services/fixed-costs.ts` / `fixed-cost-matching.ts` | 固定費の解決と、予定と実績の突合 |
@@ -128,6 +130,25 @@ FIRE Planner の税率の既定は **0%（税引前シミュレーション）**
 
 以前この選別は Home の JSX の中に条件分岐として書かれていました。**「何を見せるか」
 は判断であって整形ではない**ので、UI に置かないでください。
+
+### AI は金融計算をしない
+
+```
+User → 意図の判定(決定論) → Finance Engine → 計算結果 → AIが説明
+```
+
+**質問の意図と金額の読み取りも AI にやらせません。** `ai-fp-intent.ts` が
+決定論で解析します。AI に「毎月+2万円投資したら？」の2万円を読ませると、
+3万円と読み違えても誰も気付けないためです。
+
+AI へ渡すのは `ai-fp-context.ts` が組み立てた計算済みデータだけで、生の取引は
+渡しません。**AI の答えに、このデータに無い数字が出てはいけません。**
+
+画面に出す比較の数字は、AI の文章からではなく**サーバーが返した値**を描画します。
+AI が金額を言い違えても、表示される数字は決定論のまま残ります。
+
+AI に決めさせないもの（スペック §28 / §34）: 削減額 / 副業収入額 / 投資額 /
+利回り / 目標額 / 特定銘柄の売買 / 保証と読める利回り表現。
 
 ### Asset Planning は計算エンジンではない
 

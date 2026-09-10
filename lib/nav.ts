@@ -8,7 +8,7 @@
 //   家計簿   … 実際に何へ使ったか
 //   プラン   … これからのお金を設計する
 //   資産     … 今持っている資産を見る
-//   コーチ   … 計算結果を説明してもらう
+//   AI FP    … 計算結果を説明してもらい、条件を変えて相談する
 //
 // 設定は毎日触るものではないので下部タブから外し、ヘッダーのアバターから入る。
 import {
@@ -33,7 +33,7 @@ export const NAV_ITEMS: NavItem[] = [
   { href: '/transactions', label: '家計簿', icon: WalletCards, hint: '実際に何へ使ったかを見る' },
   { href: '/plan', label: 'プラン', icon: CalendarClock, hint: 'これからのお金を設計する' },
   { href: '/investments', label: '資産', icon: ChartPie, hint: '今持っている資産を見る' },
-  { href: '/coach', label: 'コーチ', icon: Sparkles, hint: '計算結果を説明してもらう' },
+  { href: '/coach', label: 'AI FP', icon: Sparkles, hint: '計算結果をもとに相談する' },
 ]
 
 /** アイコンの見た目を全画面で揃える */

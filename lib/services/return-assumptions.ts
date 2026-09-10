@@ -14,6 +14,13 @@ export const OFFICIAL_RETURN_RATES = [0, 0.03, 0.05, 0.07] as const
 /** FIRE の必要資産で使う既定の想定利回り。いわゆる4%ルールに合わせた仮定 */
 export const DEFAULT_RETURN_RATE = 0.04
 
+/**
+ * Scenario 比較の既定の想定利回り。
+ * 画面の初期選択と AI FP の回答で違う利回りを使うと、同じ質問に別の答えが
+ * 出るので、既定はここだけに置く。
+ */
+export const DEFAULT_SCENARIO_RETURN_RATE = OFFICIAL_RETURN_RATES[1]
+
 export function isOfficialReturnRate(rate: number): boolean {
   return OFFICIAL_RETURN_RATES.some(official => official === rate)
 }
