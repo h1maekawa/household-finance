@@ -41,6 +41,7 @@ import { fetcher } from '@/lib/fetcher'
 import PageTabs, { useActiveTab, type PageTab } from '@/components/PageTabs'
 import AlertBanner from '@/components/AlertBanner'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
+import CategoryAnalysis from '@/components/expense/CategoryAnalysis'
 import { CATEGORY_COLORS } from '@/lib/category-colors'
 import { ICON_STROKE } from '@/lib/nav'
 
@@ -229,6 +230,8 @@ export default function TransactionTabs() {
 
         {tab === 'analysis' && (
         <>
+        {/* カテゴリ別の実績と見直し候補。判定はサーバーの純関数が正 */}
+        <CategoryAnalysis month={format(range.start, 'yyyy-MM')} />
         {/* 固定費が増えた等の気づき。ホームから外した先の居場所がここ */}
         {Array.isArray(analysis?.alerts) && analysis.alerts.length > 0 && (
           <AlertBanner alerts={analysis.alerts} />
