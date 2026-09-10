@@ -64,6 +64,7 @@ AIへ渡すのは計算済みの Context だけです。AIの出力を金額と�
 | `lib/services/goal-milestone.ts` | 目標の通過点の到達判定と、次の通過点までの距離 |
 | `lib/services/fire-planner.ts` | FIRE に必要な資産の逆算。I/Oは `fire-planner-loader.ts` |
 | `lib/services/scenario-engine.ts` | 条件を変えたときの目標到達の比較。I/Oは `scenario-loader.ts` |
+| `lib/services/action-planner.ts` | 「今月やること」の選別と並び。I/Oは `action-planner-loader.ts` |
 | `lib/services/return-assumptions.ts` | 想定利回りの仮定（0/3/5/7%）。FIRE と Scenario が共有する |
 | `lib/services/expense-intelligence.ts` | カテゴリ別の支出分析と見直し候補。I/Oは `expense-intelligence-loader.ts` |
 | `lib/services/fixed-costs.ts` / `fixed-cost-matching.ts` | 固定費の解決と、予定と実績の突合 |
@@ -114,6 +115,19 @@ FIRE Planner の税率の既定は **0%（税引前シミュレーション）**
 |---|---|---|
 | `postFireMonthlyIncome` | **FIRE後**に続く収入。必要な資産収入を減らす | `fire_settings`（保存する） |
 | `monthlyExtraContribution` | **FIREまで**の到達を早める追加積立 | Scenario の入力（保存しない） |
+
+### Action Planner も計算エンジンではない
+
+`action-planner.ts` は判定を持ちません。超過・ペース・引落不足・払い漏れの判定は
+`coach-rules.ts`、金額は `budget-engine` / `asset-planning` が出したものを使い、
+ここがやるのは **既に出ている判定を「行動」の言い方へ写し、優先順に並べ、絞る**
+ことだけです。新しい金融ルールをここへ足さないでください。
+
+「今月やること」は最大5件（Home は3件）です。全部並べると何から手を付ければ
+いいか分からなくなり、結局どれもやらない画面になります。
+
+以前この選別は Home の JSX の中に条件分岐として書かれていました。**「何を見せるか」
+は判断であって整形ではない**ので、UI に置かないでください。
 
 ### Asset Planning は計算エンジンではない
 

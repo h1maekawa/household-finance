@@ -4,8 +4,10 @@
 import Link from 'next/link'
 import { ArrowRight } from 'lucide-react'
 import { ICON_STROKE } from '@/lib/nav'
+import { formatYenPlain } from '@/lib/services/money'
 
-export const yen = (n: number) => `¥${Math.round(n).toLocaleString('ja-JP')}`
+// 書式は lib/services/money.ts が正。画面ごとに丸め方を変えない
+export const yen = (n: number) => formatYenPlain(n)
 
 /** 未計算・エラーを 0円 で代替しない */
 export function NotAvailable({ hint, href, cta }: { hint: string; href?: string; cta?: string }) {
