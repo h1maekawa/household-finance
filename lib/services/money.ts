@@ -54,3 +54,14 @@ export function safeRatio(numerator: number, denominator: number, fallback = 0):
   if (!Number.isFinite(denominator) || denominator <= 0) return fallback
   return numerator / denominator
 }
+
+/**
+ * 表示用の円。「¥30,000」。
+ *
+ * 画面ごとに丸め方や記号を変えないため、書式はここだけに置く。
+ * coach-rules の formatYen（「3万円」）は文章の中で読みやすくするための
+ * 別表記で、こちらは数字として並べるとき用。
+ */
+export function formatYenPlain(value: unknown): string {
+  return `¥${yen(value).toLocaleString('ja-JP')}`
+}
