@@ -1,15 +1,18 @@
 import type { NextRequest } from 'next/server'
 import { getAuthenticatedUser, unauthorized } from '@/lib/auth'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
-import { loadExpenseIntelligence } from '@/lib/services/expense-intelligence-loader'
+import { loadMonthlyActions } from '@/lib/services/action-planner-loader'
 import { readFailed } from '@/lib/api-errors'
-import { resolveMonthParam } from '@/lib/jst'
+import { resolveMonthParam, todayJst } from '@/lib/jst'
 
 export const dynamic = 'force-dynamic'
 
 /**
- * GET /api/expense-intelligence?month=YYYY-MM
- * カテゴリ別の支出分析と見直し候補。ユーザーセッション + RLS。
+ * GET /api/actions?month=YYYY-MM
+ *
+ * 「今月やること」。何を出すかの判断はサーバー（action-planner.ts）が持つ。
+ * 以前は Home の JSX が5つのAPIを見て条件分岐で組み立てていた。
+ * ユーザーセッション + RLS。
  */
 export async function GET(request: NextRequest) {
   const user = await getAuthenticatedUser(request)
@@ -19,8 +22,8 @@ export async function GET(request: NextRequest) {
   const month = resolveMonthParam(request.nextUrl.searchParams.get('month'))
 
   try {
-    return Response.json(await loadExpenseIntelligence(user.id, month, supabase))
+    return Response.json(await loadMonthlyActions(user.id, month, todayJst(), supabase))
   } catch (error) {
-    return readFailed('api/expense-intelligence', error)
+    return readFailed('api/actions', error)
   }
 }

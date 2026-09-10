@@ -7,6 +7,7 @@ import { useEffect, useState } from 'react'
 import useSWR from 'swr'
 import { fetcher } from '@/lib/fetcher'
 import { useToast } from '@/components/Toast'
+import MilestoneModal from '@/components/plan/MilestoneModal'
 import type { GoalInput, GoalKind, LifeGoal } from '@/types/goal'
 
 const GOAL_KINDS: { value: GoalKind; label: string }[] = [
@@ -33,6 +34,7 @@ export default function GoalList() {
   const { showToast } = useToast()
   const [showModal, setShowModal] = useState(false)
   const [editTarget, setEditTarget] = useState<LifeGoal | null>(null)
+  const [milestoneTarget, setMilestoneTarget] = useState<LifeGoal | null>(null)
 
   const goals = Array.isArray(data) ? data : []
 
@@ -80,6 +82,15 @@ export default function GoalList() {
                 </p>
               </div>
               <div className="flex shrink-0 items-center gap-2">
+                {/* 通過点は目標額があって初めて意味を持つ */}
+                {goal.target_amount !== null && (
+                  <button
+                    onClick={() => setMilestoneTarget(goal)}
+                    className="rounded-lg bg-surface px-2 py-1 text-[11px] font-medium text-foreground"
+                  >
+                    通過点
+                  </button>
+                )}
                 <button
                   onClick={() => { setEditTarget(goal); setShowModal(true) }}
                   className="text-xs text-muted"
@@ -98,6 +109,10 @@ export default function GoalList() {
             </div>
           ))}
         </div>
+      )}
+
+      {milestoneTarget && (
+        <MilestoneModal goal={milestoneTarget} onClose={() => setMilestoneTarget(null)} />
       )}
 
       {showModal && (

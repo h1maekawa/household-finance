@@ -61,7 +61,7 @@ test('INSERT では body の後に user_id を固定している', () => {
   // { ...body, user_id: user.id } の順序が逆だと、クライアントが他人のIDを
   // 指定できる（RLSで弾かれるが、APIとしても許してはいけない）
   for (const r of routes) {
-    for (const m of r.src.matchAll(/\{\s*\.\.\.(body|allowed)[^}]*\}/g)) {
+    for (const m of r.src.matchAll(/\{\s*\.\.\.(body|allowed|patch)[^}]*\}/g)) {
       const literal = m[0]
       if (!literal.includes('user_id')) continue
       const spreadAt = literal.indexOf('...')
