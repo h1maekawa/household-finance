@@ -4,8 +4,13 @@
 // 4つのタブで、これからのお金を段階的に見る:
 //   今月   … お金の流れと今月の配分。固定費の登録もここ
 //   支払い … いつ・どの口座から・いくら出ていくか(旧キャッシュフロー)
-//   目標   … 目標ごとの進捗と必要な積立
+//   目標   … 目標ごとの進捗と必要な積立。FIRE はここから開く(スペック §16)
 //   将来   … 現在資産と積立からの単純予測
+//
+// FIRE を5つ目のタブにすると横幅が足りずラベルが読めなくなるので、
+// スペック §16 の「FIREを目標画面から開く」を採る。
+import Link from 'next/link'
+import { useSearchParams } from 'next/navigation'
 import useSWR from 'swr'
 import { fetcher } from '@/lib/fetcher'
 import PageShell from '@/components/PageShell'
@@ -20,6 +25,7 @@ import BulkFixedCostImport from '@/components/BulkFixedCostImport'
 import UpcomingPayments from '@/components/UpcomingPayments'
 import AllocationCard from '@/components/plan/AllocationCard'
 import ProjectionCard from '@/components/plan/ProjectionCard'
+import FirePlanView from '@/components/plan/FirePlanView'
 import type { AssetPlanningResult } from '@/lib/services/asset-planning'
 import type { ResolvedScheduledPayment } from '@/types/cashflow'
 
@@ -37,12 +43,14 @@ const DESCRIPTIONS: Record<string, string> = {
   month: '収入から固定費・貯金・資産形成を引いて、今月いくら使えるかを設計します',
   payments: 'いつ・どの口座から・いくら出ていくかを確認します',
   goals: '目標ごとの進捗と、必要な毎月の積立を確認します',
+  fire: '生活費と副業収入から、FIRE に必要な資産を逆算します',
   future: '現在の資産と積立から、将来の資産を単純計算します',
 }
 
 export default function PlanTabs() {
   const rawActive = useActiveTab(TABS)
   const active = LEGACY_TABS[rawActive] ?? rawActive
+  const showFire = useSearchParams().get('view') === 'fire' && active === 'goals'
 
   const { data: payments, mutate: mutatePayments } =
     useSWR<ResolvedScheduledPayment[]>('/api/scheduled-payments', fetcher)
@@ -55,7 +63,7 @@ export default function PlanTabs() {
   const plan = assetPlan?.moneyPlan ?? null
 
   return (
-    <PageShell title="お金の予定" description={DESCRIPTIONS[active]}>
+    <PageShell title="お金の予定" description={showFire ? DESCRIPTIONS.fire : DESCRIPTIONS[active]}>
       <div className="flex flex-col gap-5">
         <PageTabs tabs={TABS} active={active} />
 
@@ -88,7 +96,34 @@ export default function PlanTabs() {
 
         {active === 'payments' && <UpcomingPayments />}
 
-        {active === 'goals' && <GoalList />}
+        {active === 'goals' &&
+          (showFire ? (
+            <>
+              <Link href="/plan?tab=goals" scroll={false} className="text-sm text-primary">
+                ← 目標に戻る
+              </Link>
+              <FirePlanView />
+            </>
+          ) : (
+            <>
+              <GoalList />
+              <Link
+                href="/plan?tab=goals&view=fire"
+                scroll={false}
+                className="card flex items-center justify-between p-4 transition-base active:bg-surface"
+              >
+                <span className="min-w-0">
+                  <span className="block text-sm font-bold">FIRE プラン</span>
+                  <span className="mt-0.5 block text-xs leading-relaxed text-muted">
+                    生活費と副業収入から、必要な資産を逆算します
+                  </span>
+                </span>
+                <span aria-hidden className="shrink-0 pl-3 text-muted">
+                  ›
+                </span>
+              </Link>
+            </>
+          ))}
 
         {active === 'future' &&
           (assetPlan ? (

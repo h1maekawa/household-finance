@@ -36,6 +36,24 @@ RLS が担います。** Proxy を唯一の防御手段にしないでくださ�
 **RLS を有効にしてポリシーが無いテーブルは、service_role 以外から0件に見えます。**
 静かに壊れるので、テーブルを追加したら必ず4操作すべてのポリシーを書いてください。
 
+### 書き込みを関数経由に限るテーブル
+
+行をまたいだ不変条件があるテーブルは、4種のポリシーでは守れません。
+authenticated から `INSERT` / `UPDATE` / `DELETE` を剥奪し、`SECURITY DEFINER`
+関数（`set search_path = public`）だけが書き込みます。
+
+| テーブル | 不変条件 | 書き込み関数 |
+|---|---|---|
+| `transaction_items` (029) | items が1件以上なら合計 = `transactions.amount` | `replace_transaction_items` |
+| `goal_milestones` (031) | 目標が本人のもの / 金額の重複なし / `position` は金額の昇順 | `replace_goal_milestones` |
+
+いずれも対象ユーザーを `auth.uid()` で決め、`user_id` をクライアントから
+受け取りません。1件ずつの行トリガーでは合計や並び順を検査できないため、
+「全消し → 一括INSERT → 検査」を1トランザクションにまとめます。
+
+`expense_preferences` (030) と `fire_settings` (032) は行ごとの `check` 制約で
+足りるので、通常の4ポリシーです。
+
 ## service_role の使用範囲
 
 `supabaseAdmin`（`SUPABASE_SERVICE_ROLE_KEY`）は RLS を完全にバイパスします。

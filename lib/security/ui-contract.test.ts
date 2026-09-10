@@ -32,6 +32,11 @@ test('金融計算の関数がUI層に無い', () => {
     'projectAssets(',
     'computeBudget(',
     'buildAssetPlan(',
+    'buildFirePlan(',
+    'requiredAssetsFor(',
+    'grossAnnualAssetIncome(',
+    'buildMilestoneTrack(',
+    'suggestMilestoneAmounts(',
   ]
   const offenders: string[] = []
   for (const file of uiFiles) {

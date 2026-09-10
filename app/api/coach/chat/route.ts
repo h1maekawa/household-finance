@@ -5,20 +5,9 @@ import { loadAssetPlanning } from '@/lib/services/asset-planning-loader'
 import { buildCoachExplainContext } from '@/lib/services/coach-explain-context'
 import { explainFinance } from '@/lib/gemini'
 import { writeFailed } from '@/lib/api-errors'
+import { currentMonthJst, todayJst } from '@/lib/jst'
 
 export const dynamic = 'force-dynamic'
-
-function currentMonthJst(): string {
-  return new Intl.DateTimeFormat('sv-SE', {
-    timeZone: 'Asia/Tokyo', year: 'numeric', month: '2-digit',
-  }).format(new Date())
-}
-
-function todayJst(): string {
-  return new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Asia/Tokyo', year: 'numeric', month: '2-digit', day: '2-digit',
-  }).format(new Date())
-}
 
 /**
  * POST /api/coach/chat

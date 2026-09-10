@@ -57,3 +57,21 @@ export type GoalProgress = {
   monthsToTarget: number | null
   status: GoalTrackStatus
 }
+
+/**
+ * 目標の通過点（スペック §19）。
+ * 刻み方はユーザーが決める。position は金額の昇順で DB 側が振る。
+ */
+export type GoalMilestone = {
+  id: string
+  goal_id: string
+  amount: number
+  label: string | null
+  position: number
+}
+
+/** 保存時に送る通過点。id と position はサーバー側で決める */
+export type GoalMilestoneInput = {
+  amount: number
+  label?: string | null
+}

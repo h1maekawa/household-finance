@@ -42,6 +42,24 @@ export async function listGoals(
   return (data ?? []).map(toGoal)
 }
 
+/** 1件の目標。無ければ null（他人の目標は RLS と user_id で二重に弾く） */
+export async function getGoal(
+  userId: string,
+  goalId: string,
+  client?: SupabaseClient
+): Promise<LifeGoal | null> {
+  const supabase = client ?? (await createSupabaseServerClient())
+  const { data, error } = await supabase
+    .from('life_goals')
+    .select(COLUMNS)
+    .eq('user_id', userId)
+    .eq('id', goalId)
+    .maybeSingle()
+
+  if (error) throw new Error(error.message)
+  return data ? toGoal(data) : null
+}
+
 export async function createGoal(userId: string, input: GoalInput): Promise<LifeGoal> {
   const supabase = await createSupabaseServerClient()
   const { data, error } = await supabase

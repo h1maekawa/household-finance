@@ -61,6 +61,9 @@ AIへ渡すのは計算済みの Context だけです。AIの出力を金額と�
 | `lib/services/projection.ts` | 将来資産の単純予測（利回り0%） |
 | `lib/services/asset-planning.ts` | 上記を束ねる Orchestration 層。計算式を持たない |
 | `lib/services/goal-progress.ts` | 目標の逆算と達成見込み判定 |
+| `lib/services/goal-milestone.ts` | 目標の通過点の到達判定と、次の通過点までの距離 |
+| `lib/services/fire-planner.ts` | FIRE に必要な資産の逆算。I/Oは `fire-planner-loader.ts` |
+| `lib/services/expense-intelligence.ts` | カテゴリ別の支出分析と見直し候補。I/Oは `expense-intelligence-loader.ts` |
 | `lib/services/fixed-costs.ts` / `fixed-cost-matching.ts` | 固定費の解決と、予定と実績の突合 |
 | `lib/services/upcoming-debits.ts` | 直近の引落予定 |
 | `lib/services/coach-context.ts` | 上記を束ねて AI Coach 用の Context を作る |
@@ -76,6 +79,19 @@ AIへ渡すのは計算済みの Context だけです。AIの出力を金額と�
 - **カード請求**: 請求そのもの（`type: 'credit'`）は支出に足さない。カードで払った電気代を固定費として1回、翌月の請求として1回、と二重に数えないため
 
 この2点は変更前に必ずテスト（`money-plan.test.ts`）を確認してください。
+
+### 利回りは仮定であって保証ではない
+
+`projection.ts` は利回り0%の単純積立だけを出します。ここは変えません。
+
+FIRE の必要資産だけは利回りの仮定を置かないと計算できないため、
+`fire-planner.ts` が 0% / 3% / 5% / 7%（正式シナリオ）と、ユーザー指定の
+Custom を並べて出します。次を守ってください。
+
+- 利回り0%では必要資産は `null`（「賄えない」）。0円でも巨大な有限額でもない
+- 税率を無視して必要資産を小さく見積もらない。手取りから税引前へ割り戻す
+- 到達時期は利回り0%の単純積立で出す。必要資産側の仮定と複利を二重に重ねない
+- 画面に「保証」「確実」と読める表現を出さない
 
 ### Asset Planning は計算エンジンではない
 
