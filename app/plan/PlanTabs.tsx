@@ -5,7 +5,7 @@
 //   今月   … お金の流れと今月の配分。固定費の登録もここ
 //   支払い … いつ・どの口座から・いくら出ていくか(旧キャッシュフロー)
 //   目標   … 目標ごとの進捗と必要な積立。FIRE はここから開く(スペック §16)
-//   将来   … 現在資産と積立からの単純予測
+//   将来   … 現在資産と積立からの単純予測と、条件を変えた場合の比較
 //
 // FIRE を5つ目のタブにすると横幅が足りずラベルが読めなくなるので、
 // スペック §16 の「FIREを目標画面から開く」を採る。
@@ -26,6 +26,7 @@ import UpcomingPayments from '@/components/UpcomingPayments'
 import AllocationCard from '@/components/plan/AllocationCard'
 import ProjectionCard from '@/components/plan/ProjectionCard'
 import FirePlanView from '@/components/plan/FirePlanView'
+import ScenarioCompare from '@/components/plan/ScenarioCompare'
 import type { AssetPlanningResult } from '@/lib/services/asset-planning'
 import type { ResolvedScheduledPayment } from '@/types/cashflow'
 
@@ -44,13 +45,16 @@ const DESCRIPTIONS: Record<string, string> = {
   payments: 'いつ・どの口座から・いくら出ていくかを確認します',
   goals: '目標ごとの進捗と、必要な毎月の積立を確認します',
   fire: '生活費と副業収入から、FIRE に必要な資産を逆算します',
-  future: '現在の資産と積立から、将来の資産を単純計算します',
+  future: '現在の資産と積立から将来を計算し、条件を変えた場合と比べます',
 }
 
 export default function PlanTabs() {
   const rawActive = useActiveTab(TABS)
   const active = LEGACY_TABS[rawActive] ?? rawActive
-  const showFire = useSearchParams().get('view') === 'fire' && active === 'goals'
+  const searchParams = useSearchParams()
+  const showFire = searchParams.get('view') === 'fire' && active === 'goals'
+  // FIRE 画面から「未来を比較」へ来たときは、目標を FIRE の必要資産にしておく
+  const scenarioTarget = searchParams.get('target') === 'fire' ? 'fire' : 'goal'
 
   const { data: payments, mutate: mutatePayments } =
     useSWR<ResolvedScheduledPayment[]>('/api/scheduled-payments', fetcher)
@@ -125,12 +129,16 @@ export default function PlanTabs() {
             </>
           ))}
 
-        {active === 'future' &&
-          (assetPlan ? (
-            <ProjectionCard plan={assetPlan} />
-          ) : (
-            <div className="card p-4"><div className="skeleton h-48 w-full rounded-xl" /></div>
-          ))}
+        {active === 'future' && (
+          <>
+            {assetPlan ? (
+              <ProjectionCard plan={assetPlan} />
+            ) : (
+              <div className="card p-4"><div className="skeleton h-48 w-full rounded-xl" /></div>
+            )}
+            <ScenarioCompare initialTargetKind={scenarioTarget} />
+          </>
+        )}
       </div>
     </PageShell>
   )

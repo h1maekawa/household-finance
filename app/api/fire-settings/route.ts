@@ -60,7 +60,7 @@ export async function PUT(request: NextRequest) {
   const body = (await request.json().catch(() => ({}))) as Record<string, unknown>
 
   const livingCost = parseYen(body.monthly_living_cost, '月の生活費')
-  const sideIncome = parseYen(body.side_income_monthly, '副業・事業収入')
+  const sideIncome = parseYen(body.post_fire_monthly_income, '副業・事業収入')
   const targetAssetIncome = parseYen(body.target_asset_income_monthly, '資産収入の目標')
   const returnRate = parseRate(body.assumed_return_rate, '想定利回り', 0.2)
   const taxRate = parseRate(body.tax_rate, '税率の仮定', 0.9)
@@ -79,7 +79,7 @@ export async function PUT(request: NextRequest) {
   }
   if (sideIncome.ok && sideIncome.value !== undefined) {
     // 副業収入は「未入力」を許さない（0円が正しい既定値）
-    patch.side_income_monthly = sideIncome.value ?? 0
+    patch.post_fire_monthly_income = sideIncome.value ?? 0
   }
   if (targetAssetIncome.ok && targetAssetIncome.value !== undefined) {
     patch.target_asset_income_monthly = targetAssetIncome.value
