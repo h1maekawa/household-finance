@@ -115,17 +115,10 @@ export function hasIntegrationScope(
   return Boolean(auth?.scopes.includes(scope))
 }
 
-/**
- * 認証と scope 認可をまとめて行う。各ルートへ比較ロジックをコピペしない。
- *
- * 401 … Token が無い・不正・失効・無効
- * 403 … Token は正しいが必要な scope が無い
- */
-export async function requireIntegrationScope(
-  request: NextRequest,
+export function authorizeIntegrationScope(
+  auth: IntegrationAuthContext | null,
   scope: IntegrationScope
-): Promise<{ auth: IntegrationAuthContext } | { response: Response }> {
-  const auth = await resolveIntegrationAuth(request)
+): { auth: IntegrationAuthContext } | { response: Response } {
   if (!auth) {
     return { response: Response.json({ error: 'Unauthorized' }, { status: 401 }) }
   }
@@ -138,4 +131,18 @@ export async function requireIntegrationScope(
     }
   }
   return { auth }
+}
+
+/**
+ * 認証と scope 認可をまとめて行う。各ルートへ比較ロジックをコピペしない。
+ *
+ * 401 … Token が無い・不正・失効・無効
+ * 403 … Token は正しいが必要な scope が無い
+ */
+export async function requireIntegrationScope(
+  request: NextRequest,
+  scope: IntegrationScope
+): Promise<{ auth: IntegrationAuthContext } | { response: Response }> {
+  const auth = await resolveIntegrationAuth(request)
+  return authorizeIntegrationScope(auth, scope)
 }

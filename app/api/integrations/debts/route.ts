@@ -20,12 +20,18 @@ export async function GET(request: NextRequest) {
   const result = await requireIntegrationScope(request, 'assets:read')
   if ('response' in result) return result.response
 
+  const includeSettled = request.nextUrl.searchParams.get('include') === 'all'
+
   try {
-    const { data, error } = await supabaseAdmin
+    let query = supabaseAdmin
       .from('debts')
       .select('id,direction,counterparty,amount,date,due_date,memo,is_settled')
       .eq('user_id', result.auth.userId)
       .order('date', { ascending: false })
+
+    if (!includeSettled) query = query.eq('is_settled', false)
+
+    const { data, error } = await query
 
     if (error) throw error
 

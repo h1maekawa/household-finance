@@ -7,7 +7,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import type { NextRequest } from 'next/server'
 import { hashImportSecret, createIntegrationSecret } from '@/lib/import-secrets'
-import { hasIntegrationScope, type IntegrationAuthContext } from '@/lib/server-auth'
+import { authorizeIntegrationScope, hasIntegrationScope, type IntegrationAuthContext } from '@/lib/server-auth'
 import { effectiveScopes } from './scopes'
 
 const gasToken: IntegrationAuthContext = {
@@ -37,6 +37,17 @@ test('AI Company Token は読み取りだけ許可される', () => {
   assert.equal(hasIntegrationScope(aiToken, 'assets:read'), true)
   assert.equal(hasIntegrationScope(aiToken, 'card-activity:read'), true)
   assert.equal(hasIntegrationScope(aiToken, 'transactions:write'), false)
+})
+
+test('debts assets:read は未認証401・GAS403・AI Company成功', () => {
+  const unauthorized = authorizeIntegrationScope(null, 'assets:read')
+  assert.equal('response' in unauthorized ? unauthorized.response.status : 0, 401)
+
+  const wrongScope = authorizeIntegrationScope(gasToken, 'assets:read')
+  assert.equal('response' in wrongScope ? wrongScope.response.status : 0, 403)
+
+  const success = authorizeIntegrationScope(aiToken, 'assets:read')
+  assert.equal('auth' in success ? success.auth.userId : null, 'user-1')
 })
 
 test('Legacy 環境変数Secretは取込だけ。全APIを呼べる状態にしない', () => {
