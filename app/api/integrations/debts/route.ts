@@ -23,28 +23,45 @@ export async function GET(request: NextRequest) {
   const includeSettled = request.nextUrl.searchParams.get('include') === 'all'
 
   try {
+    const data: Record<string, unknown>[] = []
+    let cursor: string | undefined
+    for (;;) {
     let query = supabaseAdmin
       .from('debts')
       .select('id,direction,counterparty,amount,date,due_date,memo,is_settled')
       .eq('user_id', result.auth.userId)
-      .order('date', { ascending: false })
+      .order('id', { ascending: true })
+      .limit(500)
 
     if (!includeSettled) query = query.eq('is_settled', false)
+    if (cursor) query = query.gt('id', cursor)
 
-    const { data, error } = await query
+    const { data: page, error } = await query
 
     if (error) throw error
+    if (!page?.length) break
+    const next = page.at(-1)!.id as string
+    if (!next || next === cursor || data.length + page.length > 10_000) throw new Error('DEBT_RESULT_LIMIT')
+    data.push(...page)
+    cursor = next
+    }
 
     const items: DebtItem[] = (data ?? []).map((debt) => ({
-      id: debt.id,
-      direction: debt.direction,
-      counterparty: debt.counterparty,
-      amount: Number(debt.amount) || 0,
-      date: debt.date,
-      due_date: debt.due_date ?? null,
-      memo: debt.memo ?? null,
-      is_settled: debt.is_settled,
+      id: debt.id as string,
+      direction: debt.direction as DebtItem['direction'],
+      counterparty: debt.counterparty as string,
+      amount: typeof debt.amount === 'number' ? debt.amount : Number.NaN,
+      date: debt.date as string,
+      due_date: (debt.due_date ?? null) as string | null,
+      memo: (debt.memo ?? null) as string | null,
+      is_settled: debt.is_settled as boolean,
     }))
+    const ids = new Set<string>()
+    for (const item of items) {
+      if (!Number.isFinite(item.amount) || item.amount < 0 || !['borrowed', 'lent'].includes(item.direction) || ids.has(item.id)) throw new Error('INVALID_DEBT')
+      ids.add(item.id)
+    }
+    items.sort((a, b) => b.date.localeCompare(a.date) || a.id.localeCompare(b.id))
 
     const totals = items.reduce(
       (sum, debt) => {
@@ -53,6 +70,7 @@ export async function GET(request: NextRequest) {
       },
       { borrowed: 0, lent: 0 }
     )
+    if (!Number.isFinite(totals.borrowed) || !Number.isFinite(totals.lent)) throw new Error('INVALID_TOTAL')
 
     return Response.json(
       { items, totals },
