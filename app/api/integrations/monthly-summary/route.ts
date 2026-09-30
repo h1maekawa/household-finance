@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server'
-import { resolveIntegrationUserId } from '@/lib/server-auth'
+import { requireIntegrationScope } from '@/lib/server-auth'
 import { supabaseAdmin } from '@/lib/supabase'
 import { loadBudget, monthEnd, monthStart } from '@/lib/services/budget-loader'
 import { getMergedCategories } from '@/lib/categories'
@@ -84,8 +84,9 @@ async function loadNeedsReview(
  * 認証は x-import-secret ヘッダー（GAS取込・investment-capacity と同じ仕組み）。
  */
 export async function GET(request: NextRequest) {
-  const userId = await resolveIntegrationUserId(request)
-  if (!userId) return Response.json({ error: 'Unauthorized' }, { status: 401 })
+  const result = await requireIntegrationScope(request, 'finance-summary:read')
+  if ('response' in result) return result.response
+  const userId = result.auth.userId
 
   const monthParam = request.nextUrl.searchParams.get('month')
   const month = /^\d{4}-\d{2}$/.test(monthParam ?? '') ? (monthParam as string) : currentMonthJst()

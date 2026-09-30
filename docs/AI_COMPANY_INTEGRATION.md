@@ -34,7 +34,7 @@ AI Company は原則 **read-only** です。Flow+ の金融データを書き換
 GET /api/integrations/finance-summary?month=YYYY-MM
 ```
 
-認証は `x-import-secret` ヘッダー（`resolveIntegrationUserId()`）。
+認証は `x-import-secret` ヘッダー（`requireIntegrationScope()`）。
 必要な scope は `finance-summary:read` です。
 
 ### レスポンス
@@ -45,7 +45,7 @@ GET /api/integrations/finance-summary?month=YYYY-MM
 
   "income": { "planned": 300000, "actual": 300000 },
 
-  "expenses": { "fixed": 120000, "variable": 70000 },
+  "expenses": { "fixed": 120000, "variable": 70000, "total": 190000 },
 
   "cashflow": { "free_to_spend": 80000, "daily_allowance": 3333 },
 
@@ -76,7 +76,8 @@ AIの判断ではありません（`investment-capacity` の `missing_data` と�
 
 | エンドポイント | scope | 状態 |
 |---|---|---|
-| `/api/integrations/finance-summary` | `finance-summary:read` | **未実装**（Phase 7）。scope だけ先に定義済み |
+| `/api/integrations/finance-summary` | `finance-summary:read` | 実装済み |
+| `/api/integrations/card-activity` | `card-activity:read` | 実装済み（最小化済みカード利用のみ） |
 | `/api/integrations/investment-capacity` | `investment-capacity:read` | 実装済み |
 | `/api/integrations/tokens` | — | Token の発行・一覧（ユーザーセッション） |
 | `/api/integrations/gas-secret` | — | GAS用 Token の発行・一覧（既存運用の互換） |
@@ -91,6 +92,7 @@ AI Company 用の Token は `POST /api/integrations/tokens` に
 finance-summary:read
 investment-capacity:read
 assets:read
+card-activity:read
 ```
 
 **`transactions:write` は付きません。** AI Company から取引の
@@ -119,6 +121,38 @@ Token は認証できただけでは何も呼べず、必ず scope の確認を�
 
 AI Company 側も `monthly-summary` への依存を作らず、`finance-summary` を利用します
 （ai-company PR #29 は統合後の仕様へ追従させます）。
+
+## Card activity
+
+`GET /api/integrations/card-activity?month=YYYY-MM&limit=30&cursor=...` は
+`card-activity:read` を要求します。返すのは `id`, `date`, `merchant`, `amount`,
+`card`, `category`, `review_status` だけです。メール本文、外部ID、取込メタデータは
+返しません。レスポンスは `no-store` で、ページングの上限は100件です。
+
+既存のAI Company Tokenには新scopeは自動付与されません。新しいTokenを発行し、
+呼び出し側を切り替えてから旧Tokenを失効させてください。GAS Tokenにはこのscopeを
+付与しません。
+
+## New card transaction event
+
+GAS/Gmailから新しいカード支出が登録された後、Flow+は任意でAI Companyの
+`POST /api/integrations/flow/events` へ最小イベントを送れます。
+
+```text
+AI_COMPANY_FLOW_EVENT_URL=https://<ai-company>/api/integrations/flow/events
+FLOW_EVENT_SECRET=<shared server-side secret>
+```
+
+`FLOW_EVENT_SECRET` は両サービスのserver-side環境変数にのみ設定します。送信時は
+13桁Unixミリ秒の `x-flow-timestamp` と、
+`sha256=HMAC_SHA256(secret, timestamp + "." + rawBody)` の
+`x-flow-signature` を付けます。本文はevent、transaction ID、日付、加盟店、金額、
+カード名だけで、メール本文は送りません。
+
+送信は3秒で打ち切ります。AI Company停止、timeout、4xx/5xxでもFlow+への取引登録を
+巻き戻さず、transaction IDと失敗種別だけをserver logへ記録します。重複import時は
+新規イベントを送信しません。現在のGAS importは1リクエスト1取引なので、V1では
+transaction単位です。通知の集約・重複排除はAI Company側のidempotencyで行います。
 
 ## AI Company 側の設計
 

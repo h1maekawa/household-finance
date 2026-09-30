@@ -8,12 +8,13 @@ import {
   scopesForIntegration,
 } from './scopes'
 
-test('scope の定義が4種そろっている', () => {
+test('scope の定義が5種そろっている', () => {
   assert.deepEqual([...INTEGRATION_SCOPES], [
     'transactions:write',
     'finance-summary:read',
     'investment-capacity:read',
     'assets:read',
+    'card-activity:read',
   ])
 })
 
@@ -27,6 +28,7 @@ test('AI Company は read-only。書き込みを持たない', () => {
     'finance-summary:read',
     'investment-capacity:read',
     'assets:read',
+    'card-activity:read',
   ])
 })
 

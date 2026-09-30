@@ -35,6 +35,9 @@ const routes = routeFiles(API_ROOT).map(file => ({
 const SERVICE_ROLE_ALLOWED = new Set([
   'billing/webhook', // Stripe署名で認証。セッションなし
   'integrations/investment-capacity', // Integration Token で user_id を解決
+  'integrations/finance-summary', // Integration Token で user_id を解決
+  'integrations/card-activity', // Integration Token で user_id を解決
+  'integrations/monthly-summary', // Legacy read-only Integration endpoint
   'transactions/import', // 同上（GAS取込）
 ])
 

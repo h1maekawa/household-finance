@@ -9,10 +9,15 @@ import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { ALLOWED_SCOPES } from './scopes'
 
-const sql = readFileSync(
+const hardeningSql = readFileSync(
   path.join(process.cwd(), 'supabase/migrations/027_integration_token_hardening.sql'),
   'utf8'
 )
+const scopeMigration = readFileSync(
+  path.join(process.cwd(), 'supabase/migrations/20260930003257_add_card_activity_scope.sql'),
+  'utf8'
+)
+const sql = `${hardeningSql}\n${scopeMigration}`
 
 test('authenticated からの直接書き込み権限を剥がしている', () => {
   assert.match(sql, /revoke insert, update, delete on user_import_secrets from authenticated/)
@@ -42,7 +47,8 @@ test('発行関数は scopes を引数で受け取らない', () => {
 test('発行関数の scope は ALLOWED_SCOPES と一致する', () => {
   // SQL と TS で正が二重にならないよう、ここで突き合わせる。
   // SQL は発行の権限、TS は認可時の絞り込みに使う
-  const body = sql.slice(sql.indexOf('v_scopes := case'), sql.indexOf('if v_scopes is null'))
+  const start = sql.lastIndexOf('v_scopes := case')
+  const body = sql.slice(start, sql.indexOf('if v_scopes is null', start))
   for (const [integration, scopes] of Object.entries(ALLOWED_SCOPES)) {
     if (scopes.length === 0) {
       assert.doesNotMatch(body, new RegExp(`when '${integration}'`), `${integration} は発行不可のはず`)
@@ -60,7 +66,8 @@ test('発行関数の scope は ALLOWED_SCOPES と一致する', () => {
 })
 
 test('発行関数は secret_hash を返さない', () => {
-  const ret = sql.slice(sql.indexOf('return jsonb_build_object'), sql.indexOf('end;\n$$;'))
+  const start = sql.lastIndexOf('return jsonb_build_object')
+  const ret = sql.slice(start, sql.indexOf('end;\n$$;', start))
   assert.doesNotMatch(ret, /secret_hash/)
 })
 
