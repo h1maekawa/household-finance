@@ -25,6 +25,10 @@ import { decideCategory, MerchantRule } from '@/lib/category-rules'
 import { CATEGORIES, INCOME_CATEGORIES, Kind } from '@/types/transaction'
 import { writeFailed } from '@/lib/api-errors'
 import { requireIntegrationScope } from '@/lib/server-auth'
+import {
+  isCardTransaction,
+  sendCardTransactionCreatedEvent,
+} from '@/lib/integrations/flow-event-sender'
 
 function hasEnv(name: string): boolean {
   const value = process.env[name]
@@ -293,6 +297,25 @@ export async function POST(request: NextRequest) {
       return Response.json({ duplicate: true, repaired: Object.keys(patch).length > 1 }, { status: 200 })
     }
     return writeFailed('api/transactions/import', error)
+  }
+
+  if (isCardTransaction({
+    kind: fields.kind,
+    cardIssuer: fields.card_issuer,
+    paymentMethod: fields.payment_method,
+  })) {
+    const delivery = await sendCardTransactionCreatedEvent({
+      event: 'card_transaction.created',
+      transactionId: String(data.id),
+      date: String(data.date).slice(0, 10),
+      merchant: String(body.merchant || body.name || fields.memo || '未確認').slice(0, 160),
+      amount: Math.abs(Math.round(Number(data.amount) || 0)),
+      card: String(fields.card_issuer || fields.payment_method || '未確認').slice(0, 80),
+    })
+    if (delivery.status === 'failed') {
+      // Secret・署名・本文はログへ出さない。取込自体は成功のまま返す。
+      console.warn(`[flow-event] delivery failed transaction=${String(data.id)} reason=${delivery.reason}`)
+    }
   }
 
   return Response.json({ transaction: data }, { status: 201 })

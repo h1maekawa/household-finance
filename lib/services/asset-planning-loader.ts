@@ -25,10 +25,13 @@ import {
   type AssetPlanningResult,
 } from './asset-planning'
 import type { AssetSummary } from './asset-summary-loader'
+import type { BudgetSummary } from '@/types/budget'
 
 export type AssetPlanningLoad = {
   plan: AssetPlanningResult
   assets: AssetSummary
+  /** Integration でも同じ budget-engine の結果を再利用できるように返す */
+  budget: BudgetSummary
 }
 
 export async function loadAssetPlanning(
@@ -154,6 +157,7 @@ export async function loadAssetPlanning(
       }),
     }),
     assets,
+    budget,
   }
 }
 
