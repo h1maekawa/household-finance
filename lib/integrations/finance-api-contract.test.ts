@@ -24,3 +24,13 @@ test('card activity は専用scope・列限定・no-store', () => {
   assert.doesNotMatch(src, /select\('\*'\)/)
   assert.doesNotMatch(src, /external_id/)
 })
+
+test('debts は既存assets scopeを再利用し、必要最小限の列と集計だけを返す', () => {
+  const src = readRoute('debts')
+  assert.match(src, /requireIntegrationScope\(request, 'assets:read'\)/)
+  assert.match(src, /select\('id,direction,counterparty,amount,date,due_date,memo,is_settled'\)/)
+  assert.match(src, /\.eq\('user_id', result\.auth\.userId\)/)
+  assert.match(src, /totals/)
+  assert.match(src, /private, no-store/)
+  assert.doesNotMatch(src, /select\('\*'\)/)
+})
