@@ -16,6 +16,21 @@ test('finance summary は専用scopeを必須にし、既存loaderをcomposeす�
   assert.doesNotMatch(src, /transactions:write/)
 })
 
+test('投資実績は実DB列 amount_jpy / trade_type を参照する', () => {
+  const loader = readFileSync(
+    path.join(process.cwd(), 'lib/services/asset-planning-loader.ts'),
+    'utf8'
+  )
+  const capacity = readRoute('investment-capacity')
+
+  for (const src of [loader, capacity]) {
+    assert.match(src, /select\('trade_date, amount_jpy, trade_type'\)/)
+    assert.match(src, /tx\.trade_type/)
+    assert.match(src, /tx\.amount_jpy/)
+    assert.doesNotMatch(src, /select\('trade_date, amount, side'\)/)
+  }
+})
+
 test('card activity は専用scope・列限定・no-store', () => {
   const src = readRoute('card-activity')
   assert.match(src, /requireIntegrationScope\(request, 'card-activity:read'\)/)
