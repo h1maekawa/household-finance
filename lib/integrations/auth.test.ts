@@ -16,7 +16,7 @@ const gasToken: IntegrationAuthContext = {
 }
 const aiToken: IntegrationAuthContext = {
   userId: 'user-1', tokenId: 't2', integration: 'ai_company',
-  scopes: ['finance-summary:read', 'investment-capacity:read', 'assets:read', 'card-activity:read'], legacy: false,
+  scopes: ['finance-summary:read', 'investment-capacity:read', 'assets:read', 'card-activity:read', 'transactions:categorize'], legacy: false,
 }
 const legacyToken: IntegrationAuthContext = {
   userId: 'user-1', tokenId: null, integration: 'gas',
@@ -31,11 +31,12 @@ test('GAS Token は取込だけ許可される', () => {
   assert.equal(hasIntegrationScope(gasToken, 'card-activity:read'), false)
 })
 
-test('AI Company Token は読み取りだけ許可される', () => {
+test('AI Company Token は参照とカテゴリ確定だけ許可される', () => {
   assert.equal(hasIntegrationScope(aiToken, 'investment-capacity:read'), true)
   assert.equal(hasIntegrationScope(aiToken, 'finance-summary:read'), true)
   assert.equal(hasIntegrationScope(aiToken, 'assets:read'), true)
   assert.equal(hasIntegrationScope(aiToken, 'card-activity:read'), true)
+  assert.equal(hasIntegrationScope(aiToken, 'transactions:categorize'), true)
   assert.equal(hasIntegrationScope(aiToken, 'transactions:write'), false)
 })
 

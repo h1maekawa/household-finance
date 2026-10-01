@@ -11,6 +11,7 @@ export const INTEGRATION_SCOPES = [
   'investment-capacity:read',
   'assets:read',
   'card-activity:read',
+  'transactions:categorize',
 ] as const
 
 export type IntegrationScope = (typeof INTEGRATION_SCOPES)[number]
@@ -27,12 +28,13 @@ export type Integration = (typeof INTEGRATIONS)[number]
 export const ALLOWED_SCOPES: Record<Integration, readonly IntegrationScope[]> = {
   // 取込専用。読み取り系は付けない（Least Privilege）
   gas: ['transactions:write'],
-  // AI Company は read-only。書き込みは付けない
+  // AI Company は原則 read-only。唯一、確認待ち取引のカテゴリ確定だけ許可する
   ai_company: [
     'finance-summary:read',
     'investment-capacity:read',
     'assets:read',
     'card-activity:read',
+    'transactions:categorize',
   ],
   other: [],
 }

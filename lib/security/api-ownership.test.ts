@@ -38,6 +38,7 @@ const SERVICE_ROLE_ALLOWED = new Set([
   'integrations/finance-summary', // Integration Token で user_id を解決
   'integrations/card-activity', // Integration Token で user_id を解決
   'integrations/debts', // Integration Token で user_id を解決
+  'integrations/transaction-reviews', // Integration Token + 専用scopeでカテゴリ確定だけ許可
   'integrations/monthly-summary', // Legacy read-only Integration endpoint
   'transactions/import', // 同上（GAS取込）
 ])

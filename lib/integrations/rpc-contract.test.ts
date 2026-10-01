@@ -14,7 +14,7 @@ const hardeningSql = readFileSync(
   'utf8'
 )
 const scopeMigration = readFileSync(
-  path.join(process.cwd(), 'supabase/migrations/20260930003257_add_card_activity_scope.sql'),
+  path.join(process.cwd(), 'supabase/migrations/20261001090000_add_transaction_categorize_scope.sql'),
   'utf8'
 )
 const sql = `${hardeningSql}\n${scopeMigration}`
