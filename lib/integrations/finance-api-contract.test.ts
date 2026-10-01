@@ -40,6 +40,17 @@ test('card activity は専用scope・列限定・no-store', () => {
   assert.doesNotMatch(src, /external_id/)
 })
 
+test('カテゴリ確認APIは確認待ち支出だけを読み、カテゴリ以外を変更しない', () => {
+  const src = readRoute('transaction-reviews')
+  assert.match(src, /requireIntegrationScope\(request, 'transactions:categorize'\)/)
+  assert.match(src, /\.eq\('user_id', result\.auth\.userId\)/)
+  assert.match(src, /\.eq\('kind', 'expense'\)/)
+  assert.match(src, /\.eq\('needs_review', true\)/)
+  assert.match(src, /category, manual_category: category, needs_review: false, review_reason: null/)
+  assert.doesNotMatch(src, /select\('\*'\)/)
+  assert.doesNotMatch(src, /amount:\s*body|date:\s*body|delete\(/)
+})
+
 test('debts は既存assets scopeを再利用し、必要最小限の列と集計だけを返す', () => {
   const src = readRoute('debts')
   assert.match(src, /requireIntegrationScope\(request, 'assets:read'\)/)
