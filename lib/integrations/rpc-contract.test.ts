@@ -17,7 +17,11 @@ const scopeMigration = readFileSync(
   path.join(process.cwd(), 'supabase/migrations/20261001090000_add_transaction_categorize_scope.sql'),
   'utf8'
 )
-const sql = `${hardeningSql}\n${scopeMigration}`
+const advisorHardeningSql = readFileSync(
+  path.join(process.cwd(), 'supabase/migrations/20261001032301_harden_integration_token_functions.sql'),
+  'utf8'
+)
+const sql = `${hardeningSql}\n${scopeMigration}\n${advisorHardeningSql}`
 
 test('authenticated からの直接書き込み権限を剥がしている', () => {
   assert.match(sql, /revoke insert, update, delete on user_import_secrets from authenticated/)
@@ -88,4 +92,12 @@ test('失効関数も auth.uid() で対象を決める', () => {
 test('関数は anon から呼べない', () => {
   assert.match(sql, /revoke all on function issue_integration_token[^;]*from anon, public/)
   assert.match(sql, /revoke all on function revoke_integration_token[^;]*from anon, public/)
+})
+
+test('trigger関数のsearch_pathとRPC実行権限を固定する', () => {
+  assert.match(advisorHardeningSql, /alter function public\.prevent_integration_token_revival\(\)[\s\S]*set search_path = public/)
+  assert.match(advisorHardeningSql, /revoke all on function public\.issue_integration_token\(text, text, text\) from anon, public/)
+  assert.match(advisorHardeningSql, /revoke all on function public\.revoke_integration_token\(uuid\) from anon, public/)
+  assert.match(advisorHardeningSql, /grant execute on function public\.issue_integration_token\(text, text, text\) to authenticated/)
+  assert.match(advisorHardeningSql, /grant execute on function public\.revoke_integration_token\(uuid\) to authenticated/)
 })
