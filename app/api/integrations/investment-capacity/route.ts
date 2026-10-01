@@ -42,7 +42,7 @@ export async function GET(request: NextRequest) {
         .eq('is_active', true),
       supabaseAdmin
         .from('investment_transactions')
-        .select('trade_date, amount, side')
+        .select('trade_date, amount_jpy, trade_type')
         .eq('user_id', userId)
         .gte('trade_date', monthStart)
         .lte('trade_date', monthEnd),
@@ -96,8 +96,8 @@ export async function GET(request: NextRequest) {
 
     // 今月すでに投資に回した額（買付のみ）
     const alreadyInvested = (investmentRes.data ?? [])
-      .filter(tx => tx.side === 'buy' || tx.side === '買付')
-      .reduce((sum, tx) => sum + (Number(tx.amount) || 0), 0)
+      .filter(tx => /買|buy|購入|積立|再投資/.test(String(tx.trade_type ?? '').toLowerCase()))
+      .reduce((sum, tx) => sum + Math.abs(Number(tx.amount_jpy) || 0), 0)
 
     // 防衛資金。生活固定費は積立投資を除いた額で見る
     const livingFixed = Math.max(budget.fixed.effective - investmentFixed, 0)

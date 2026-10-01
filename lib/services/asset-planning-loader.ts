@@ -53,7 +53,7 @@ export async function loadAssetPlanning(
         .eq('is_active', true),
       requireClient(supabase)
         .from('investment_transactions')
-        .select('trade_date, amount, side')
+        .select('trade_date, amount_jpy, trade_type')
         .eq('user_id', userId)
         .gte('trade_date', monthStart(month))
         .lte('trade_date', monthEnd(month)),
@@ -100,8 +100,8 @@ export async function loadAssetPlanning(
   }
 
   const alreadyInvested = (investmentRes.data ?? [])
-    .filter(tx => tx.side === 'buy' || tx.side === '買付')
-    .reduce((sum, tx) => sum + (Number(tx.amount) || 0), 0)
+    .filter(tx => /買|buy|購入|積立|再投資/.test(String(tx.trade_type ?? '').toLowerCase()))
+    .reduce((sum, tx) => sum + Math.abs(Number(tx.amount_jpy) || 0), 0)
 
   const emergencyFund = computeEmergencyFund({
     monthlyEssentialExpenses: essentialMonthlyExpenses({
