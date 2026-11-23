@@ -108,3 +108,48 @@ test('一部の口座に残高の記録が無ければ合計しない（null）'
     { accountId: 'b', recordedAt: null },
   ])
 })
+
+// ---- resolveLiquidCash: 旧テーブルへのフォールバック判定 ----
+import { resolveLiquidCash } from './liquid-cash'
+
+test('流動口座が0件なら旧テーブルの残高を使う', () => {
+  const r = resolveLiquidCash(
+    [{ id: 'a4', type: 'securities' }],
+    [],
+    { balance: 123456, recorded_at: '2026-09-01T00:00:00Z' }
+  )
+  assert.equal(r.amount, 123456)
+  assert.equal(r.source, 'legacy_balance')
+  assert.equal(r.oldestRecordedAt, '2026-09-01T00:00:00Z')
+})
+
+test('流動口座が0件で旧テーブルも無ければ none', () => {
+  const r = resolveLiquidCash([], [], null)
+  assert.equal(r.amount, null)
+  assert.equal(r.source, 'none')
+})
+
+test('流動口座がすべて記録済みなら合計し、旧テーブルは無視する', () => {
+  const r = resolveLiquidCash(
+    [{ id: 'a1', type: 'bank' }, { id: 'a2', type: 'cash' }],
+    [
+      { account_id: 'a1', balance: 800000, recorded_at: '2026-09-01T00:00:00Z' },
+      { account_id: 'a2', balance: 400000, recorded_at: '2026-09-02T00:00:00Z' },
+    ],
+    { balance: 1, recorded_at: '2026-01-01T00:00:00Z' }
+  )
+  assert.equal(r.amount, 1200000)
+  assert.equal(r.source, 'accounts')
+})
+
+test('流動口座に未記録があれば null。旧テーブルへ落とさず、口座一覧を残す', () => {
+  const r = resolveLiquidCash(
+    [{ id: 'a1', type: 'bank' }, { id: 'a2', type: 'bank' }],
+    [{ account_id: 'a1', balance: 800000, recorded_at: '2026-09-01T00:00:00Z' }],
+    { balance: 999999, recorded_at: '2026-01-01T00:00:00Z' }
+  )
+  assert.equal(r.amount, null)
+  assert.equal(r.source, 'accounts')
+  assert.equal(r.accounts.length, 2)
+  assert.equal(r.accounts.find(a => a.accountId === 'a2')?.recordedAt, null)
+})

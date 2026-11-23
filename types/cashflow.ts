@@ -174,6 +174,12 @@ export interface CardCycle {
 
 export interface CashflowResponse {
   currentBalance: AccountBalance | null
+  /** 予測の開始残高（複数口座の合計）。未登録なら null で projectedDays は空 */
+  startingBalance?: number | null
+  startingBalanceRecordedAt?: string | null
+  startingBalanceSource?: 'accounts' | 'legacy_balance' | 'none'
+  /** 予測できない理由（日本語） */
+  missing?: string[]
   projectedDays: DailyBalance[]
   scheduledPayments: ScheduledPayment[]
   generatedPayments: ScheduledPayment[]

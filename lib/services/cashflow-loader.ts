@@ -18,6 +18,7 @@ import {
   getCashflowFetchStart,
   projectCashflow,
 } from '@/lib/cashflow'
+import { loadLiquidCash } from '@/lib/services/liquid-cash-loader'
 import { loadFxRates } from '@/lib/repositories/fx-rates'
 import {
   findUnmatchedCardFixedCosts,
@@ -53,7 +54,7 @@ export type CashflowLoad = Awaited<ReturnType<typeof loadCashflow>>
 
 export async function loadCashflow(userId: string, supabase: SupabaseClient) {
   const projectionDays = 90
-  const [balanceRes, paymentsRes, profileRes, cardsRes, transactionsRes] = await Promise.all([
+  const [balanceRes, paymentsRes, profileRes, cardsRes, transactionsRes, liquidCash] = await Promise.all([
     supabase
       .from('account_balance')
       .select('*')
@@ -82,6 +83,8 @@ export async function loadCashflow(userId: string, supabase: SupabaseClient) {
       .eq('user_id', userId)
       .gte('date', getCashflowFetchStart())
       .lte('date', getCashflowFetchEnd(projectionDays)),
+    // 開始残高は複数口座の合計（投資可能額と同じ正本）。旧テーブル1行は使わない
+    loadLiquidCash(userId, supabase),
   ])
 
   // 取得失敗を空配列として先へ流さない。予定が0件になると残高予測が実態より
@@ -110,7 +113,9 @@ export async function loadCashflow(userId: string, supabase: SupabaseClient) {
     monthly_income: 0,
     income_day: 25,
   }
-  const currentBalance = balanceRes.data?.balance ?? 0
+  const startingBalance = liquidCash.amount
+  const missing: string[] =
+    startingBalance === null ? ['口座残高が未登録のため、資金繰りを予測できません'] : []
   // 外貨建て固定費(ジブラルタ生命 105 USD 等)を円換算するためのレート
   const fxRates = await loadFxRates()
 
@@ -133,8 +138,9 @@ export async function loadCashflow(userId: string, supabase: SupabaseClient) {
     ),
   ])
 
-  const projectedDays = projectCashflow(
-    currentBalance,
+  // 開始残高が不明なら 0 円から予測せず、空にする
+  const projectedDays = startingBalance === null ? [] : projectCashflow(
+    startingBalance,
     [...scheduledPayments, ...generatedPayments],
     projectionDays,
     {
@@ -148,7 +154,12 @@ export async function loadCashflow(userId: string, supabase: SupabaseClient) {
   )
 
   return {
+    // 旧テーブルの行。画面の後方互換のため残す（予測の開始残高ではない）
     currentBalance: balanceRes.data,
+    startingBalance,
+    startingBalanceRecordedAt: liquidCash.oldestRecordedAt,
+    startingBalanceSource: liquidCash.source,
+    missing,
     projectedDays,
     scheduledPayments,
     generatedPayments,

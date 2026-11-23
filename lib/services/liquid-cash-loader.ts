@@ -6,11 +6,12 @@
 // 受け取れるようにする（budget-loader.ts と同じ形）。
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
-import { yen } from './money'
 import {
-  sumLiquidCash,
+  countLiquidAccounts,
+  resolveLiquidCash,
   type AccountBalanceRow,
   type AccountRow,
+  type LegacyBalanceRow,
   type LiquidCash,
 } from './liquid-cash'
 
@@ -31,36 +32,24 @@ export async function loadLiquidCash(
     throw new Error(`account_balances の取得に失敗しました: ${balancesRes.error.message}`)
   }
 
-  const fromAccounts = sumLiquidCash(
-    (accountsRes.data ?? []) as AccountRow[],
-    (balancesRes.data ?? []) as AccountBalanceRow[]
-  )
-  if (fromAccounts.amount !== null) {
-    return { ...fromAccounts, source: 'accounts' }
-  }
+  const accounts = (accountsRes.data ?? []) as AccountRow[]
+  const balances = (balancesRes.data ?? []) as AccountBalanceRow[]
 
-  // 新しい口座管理へ未移行のユーザー向けフォールバック
-  const legacyRes = await supabase
-    .from('account_balance')
-    .select('balance, recorded_at')
-    .eq('user_id', userId)
-    .order('recorded_at', { ascending: false })
-    .limit(1)
-    .maybeSingle()
-
-  if (legacyRes.error) {
-    throw new Error(`account_balance の取得に失敗しました: ${legacyRes.error.message}`)
-  }
-  if (legacyRes.data?.balance !== null && legacyRes.data?.balance !== undefined) {
-    return {
-      amount: yen(legacyRes.data.balance),
-      source: 'legacy_balance',
-      recordedAt: legacyRes.data.recorded_at ?? null,
-      oldestRecordedAt: legacyRes.data.recorded_at ?? null,
-      accounts: [{ accountId: 'legacy', recordedAt: legacyRes.data.recorded_at ?? null }],
-      accountCount: 1,
+  // 旧テーブルは「流動口座が0件」のときだけ読む（判定は resolveLiquidCash）
+  let legacy: LegacyBalanceRow | null = null
+  if (countLiquidAccounts(accounts) === 0) {
+    const legacyRes = await supabase
+      .from('account_balance')
+      .select('balance, recorded_at')
+      .eq('user_id', userId)
+      .order('recorded_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+    if (legacyRes.error) {
+      throw new Error(`account_balance の取得に失敗しました: ${legacyRes.error.message}`)
     }
+    legacy = legacyRes.data ?? null
   }
 
-  return { amount: null, source: 'none', recordedAt: null, oldestRecordedAt: null, accounts: [], accountCount: 0 }
+  return resolveLiquidCash(accounts, balances, legacy)
 }

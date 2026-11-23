@@ -7,7 +7,8 @@
 //
 // 優先順位:
 //   1. accounts + 各口座の最新 account_balances（複数口座を合計）
-//   2. 無ければ legacy の account_balance の最新1件
+//   2. 流動口座が0件のときだけ legacy の account_balance の最新1件
+//      （口座があって未記録のものがある場合は legacy へ落とさず null）
 //   3. どちらも無ければ null（0円と未登録を混同しない）
 import { yen } from './money'
 
@@ -93,4 +94,38 @@ export function sumLiquidCash(
     accounts: perAccount,
     accountCount: latest.size,
   }
+}
+
+export type LegacyBalanceRow = { balance: number | null; recorded_at: string | null }
+
+/** 流動口座（bank/cash/emoney）の件数。旧テーブルへ落とすか判定するのに使う */
+export function countLiquidAccounts(accounts: AccountRow[]): number {
+  return accounts.filter(a => (LIQUID_ACCOUNT_TYPES as readonly string[]).includes(a.type)).length
+}
+
+/**
+ * 流動現金の決定。旧 account_balance へのフォールバックは「流動口座が0件」の
+ * ユーザーに限る。口座があるのに未記録の口座がある場合は、古い単一の数字で
+ * 実際の口座を無視せず、amount = null（未登録）を返す。
+ */
+export function resolveLiquidCash(
+  accounts: AccountRow[],
+  balances: AccountBalanceRow[],
+  legacy: LegacyBalanceRow | null
+): LiquidCash {
+  const fromAccounts = sumLiquidCash(accounts, balances)
+  if (countLiquidAccounts(accounts) > 0) {
+    return { ...fromAccounts, source: 'accounts' }
+  }
+  if (legacy && legacy.balance !== null && legacy.balance !== undefined) {
+    return {
+      amount: yen(legacy.balance),
+      source: 'legacy_balance',
+      recordedAt: legacy.recorded_at ?? null,
+      oldestRecordedAt: legacy.recorded_at ?? null,
+      accounts: [{ accountId: 'legacy', recordedAt: legacy.recorded_at ?? null }],
+      accountCount: 1,
+    }
+  }
+  return { amount: null, source: 'none', recordedAt: null, oldestRecordedAt: null, accounts: [], accountCount: 0 }
 }

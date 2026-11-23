@@ -48,7 +48,10 @@ export function buildFinanceSummary(input: {
     review: {
       unreviewed_transactions: input.unreviewedTransactions,
       unassigned_card_usage: input.cashflow.unassignedCardUsage?.count ?? 0,
+      // 開始残高が未登録のときは予測が空になる。false を「リスクなし」と読ませないため、
+      // 判定できたかどうかを negative_balance_risk_known で別に返す（既存項目は変えない）
       negative_balance_risk: input.cashflow.projectedDays.some(day => day.isNegative),
+      negative_balance_risk_known: input.cashflow.startingBalance !== null,
     },
     confidence: plan.confidence,
   }

@@ -281,6 +281,13 @@ export default function UpcomingPayments() {
           </div>
         )}
 
+        {/* 開始残高が未登録のときは 0 円から予測せず、理由を出す */}
+        {(data?.missing ?? []).length > 0 && (
+          <div className="px-4 py-3 rounded-xl bg-warning/10 text-sm font-medium border border-warning/20">
+            {(data?.missing ?? []).map(message => <p key={message}>{message}</p>)}
+          </div>
+        )}
+
         {/* Alerts */}
         {negDays > 0 && (
           <div className="flex items-start gap-3 px-4 py-3 rounded-xl bg-danger/10 text-danger border border-danger/20 text-sm font-medium">

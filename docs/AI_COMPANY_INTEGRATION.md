@@ -62,7 +62,8 @@ GET /api/integrations/finance-summary?month=YYYY-MM
   "review": {
     "unreviewed_transactions": 2,
     "unassigned_card_usage": 1,
-    "negative_balance_risk": false
+    "negative_balance_risk": false,
+    "negative_balance_risk_known": true
   },
 
   "confidence": "high"
