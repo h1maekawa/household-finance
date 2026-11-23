@@ -17,13 +17,13 @@ test('finance summary は専用scopeを必須にし、既存loaderをcomposeす�
 })
 
 test('投資実績は実DB列 amount_jpy / trade_type を参照する', () => {
-  const loader = readFileSync(
-    path.join(process.cwd(), 'lib/services/asset-planning-loader.ts'),
+  // 投資可能額の入力は capacity-input.ts に一本化した（route と資産計画の両方が使う）
+  const capacityInput = readFileSync(
+    path.join(process.cwd(), 'lib/services/capacity-input.ts'),
     'utf8'
   )
-  const capacity = readRoute('investment-capacity')
 
-  for (const src of [loader, capacity]) {
+  for (const src of [capacityInput]) {
     assert.match(src, /select\('trade_date, amount_jpy, trade_type'\)/)
     assert.match(src, /tx\.trade_type/)
     assert.match(src, /tx\.amount_jpy/)

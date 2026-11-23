@@ -7,20 +7,15 @@
 //
 // Integration 用 API とユーザー向け API で計算を複製しないよう、両方ここを通す。
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { getMergedCategories } from '@/lib/categories'
 import { listGoals } from '@/lib/repositories/goals'
-import { loadBudget, monthEnd, monthStart } from './budget-loader'
-import { loadLiquidCash } from './liquid-cash-loader'
 import { loadAssetSummary } from './asset-summary-loader'
-import { computeEmergencyFund } from './emergency-fund'
 import { computeGoalProgress } from './goal-progress'
 import { computeInvestmentCapacity } from './investment-capacity'
-import { buildMoneyPlan, isCardBillPayment, isInvestmentCategory } from './money-plan'
-import { loadResolvedScheduledPayments } from './scheduled-payments-loader'
+import { buildMoneyPlan } from './money-plan'
+import { loadCapacityInput } from './capacity-input'
 import { projectAssets } from './projection'
 import {
   buildAssetPlan,
-  essentialMonthlyExpenses,
   monthlyAssetContribution,
   type AssetPlanningResult,
 } from './asset-planning'
@@ -40,98 +35,18 @@ export async function loadAssetPlanning(
   today: string,
   client?: SupabaseClient
 ): Promise<AssetPlanningLoad> {
-  const supabase = client
-  const [budgetLoad, liquidCash, assets, scheduledRes, investmentRes, profileRes, goals, categories] =
-    await Promise.all([
-      loadBudget(userId, month, today, client),
-      loadLiquidCash(userId, client),
-      loadAssetSummary(userId, client),
-      requireClient(supabase)
-        .from('scheduled_payments')
-        .select('name, amount, memo, type, is_active, category')
-        .eq('user_id', userId)
-        .eq('is_active', true),
-      requireClient(supabase)
-        .from('investment_transactions')
-        .select('trade_date, amount_jpy, trade_type')
-        .eq('user_id', userId)
-        .gte('trade_date', monthStart(month))
-        .lte('trade_date', monthEnd(month)),
-      requireClient(supabase)
-        .from('users_profile')
-        .select('emergency_fund_months')
-        .eq('user_id', userId)
-        .maybeSingle(),
-      listGoals(userId, client),
-      getMergedCategories(userId, client),
-    ])
-  const resolvedPayments = await loadResolvedScheduledPayments(userId, month, client)
-
-  // 金融計算では「DB取得失敗 = 0円」にしない。欠損のまま計算すると
-  // 未払い予定が0円になり、配分できる現金が実態より大きく出る
-  for (const [label, res] of [
-    ['scheduled_payments', scheduledRes],
-    ['investment_transactions', investmentRes],
-    ['users_profile', profileRes],
-  ] as const) {
-    if (res.error) throw new Error(`${label} の取得に失敗しました: ${res.error.message}`)
-  }
-
+  // 投資可能額の入力は Integration API と同じ loadCapacityInput を通す（数字を揃える）
+  const [capacityLoad, assets, goals] = await Promise.all([
+    loadCapacityInput(userId, month, new Date(), requireClient(client)),
+    loadAssetSummary(userId, client),
+    listGoals(userId, client),
+  ])
+  const { context, ...capacityInput } = capacityLoad
+  const budgetLoad = context.budgetLoad
   const budget = budgetLoad.summary
-  const missingData: string[] = []
-  if (liquidCash.amount === null) missingData.push('口座残高が未登録です')
-  if (budget.income.planned === 0) missingData.push('月収の設定がありません')
-
-  const fixedNames = new Set(categories.fixedNames)
-  let pendingCardAmount = 0
-  let scheduledExpenses = 0
-  let investmentFixed = 0
-  for (const payment of scheduledRes.data ?? []) {
-    const amount = Number(payment.amount) || 0
-    if (isCardBillPayment(payment)) {
-      pendingCardAmount += amount
-    } else if (isInvestmentCategory(payment.category)) {
-      // 積立投資は生活固定費ではない。防衛資金の必要額へ含めない
-      investmentFixed += amount
-    } else if (!fixedNames.has(payment.category ?? '')) {
-      // 固定費は budget.fixed.unpaid で数えるので二重計上しない
-      scheduledExpenses += amount
-    }
-  }
-
-  const alreadyInvested = (investmentRes.data ?? [])
-    .filter(tx => /買|buy|購入|積立|再投資/.test(String(tx.trade_type ?? '').toLowerCase()))
-    .reduce((sum, tx) => sum + Math.abs(Number(tx.amount_jpy) || 0), 0)
-
-  const emergencyFund = computeEmergencyFund({
-    monthlyEssentialExpenses: essentialMonthlyExpenses({
-      livingFixed: Math.max(budget.fixed.effective - investmentFixed, 0),
-      variableBudget: budget.variable.budget,
-    }),
-    currentLiquidCash: liquidCash.amount,
-    targetMonths: Number(profileRes.data?.emergency_fund_months ?? 3),
-  })
-
-  const capacity = computeInvestmentCapacity({
-    month,
-    availableCash: liquidCash.amount,
-    expectedIncome: Math.max(0, budget.income.planned - budget.income.actual),
-    confirmedIncome: budget.income.actual,
-    confirmedExpenses: budget.variable.spent,
-    pendingCardAmount,
-    fixedExpenses: budget.fixed.unpaid,
-    scheduledExpenses,
-    livingReserve: Math.max(0, budget.variable.remaining),
-    buffer: budget.buffer,
-    alreadyInvested,
-    reserveGap: emergencyFund.reserveGap ?? 0,
-    savingsTarget: budget.savings.target,
-    investmentTarget: budget.investment.target,
-    missingData,
-    balanceOldestRecordedAt: liquidCash.oldestRecordedAt,
-    balanceAccounts: liquidCash.accounts,
-    now: new Date(),
-  })
+  const resolvedPayments = context.resolvedPayments
+  const emergencyFund = context.emergencyFund
+  const capacity = computeInvestmentCapacity(capacityInput)
 
   const goalProgress = goals
     .filter(goal => goal.status !== 'paused')
