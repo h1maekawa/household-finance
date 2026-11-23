@@ -56,9 +56,11 @@ export async function loadLiquidCash(
       amount: yen(legacyRes.data.balance),
       source: 'legacy_balance',
       recordedAt: legacyRes.data.recorded_at ?? null,
+      oldestRecordedAt: legacyRes.data.recorded_at ?? null,
+      accounts: [{ accountId: 'legacy', recordedAt: legacyRes.data.recorded_at ?? null }],
       accountCount: 1,
     }
   }
 
-  return { amount: null, source: 'none', recordedAt: null, accountCount: 0 }
+  return { amount: null, source: 'none', recordedAt: null, oldestRecordedAt: null, accounts: [], accountCount: 0 }
 }

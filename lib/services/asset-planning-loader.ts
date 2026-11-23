@@ -128,6 +128,9 @@ export async function loadAssetPlanning(
     savingsTarget: budget.savings.target,
     investmentTarget: budget.investment.target,
     missingData,
+    balanceOldestRecordedAt: liquidCash.oldestRecordedAt,
+    balanceAccounts: liquidCash.accounts,
+    now: new Date(),
   })
 
   const goalProgress = goals

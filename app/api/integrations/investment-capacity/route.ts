@@ -125,6 +125,9 @@ export async function GET(request: NextRequest) {
       savingsTarget: budget.savings.target,
       investmentTarget: budget.investment.target,
       missingData,
+      balanceOldestRecordedAt: liquidCash.oldestRecordedAt,
+      balanceAccounts: liquidCash.accounts,
+      now: new Date(),
     })
 
     return Response.json({

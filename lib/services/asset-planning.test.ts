@@ -57,6 +57,8 @@ function plan(over: { availableCash?: number | null } = {}) {
     savingsTarget: budget.savings.target,
     investmentTarget: budget.investment.target,
     missingData: over.availableCash === null ? ['口座残高が未登録です'] : [],
+    balanceOldestRecordedAt: '2026-09-01T00:00:00Z',
+    now: new Date('2026-09-02T00:00:00Z'),
   })
   return buildAssetPlan({
     month: '2026-09', budget, capacity, emergencyFund, goals,

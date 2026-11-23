@@ -25,7 +25,7 @@ test('複数口座の最新残高を合計する', () => {
 })
 
 test('証券口座は流動現金に含めない', () => {
-  const r = sumLiquidCash(accounts, [
+  const r = sumLiquidCash([accounts[0], accounts[3]], [
     { account_id: 'a1', balance: 100000, recorded_at: '2026-09-01T00:00:00Z' },
     { account_id: 'a4', balance: 900000, recorded_at: '2026-09-01T00:00:00Z' },
   ])
@@ -67,4 +67,44 @@ test('残高0円は「未登録」ではなく0円として扱う', () => {
     { account_id: 'a1', balance: 0, recorded_at: '2026-09-01T00:00:00Z' },
   ])
   assert.equal(r.amount, 0)
+})
+
+// 変更前は a1 だけの記録でも 100000 を返していた（一部の口座だけで合計）。
+// Task 2 で「一部の口座に記録が無ければ合計しない」へ変更した。
+test('[変更点] 記録の無い流動口座があれば、記録のある口座だけでは合計しない', () => {
+  const r = sumLiquidCash(accounts, [
+    { account_id: 'a1', balance: 100000, recorded_at: '2026-09-01T00:00:00Z' },
+  ])
+  assert.equal(r.amount, null)
+})
+
+// --- Task 2: 口座ごとの鮮度 ---
+test('最も古い口座の記録時刻を返す（recordedAt は最新のまま）', () => {
+  const r = sumLiquidCash(
+    [{ id: 'a', type: 'bank' }, { id: 'b', type: 'bank' }],
+    [
+      { account_id: 'a', balance: 100000, recorded_at: '2026-11-23T00:00:00Z' },
+      { account_id: 'b', balance: 50000, recorded_at: '2026-11-10T00:00:00Z' },
+    ]
+  )
+  assert.equal(r.amount, 150000)
+  assert.equal(r.recordedAt, '2026-11-23T00:00:00Z')
+  assert.equal(r.oldestRecordedAt, '2026-11-10T00:00:00Z')
+  assert.deepEqual(r.accounts, [
+    { accountId: 'a', recordedAt: '2026-11-23T00:00:00Z' },
+    { accountId: 'b', recordedAt: '2026-11-10T00:00:00Z' },
+  ])
+})
+
+test('一部の口座に残高の記録が無ければ合計しない（null）', () => {
+  const r = sumLiquidCash(
+    [{ id: 'a', type: 'bank' }, { id: 'b', type: 'bank' }],
+    [{ account_id: 'a', balance: 100000, recorded_at: '2026-11-23T00:00:00Z' }]
+  )
+  assert.equal(r.amount, null)
+  assert.equal(r.oldestRecordedAt, null)
+  assert.deepEqual(r.accounts, [
+    { accountId: 'a', recordedAt: '2026-11-23T00:00:00Z' },
+    { accountId: 'b', recordedAt: null },
+  ])
 })

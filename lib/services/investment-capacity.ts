@@ -44,6 +44,37 @@ export type CapacityInput = {
   investmentTarget?: number
   /** 欠けている入力の説明 */
   missingData: string[]
+  /** 最も古い口座の残高記録時刻。鮮度判定に使う。未登録なら null */
+  balanceOldestRecordedAt: string | null
+  /** 口座ごとの記録時刻（任意）。stale な口座数の算出に使う */
+  balanceAccounts?: { accountId: string; recordedAt: string | null }[]
+  /** 鮮度判定の基準時刻。純関数内で時刻を作らないため、I/O境界で渡す */
+  now: Date
+}
+
+/** 残高の最終更新からこの時間を超えたら stale（7日） */
+export const BALANCE_STALE_HOURS = 168
+
+export function judgeBalanceFreshness(input: {
+  oldestRecordedAt: string | null
+  accountCount: number
+  now: Date
+  accounts?: { accountId: string; recordedAt: string | null }[]
+}): { freshness: 'current' | 'stale' | 'unknown'; staleAccountIds: string[] } {
+  if (!input.oldestRecordedAt) return { freshness: 'unknown', staleAccountIds: [] }
+  const oldest = Date.parse(input.oldestRecordedAt)
+  if (!Number.isFinite(oldest)) return { freshness: 'unknown', staleAccountIds: [] }
+
+  const limitMs = BALANCE_STALE_HOURS * 3600_000
+  const isStale = (iso: string | null) => {
+    const t = iso ? Date.parse(iso) : NaN
+    return Number.isFinite(t) && input.now.getTime() - t > limitMs
+  }
+  if (input.now.getTime() - oldest <= limitMs) return { freshness: 'current', staleAccountIds: [] }
+  return {
+    freshness: 'stale',
+    staleAccountIds: (input.accounts ?? []).filter(a => isStale(a.recordedAt)).map(a => a.accountId),
+  }
 }
 
 export type CapacityResult = {
@@ -80,6 +111,10 @@ export type CapacityResult = {
     unallocated_cash: number | null
   }
   data_freshness: 'current' | 'stale' | 'unknown'
+  /** 最も古い口座の残高記録時刻 */
+  balance_oldest_recorded_at: string | null
+  /** 7日を超えて更新されていない口座の数 */
+  stale_account_count: number
   confidence: 'high' | 'medium' | 'low'
   missing_data: string[]
   /** 内訳の説明（UIでそのまま出せる） */
@@ -149,9 +184,21 @@ export function computeInvestmentCapacity(input: CapacityInput): CapacityResult 
           input.investmentTarget ?? 0
         )
 
+  const freshness =
+    input.availableCash === null
+      ? { freshness: 'unknown' as const, staleAccountIds: [] as string[] }
+      : judgeBalanceFreshness({
+          oldestRecordedAt: input.balanceOldestRecordedAt,
+          accountCount: input.balanceAccounts?.length ?? 0,
+          now: input.now,
+          accounts: input.balanceAccounts,
+        })
+  const isStale = freshness.freshness === 'stale'
+  if (isStale) missing.push('7日以上更新されていない口座残高があります')
+
   // 入力の欠けが多いほど信頼度を下げる
   const confidence: CapacityResult['confidence'] =
-    input.availableCash === null || missing.length >= 3
+    input.availableCash === null || isStale || missing.length >= 3
       ? 'low'
       : missing.length > 0
         ? 'medium'
@@ -187,7 +234,9 @@ export function computeInvestmentCapacity(input: CapacityInput): CapacityResult 
       asset_building: allocation?.assetBuilding ?? null,
       unallocated_cash: allocation?.unallocated ?? null,
     },
-    data_freshness: input.availableCash === null ? 'unknown' : 'current',
+    data_freshness: freshness.freshness,
+    balance_oldest_recorded_at: input.balanceOldestRecordedAt,
+    stale_account_count: isStale ? Math.max(freshness.staleAccountIds.length, 1) : 0,
     confidence,
     missing_data: missing,
     breakdown,
