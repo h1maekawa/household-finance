@@ -55,6 +55,19 @@ export type ObligationsInput = {
    * 未指定なら予定支払いはすべて fixedUnpaid に入れる（合計は変わらない）
    */
   fixedNames?: ReadonlySet<string>
+  /**
+   * 毎月の固定収入（users_profile.monthly_income / 予算の income_planned）。
+   * scheduled_payments には入っていないので別に渡す（salaryIncome で作る）。
+   * 給与の入金口座は分からないので、最も古い記録日で判定する
+   */
+  salary?: { amount: number; date: string } | null
+  /** カードID → 引落口座ID。確定請求の基準日に使う */
+  cardDebitAccountById?: Map<string, string | null>
+  /**
+   * 投資の買付日（investment_transactions、'YYYY-MM-DD'）。
+   * 実行済みの積立を「今月すでに投資した額」と二重に差し引かないために使う
+   */
+  investmentBuyDates?: string[]
 }
 
 function yen(value: unknown): number {
@@ -91,6 +104,44 @@ export function computeObligations(input: ObligationsInput): Obligations {
     result.items.push({ label: `${cycle.cardName}（${cycle.paymentDate}引落）`, amount, kind: 'card' })
   }
 
+  // 確定請求（カード請求の行）。カード利用が取り込まれていないと上のサイクルが
+  // 作られないので、同じ「カードID|支払日」のサイクルが無いものだけをここで数える
+  const coveredCycleKeys = new Set(input.cardCycles.map(c => `${c.cardId}|${day(c.paymentDate)}`))
+  for (const payment of input.scheduled) {
+    if (!payment.is_active) continue
+    if (!isCardBillPayment(payment)) continue
+    if (payment.last_paid_month === month) continue
+    const dueRaw = payment.resolvedDueDate ?? payment.scheduled_date
+    if (!dueRaw) continue
+    const due = day(dueRaw)
+    const key = payment.credit_card_id ? `${payment.credit_card_id}|${due}` : null
+    if (key && coveredCycleKeys.has(key)) continue
+    const cardDebit = payment.credit_card_id
+      ? input.cardDebitAccountById?.get(payment.credit_card_id)
+      : undefined
+    const base = baseDateFor(cardDebit ?? payment.debit_account_id)
+    if (base === null || due < base) continue // 残高に反映済み
+    const amount = yen(payment.resolvedAmountYen)
+    if (amount === 0) continue
+    // 同じカード・同じ支払日の確定請求が複数あっても1回だけ数える
+    if (key) coveredCycleKeys.add(key)
+    result.cardUnpaid += amount
+    result.items.push({ label: `${payment.name}（${due}引落）`, amount, kind: 'card' })
+  }
+
+  // 給与：基準日より後（同日を含まない）〜月末。入金口座が分からないので最も古い記録日
+  if (input.salary && input.salary.amount > 0 && input.oldestBalanceDate !== null) {
+    const date = day(input.salary.date)
+    if (date > input.oldestBalanceDate && date <= monthEnd) {
+      const amount = yen(input.salary.amount)
+      result.expectedIncome += amount
+      result.items.push({ label: '毎月の固定収入', amount, kind: 'income' })
+    }
+  }
+
+  const buyDates = (input.investmentBuyDates ?? []).map(day)
+  const today = day(input.today)
+
   // 予定支払い：基準日以降（同日を含む）〜月末。入金は基準日より後〜月末
   for (const payment of input.scheduled) {
     if (!payment.is_active) continue
@@ -117,6 +168,15 @@ export function computeObligations(input: ObligationsInput): Obligations {
     if (payment.payment_method === 'credit_card') continue
     if (input.matchedFixedCostIds.has(payment.id)) continue
     if (due < base) continue // 残高に反映済み
+    // 口座引落の積立投資：今日までに引き落とされ、基準日〜今日に買付が記録されていれば
+    // その買付が今回の実行。「今月すでに投資した額」で差し引かれるので、ここでは数えない
+    if (
+      isInvestmentCategory(payment.category) &&
+      due <= today &&
+      buyDates.some(date => date >= base && date <= today)
+    ) {
+      continue
+    }
 
     const isFixed = input.fixedNames ? input.fixedNames.has(payment.category ?? '') : true
     if (isFixed) result.fixedUnpaid += amount
@@ -201,4 +261,29 @@ export function capacityCardCycles(
         : options.confirmedStatements.get(`${cycle.cardId}|${cycle.paymentDate}`) ?? null,
     }
   })
+}
+
+
+/**
+ * 毎月の固定収入を、対象月の入金予定1件として作る。
+ *
+ *   金額 = max(0, 予定 − 今月の実績)（予算の income.planned / income.actual と同じ値）
+ *   日付 = income_day（既定25日）。月末を超える日は月末に丸める（projectCashflow と同じ）
+ *
+ * 予定が0（未設定）なら作らない。呼び出し側は「月収の設定がありません」を残す。
+ */
+export function salaryIncome(input: {
+  month: string
+  planned: number
+  actual: number
+  incomeDay: number | null | undefined
+}): { amount: number; date: string } | null {
+  const planned = yen(input.planned)
+  if (planned <= 0) return null
+  const [year, monthNumber] = input.month.split('-').map(Number)
+  const lastDay = new Date(Date.UTC(year, monthNumber, 0)).getUTCDate()
+  const rawDay = Number(input.incomeDay ?? 25)
+  const incomeDay = Math.min(Math.max(Number.isFinite(rawDay) ? rawDay : 25, 1), 31)
+  const date = `${input.month}-${String(Math.min(incomeDay, lastDay)).padStart(2, '0')}`
+  return { amount: Math.max(0, planned - yen(input.actual)), date }
 }

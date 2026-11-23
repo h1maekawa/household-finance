@@ -26,6 +26,7 @@ import {
   bufferWindow,
   capacityCardCycles,
   computeObligations,
+  salaryIncome,
   summarizeBufferSpending,
   type Obligations,
 } from './capacity-obligations'
@@ -70,6 +71,7 @@ export async function loadCapacityInput(
 ): Promise<LoadedCapacityInput> {
   const today = toJstDateKey(now)
   const window = bufferWindow(today)
+  const investmentFrom = monthStart(month) < window.fetchFrom ? monthStart(month) : window.fetchFrom
 
   const [
     budgetLoad,
@@ -94,15 +96,16 @@ export async function loadCapacityInput(
       .eq('user_id', userId)
       .gte('date', window.fetchFrom)
       .lte('date', today),
+    // 当月分（今月すでに投資した額）に加え、残高記録日〜今日の買付（積立の実行確認）にも使う
     supabase
       .from('investment_transactions')
       .select('trade_date, amount_jpy, trade_type')
       .eq('user_id', userId)
-      .gte('trade_date', monthStart(month))
-      .lte('trade_date', monthEnd(month)),
+      .gte('trade_date', investmentFrom)
+      .lte('trade_date', monthEnd(month) > today ? monthEnd(month) : today),
     supabase
       .from('users_profile')
-      .select('emergency_fund_months')
+      .select('emergency_fund_months, income_day')
       .eq('user_id', userId)
       .maybeSingle(),
   ])
@@ -155,6 +158,11 @@ export async function loadCapacityInput(
   })
   missingData.push(...livingBuffer.missingData)
 
+  // 買付のみ（売却・分配金は除く）
+  const buyTrades = (investmentRes.data ?? []).filter(tx =>
+    /買|buy|購入|積立|再投資/.test(String(tx.trade_type ?? '').toLowerCase())
+  )
+
   // 口座ごとの残高記録日。引落口座の記録日より前の支払いは残高に反映済み
   const balanceDateByAccount = new Map<string, string>()
   for (const account of liquidCash.accounts) {
@@ -181,15 +189,27 @@ export async function loadCapacityInput(
           balanceDateByAccount,
           oldestBalanceDate,
           fixedNames: new Set(categories.fixedNames),
+          // 給与は scheduled_payments に無い（users_profile.monthly_income / 予算の income_planned）
+          salary: salaryIncome({
+            month,
+            planned: budget.income.planned,
+            actual: budget.income.actual,
+            incomeDay: profileRes.data?.income_day ?? null,
+          }),
+          cardDebitAccountById: new Map(creditCards.map(card => [card.id, card.debit_account_id ?? null])),
+          investmentBuyDates: buyTrades.map(tx => String(tx.trade_date).slice(0, 10)),
         })
 
   const availableCash = oldestBalanceDate === null ? null : liquidCash.amount
   if (availableCash === null) missingData.push('口座残高が未登録です')
   if (budget.income.planned === 0) missingData.push('月収の設定がありません')
 
-  // 今月すでに投資に回した額（買付のみ）
-  const alreadyInvested = (investmentRes.data ?? [])
-    .filter(tx => /買|buy|購入|積立|再投資/.test(String(tx.trade_type ?? '').toLowerCase()))
+  // 今月すでに投資に回した額（当月の買付のみ）
+  const alreadyInvested = buyTrades
+    .filter(tx => {
+      const date = String(tx.trade_date).slice(0, 10)
+      return date >= monthStart(month) && date <= monthEnd(month)
+    })
     .reduce((sum, tx) => sum + Math.abs(Number(tx.amount_jpy) || 0), 0)
 
   // 防衛資金（Task 5 で見直すまで従来どおり）。積立投資は生活固定費に含めない

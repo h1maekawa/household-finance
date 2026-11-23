@@ -8,6 +8,7 @@ import {
   summarizeBufferSpending,
   capacityCardCycles,
   bufferWindow,
+  salaryIncome,
 } from './capacity-obligations'
 import type { CardCycle } from '@/lib/cashflow'
 import type { CreditCardSetting, ResolvedScheduledPayment } from '@/types/cashflow'
@@ -99,13 +100,14 @@ test('確定請求（type:credit）は計上せず、カードは締め前の利
   assert.equal(result.scheduledUnpaid, 0)
 })
 
-test('確定請求（type:credit）は支払日が未来でも予定支払いとしては数えない', () => {
+test('確定請求（type:credit）は支払日が未来でも予定支払いとしては数えない（カード側で1回だけ）', () => {
   const result = obligations({
     scheduled: [
       payment({ type: 'credit', category: 'クレカ請求', resolvedDueDate: '2026-11-27', resolvedAmountYen: 50000 }),
     ],
   })
-  assert.equal(result.fixedUnpaid + result.scheduledUnpaid + result.cardUnpaid, 0)
+  assert.equal(result.fixedUnpaid + result.scheduledUnpaid, 0)
+  assert.equal(result.cardUnpaid, 50000)
 })
 
 test('サイクルに確定額があれば利用合計ではなく確定額を使う', () => {
@@ -367,4 +369,152 @@ test('記録日より前に引き落とされたサイクルは含めない', ()
     confirmedStatements: new Map(),
   })
   assert.equal(cycles.length, 0)
+})
+
+// ---------------------------------------------------------------- fix round 1
+
+
+// I-1 給与（users_profile.monthly_income / 予算の income_planned）を入金予定に入れる
+test('給与：給料日25日・記録日11/23・今日11/24・予定30万・実績0 → 30万を足す', () => {
+  const salary = salaryIncome({ month: '2026-11', planned: 300000, actual: 0, incomeDay: 25 })
+  assert.deepEqual(salary, { amount: 300000, date: '2026-11-25' })
+  const result = obligations({ oldestBalanceDate: '2026-11-23', salary })
+  assert.equal(result.expectedIncome, 300000)
+  assert.ok(result.items.some(i => i.kind === 'income' && i.amount === 300000))
+})
+
+test('給与：記録日が給料日と同じ（11/25）なら足さない', () => {
+  const salary = salaryIncome({ month: '2026-11', planned: 300000, actual: 0, incomeDay: 25 })
+  const result = obligations({ today: '2026-11-25', oldestBalanceDate: '2026-11-25', salary })
+  assert.equal(result.expectedIncome, 0)
+})
+
+test('給与：実績30万が記録済みなら足さない', () => {
+  const salary = salaryIncome({ month: '2026-11', planned: 300000, actual: 300000, incomeDay: 25 })
+  const result = obligations({ oldestBalanceDate: '2026-11-23', salary })
+  assert.equal(result.expectedIncome, 0)
+})
+
+test('給与：income_day 31 は11月なら11/30に丸める', () => {
+  assert.deepEqual(salaryIncome({ month: '2026-11', planned: 300000, actual: 0, incomeDay: 31 }), {
+    amount: 300000,
+    date: '2026-11-30',
+  })
+  assert.equal(salaryIncome({ month: '2026-02', planned: 1, actual: 0, incomeDay: 31 })?.date, '2026-02-28')
+})
+
+test('給与：予定が未設定（0）なら給与を作らない', () => {
+  assert.equal(salaryIncome({ month: '2026-11', planned: 0, actual: 0, incomeDay: 25 }), null)
+})
+
+test('給与：type:income の予定行とは別に数える', () => {
+  const salary = salaryIncome({ month: '2026-11', planned: 300000, actual: 0, incomeDay: 25 })
+  const result = obligations({
+    oldestBalanceDate: '2026-11-23',
+    salary,
+    scheduled: [
+      payment({ name: '副業', type: 'income', category: '副業', resolvedDueDate: '2026-11-28', resolvedAmountYen: 50000 }),
+    ],
+  })
+  assert.equal(result.expectedIncome, 350000)
+})
+
+// I-2 取引が取り込まれていないカードの確定請求
+function statement(overrides: Partial<ResolvedScheduledPayment>) {
+  return payment({
+    name: 'テストカード 確定請求',
+    type: 'credit',
+    category: 'クレカ請求',
+    source: 'card_statement',
+    credit_card_id: 'card-1',
+    scheduled_date: '2026-11-27',
+    resolvedDueDate: '2026-11-27',
+    amount: 80000,
+    resolvedAmountYen: 80000,
+    ...overrides,
+  })
+}
+
+test('確定請求だけがあり、カード利用が取り込まれていない → 1回差し引く', () => {
+  const result = obligations({ oldestBalanceDate: '2026-11-23', scheduled: [statement({})] })
+  assert.equal(result.cardUnpaid, 80000)
+  assert.equal(result.items.filter(i => i.kind === 'card').length, 1)
+})
+
+test('確定請求と同じカード・同じ支払日のサイクルがあれば1回だけ（確定額）', () => {
+  const result = obligations({
+    oldestBalanceDate: '2026-11-23',
+    scheduled: [statement({})],
+    cardCycles: [cycle({ cardId: 'card-1', paymentDate: '2026-11-27', open: false, amount: 70000, confirmedAmount: 80000 })],
+  })
+  assert.equal(result.cardUnpaid, 80000)
+})
+
+test('確定請求の支払日が記録日より前なら差し引かない', () => {
+  const result = obligations({
+    oldestBalanceDate: '2026-11-23',
+    scheduled: [statement({ scheduled_date: '2026-11-10', resolvedDueDate: '2026-11-10' })],
+  })
+  assert.equal(result.cardUnpaid, 0)
+})
+
+test('確定請求はカードの引落口座の記録日で判定する', () => {
+  const result = obligations({
+    balanceDateByAccount: new Map([['A', '2026-11-28']]),
+    oldestBalanceDate: '2026-11-20',
+    cardDebitAccountById: new Map([['card-1', 'A']]),
+    scheduled: [statement({})], // 11/27 < 口座Aの記録日 11/28 → 反映済み
+  })
+  assert.equal(result.cardUnpaid, 0)
+})
+
+// I-3 口座引落の積立投資と、今月すでに投資した額の二重計上
+function investment(due: string) {
+  return payment({
+    name: '積立NISA',
+    category: '投資',
+    resolvedDueDate: due,
+    amount: 33000,
+    resolvedAmountYen: 33000,
+  })
+}
+
+test('積立：引落11/10・記録日11/09・今日11/14・11/10の買付あり → 予定は差し引かない', () => {
+  const result = obligations({
+    today: '2026-11-14',
+    oldestBalanceDate: '2026-11-09',
+    scheduled: [investment('2026-11-10')],
+    investmentBuyDates: ['2026-11-10'],
+  })
+  assert.equal(result.fixedUnpaid + result.scheduledUnpaid, 0)
+})
+
+test('積立：同じ条件で買付が未取込なら差し引く', () => {
+  const result = obligations({
+    today: '2026-11-14',
+    oldestBalanceDate: '2026-11-09',
+    scheduled: [investment('2026-11-10')],
+    investmentBuyDates: [],
+  })
+  assert.equal(result.fixedUnpaid + result.scheduledUnpaid, 33000)
+})
+
+test('積立：引落が今日より後（11/28）なら買付があっても差し引く', () => {
+  const result = obligations({
+    today: '2026-11-14',
+    oldestBalanceDate: '2026-11-09',
+    scheduled: [investment('2026-11-28')],
+    investmentBuyDates: ['2026-11-10'],
+  })
+  assert.equal(result.fixedUnpaid + result.scheduledUnpaid, 33000)
+})
+
+test('積立：記録日より前の買付は今回の実行とみなさない', () => {
+  const result = obligations({
+    today: '2026-11-14',
+    oldestBalanceDate: '2026-11-09',
+    scheduled: [investment('2026-11-10')],
+    investmentBuyDates: ['2026-11-05'],
+  })
+  assert.equal(result.fixedUnpaid + result.scheduledUnpaid, 33000)
 })
