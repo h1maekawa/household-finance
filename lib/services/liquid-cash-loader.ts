@@ -23,7 +23,13 @@ export async function loadLiquidCash(
 
   const [accountsRes, balancesRes] = await Promise.all([
     supabase.from('accounts').select('id, type').eq('user_id', userId),
-    supabase.from('account_balances').select('account_id, balance, recorded_at').eq('user_id', userId),
+    // 新しい順に読む。PostgREST は既定で1000行までしか返さないため、順序を付けないと
+    // 口座の最新行が読み込みから落ちることがある。口座ごとの先頭（最新）を resolveLiquidCash が採用する
+    supabase
+      .from('account_balances')
+      .select('account_id, balance, recorded_at')
+      .eq('user_id', userId)
+      .order('recorded_at', { ascending: false }),
   ])
 
   // 取得失敗を「口座なし」と混同しない。金融値をDBエラーから作らない

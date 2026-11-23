@@ -153,3 +153,26 @@ test('流動口座に未記録があれば null。旧テーブルへ落とさず
   assert.equal(r.accounts.length, 2)
   assert.equal(r.accounts.find(a => a.accountId === 'a2')?.recordedAt, null)
 })
+
+// M-5 account_balances は PostgREST の上限（既定1000行）で切られる。新しい順に読まないと
+// 口座の最新行が読み込みから落ち、古い残高や「未記録」になる
+test('M-5 ローダーは account_balances を記録の新しい順に読む', async () => {
+  const { readFileSync } = await import('node:fs')
+  const loader = readFileSync('lib/services/liquid-cash-loader.ts', 'utf8')
+  assert.match(
+    loader,
+    /from\('account_balances'\)\s*\.select\('account_id, balance, recorded_at'\)\s*\.eq\('user_id', userId\)\s*\.order\('recorded_at', \{ ascending: false \}\)/
+  )
+})
+
+test('M-5 新しい順に並んだ行から、口座ごとに先頭（最新）の1件を採用する', () => {
+  const result = sumLiquidCash(
+    [{ id: 'a', type: 'bank' }],
+    [
+      { account_id: 'a', balance: 300, recorded_at: '2026-11-27T00:00:00Z' },
+      { account_id: 'a', balance: 100, recorded_at: '2026-11-01T00:00:00Z' },
+    ]
+  )
+  assert.equal(result.amount, 300)
+  assert.equal(result.recordedAt, '2026-11-27T00:00:00Z')
+})
