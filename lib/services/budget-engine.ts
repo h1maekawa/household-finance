@@ -206,9 +206,15 @@ function pickBestCandidate(
 
 // ---------------------------------------------------------------- 変動費の実績
 
-export function summarizeVariableSpending(
+type VariableSpendingOptions = {
+  fixedNames: string[]
+  excludeTransactionIds?: Iterable<string>
+}
+
+function collectVariableSpending(
   transactions: BudgetTransaction[],
-  options: { month: string; fixedNames: string[]; excludeTransactionIds?: Iterable<string> }
+  options: VariableSpendingOptions,
+  inPeriod: (date: string) => boolean
 ): { total: number; byCategory: Record<string, number>; stats: Record<string, CategoryStat> } {
   const fixedNameSet = new Set(options.fixedNames)
   const excluded = new Set(options.excludeTransactionIds ?? [])
@@ -218,7 +224,7 @@ export function summarizeVariableSpending(
 
   for (const tx of transactions) {
     if (tx.kind !== 'expense') continue
-    if (monthOf(tx.date) !== options.month) continue
+    if (!inPeriod(tx.date)) continue
     if (excluded.has(tx.id)) continue
     if (tx.scheduled_payment_id) continue
     if (fixedNameSet.has(tx.category)) continue
@@ -235,6 +241,30 @@ export function summarizeVariableSpending(
   }
 
   return { total, byCategory, stats }
+}
+
+/** 期間指定（両端含む、'YYYY-MM-DD'）の変動費。除外ルールは月版と同じ */
+export function summarizeVariableSpendingInRange(
+  transactions: BudgetTransaction[],
+  options: VariableSpendingOptions & { from: string; to: string }
+): { total: number; byCategory: Record<string, number> } {
+  const { total, byCategory } = collectVariableSpending(
+    transactions,
+    options,
+    date => date >= options.from && date <= options.to
+  )
+  return { total, byCategory }
+}
+
+export function summarizeVariableSpending(
+  transactions: BudgetTransaction[],
+  options: { month: string } & VariableSpendingOptions
+): { total: number; byCategory: Record<string, number>; stats: Record<string, CategoryStat> } {
+  return collectVariableSpending(
+    transactions,
+    options,
+    date => monthOf(date) === options.month
+  )
 }
 
 // ---------------------------------------------------------------- 主計算
