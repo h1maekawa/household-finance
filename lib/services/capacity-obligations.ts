@@ -88,7 +88,6 @@ function day(value: string): string {
 }
 
 export function computeObligations(input: ObligationsInput): Obligations {
-  const month = input.monthEnd.slice(0, 7)
   const monthEnd = day(input.monthEnd)
   const baseDateFor = (accountId: string | null | undefined): string | null =>
     (accountId ? input.balanceDateByAccount.get(accountId) : undefined) ?? input.oldestBalanceDate
@@ -126,7 +125,7 @@ export function computeObligations(input: ObligationsInput): Obligations {
   for (const payment of input.scheduled) {
     if (!payment.is_active) continue
     if (!isCardBillPayment(payment)) continue
-    if (payment.last_paid_month === month) continue
+    // last_paid_month だけでは除かない。記録日より後の引落なら残高にまだ反映されていない
     const dueRaw = payment.resolvedDueDate ?? payment.scheduled_date
     if (!dueRaw) continue
     const due = day(dueRaw)
@@ -164,7 +163,7 @@ export function computeObligations(input: ObligationsInput): Obligations {
     if (due > monthEnd) continue
 
     // 投資カテゴリの積立は、買付との対応づけ（computeInvestmentOutflows）に全件渡す。
-    // 記録日より前・今月支払い済みでも、買付が単独で数えられないよう対応づけには必要。
+    // 記録日より前の積立でも、買付が単独で数えられないよう対応づけには必要。
     // 記録日との比較は computeInvestmentOutflows が行う
     if (payment.type !== 'income' && !isCardBillPayment(payment) && isInvestmentCategory(payment.category)) {
       const investmentAmount = yen(payment.resolvedAmountYen)
@@ -183,7 +182,8 @@ export function computeObligations(input: ObligationsInput): Obligations {
       continue
     }
 
-    if (payment.last_paid_month === month) continue
+    // 「今月支払い済み」の印（last_paid_month）だけでは除かない。除くのは日付の規則
+    // （引落日 < その口座の記録日 = 残高に反映済み）だけ
     const base = baseDateFor(payment.debit_account_id)
     if (base === null) continue
     const amount = yen(payment.resolvedAmountYen)

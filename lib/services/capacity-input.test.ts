@@ -193,11 +193,15 @@ test('type:income は支出ではなく入金予定に入る（F17）', () => {
   )
 })
 
-test('今月支払い済み（last_paid_month が当月）の固定費は数えない', () => {
+test('今月支払い済み（last_paid_month が当月）でも、記録日より前に引き落とされたものだけ差し引かない（I-2）', () => {
   const result = obligations({
-    scheduled: [payment({ last_paid_month: '2026-11', amount: 5000, resolvedAmountYen: 5000 })],
+    oldestBalanceDate: '2026-11-23',
+    scheduled: [
+      payment({ last_paid_month: '2026-11', resolvedDueDate: '2026-11-20', amount: 5000, resolvedAmountYen: 5000 }),
+      payment({ last_paid_month: '2026-11', resolvedDueDate: '2026-11-27', amount: 7000, resolvedAmountYen: 7000 }),
+    ],
   })
-  assert.equal(result.fixedUnpaid, 0)
+  assert.equal(result.fixedUnpaid, 7000)
 })
 
 test('月末より後の予定支払いは数えない', () => {
@@ -805,4 +809,33 @@ test('C-1 入金予定（type:income・口座不明）も最も新しい記録�
   })
   // 11/25 口座不明 → 新しい 11/27 で判定（足さない）、11/25 口座B → 11/20 より後（足す）、11/28 口座不明 → 足す
   assert.equal(result.expectedIncome, 20000)
+})
+
+// I-2 last_paid_month だけでは差し引きをやめない。日付の規則（引落日 < その口座の記録日）だけで判定する
+test('I-2 口座Bの固定費11/27を支払い済みにしても、Bの記録日が11/20なら差し引く', () => {
+  const result = obligations({
+    today: '2026-11-28',
+    balanceDateByAccount: new Map([['B', '2026-11-20']]),
+    oldestBalanceDate: '2026-11-20',
+    scheduled: [payment({ name: '家賃', debit_account_id: 'B', last_paid_month: '2026-11', resolvedAmountYen: 80000 })],
+  })
+  assert.equal(result.fixedUnpaid, 80000)
+})
+
+test('I-2 口座Bの記録日が11/28なら（11/27の引落は反映済み）差し引かない', () => {
+  const result = obligations({
+    today: '2026-11-28',
+    balanceDateByAccount: new Map([['B', '2026-11-28']]),
+    oldestBalanceDate: '2026-11-28',
+    scheduled: [payment({ name: '家賃', debit_account_id: 'B', last_paid_month: '2026-11', resolvedAmountYen: 80000 })],
+  })
+  assert.equal(result.fixedUnpaid, 0)
+})
+
+test('I-2 確定請求も last_paid_month だけでは除かない（記録日より後の引落は差し引く）', () => {
+  const result = obligations({
+    oldestBalanceDate: '2026-11-23',
+    scheduled: [statement({ last_paid_month: '2026-11' })], // 11/27 ≥ 11/23
+  })
+  assert.equal(result.cardUnpaid, 80000)
 })
