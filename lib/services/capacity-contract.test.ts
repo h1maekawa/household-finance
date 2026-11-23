@@ -34,6 +34,11 @@ test('DBの詳細をクライアントへ返さない', () => {
   assert.match(route, /readFailed\(/)
 })
 
+test('月末日を31日で固定しない', () => {
+  assert.doesNotMatch(route, /`\$\{month\}-31`/)
+  assert.match(route, /monthEnd\(month\)/)
+})
+
 test('算出時刻はI/O境界で付ける（後方互換）', () => {
   assert.match(route, /calculated_at: new Date\(\)\.toISOString\(\)/)
 })

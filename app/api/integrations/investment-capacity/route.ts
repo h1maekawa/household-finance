@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server'
 import { requireIntegrationScope } from '@/lib/server-auth'
 import { supabaseAdmin } from '@/lib/supabase'
-import { loadBudget } from '@/lib/services/budget-loader'
+import { loadBudget, monthEnd, monthStart } from '@/lib/services/budget-loader'
 import { computeInvestmentCapacity } from '@/lib/services/investment-capacity'
 import { getMergedCategories } from '@/lib/categories'
 import { readFailed } from '@/lib/api-errors'
@@ -28,8 +28,6 @@ export async function GET(request: NextRequest) {
 
   const month = resolveMonthParam(request.nextUrl.searchParams.get('month'))
   const today = todayJst()
-  const monthStart = `${month}-01`
-  const monthEnd = `${month}-31`
 
   try {
     const [budgetLoad, liquidCash, scheduledRes, investmentRes, categories, profileRes] = await Promise.all([
@@ -44,8 +42,8 @@ export async function GET(request: NextRequest) {
         .from('investment_transactions')
         .select('trade_date, amount_jpy, trade_type')
         .eq('user_id', userId)
-        .gte('trade_date', monthStart)
-        .lte('trade_date', monthEnd),
+        .gte('trade_date', monthStart(month))
+        .lte('trade_date', monthEnd(month)),
       getMergedCategories(userId, supabaseAdmin),
       supabaseAdmin
         .from('users_profile')
