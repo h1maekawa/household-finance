@@ -53,6 +53,7 @@ function plan(over: { availableCash?: number | null } = {}) {
     expectedIncome: 0, confirmedIncome: 300000, confirmedExpenses: 40000,
     pendingCardAmount: 0, fixedExpenses: 0, scheduledExpenses: 0,
     livingReserve: budget.variable.remaining, buffer: budget.buffer, alreadyInvested: 0,
+    investmentDeducted: over.availableCash === null ? null : 0,
     requiredReserve: emergencyFund.requiredReserve,
     savingsTarget: budget.savings.target,
     investmentTarget: budget.investment.target,
@@ -134,7 +135,7 @@ test('防衛資金の表示は支払い後の原資基準（総残高で「充�
   const capacity = computeInvestmentCapacity({
     month: '2026-09', availableCash: 1_000_000, expectedIncome: 0, confirmedIncome: 0,
     confirmedExpenses: 0, pendingCardAmount: 0, fixedExpenses: 0, scheduledExpenses: 600_000,
-    livingReserve: 0, buffer: 0, alreadyInvested: 0,
+    livingReserve: 0, buffer: 0, alreadyInvested: 0, investmentDeducted: 0,
     requiredReserve: emergencyFund.requiredReserve,
     missingData: [], balanceOldestRecordedAt: '2026-09-01T00:00:00Z',
     now: new Date('2026-09-02T00:00:00Z'),

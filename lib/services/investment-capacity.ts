@@ -38,9 +38,9 @@ export type CapacityInput = {
   alreadyInvested: number
   /**
    * 投資に関して実際に差し引く額（残高未反映の買付＋積立の引落を1回ずつ）。
-   * 不明なら null。未指定なら alreadyInvested を差し引く
+   * 必須。不明なら null（投資可能額も null。alreadyInvested で代用しない）
    */
-  investmentDeducted?: number | null
+  investmentDeducted: number | null
   /**
    * 必要な防衛資金（必須生活費 × 月数）。算出できないなら null（0円で埋めない）。
    * 防衛資金は流動口座の現金そのものなので、原資とは別の「確保済み」として数えない。
@@ -178,9 +178,12 @@ export function computeInvestmentCapacity(input: CapacityInput): CapacityResult 
   // 生活のために残す額。ここを削ってまで投資はしない
   const personalCashFloor = yen(input.livingReserve + input.buffer)
 
-  const investmentDeducted =
-    input.investmentDeducted === undefined ? input.alreadyInvested : input.investmentDeducted
+  const investmentDeducted = input.investmentDeducted
+  // breakdown 用。investable は investmentDeducted が null なら下で null にする
   const investmentDeduction = investmentDeducted === null ? 0 : yen(investmentDeducted)
+  if (investmentDeducted === null && input.availableCash !== null) {
+    missing.push('投資済み額を判定できないため、投資可能額を算出できません')
+  }
 
   const deductions =
     yen(input.pendingCardAmount) +
@@ -189,9 +192,9 @@ export function computeInvestmentCapacity(input: CapacityInput): CapacityResult 
     personalCashFloor +
     investmentDeduction
 
-  // 口座残高が分からないと投資余力は出せない（推定で埋めない）
+  // 口座残高または投資の控除が分からないと投資余力は出せない（推定で埋めない）
   const investable =
-    input.availableCash === null
+    input.availableCash === null || investmentDeducted === null
       ? null
       : yen(input.availableCash) + yen(input.expectedIncome) - deductions
 

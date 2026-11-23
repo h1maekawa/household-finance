@@ -640,6 +640,7 @@ function capacityInput(overrides: Partial<CapacityInput>): CapacityInput {
     livingReserve: 0,
     buffer: 0,
     alreadyInvested: 0,
+    investmentDeducted: 0,
     requiredReserve: 0,
     savingsTarget: 0,
     investmentTarget: 0,
@@ -680,13 +681,23 @@ test('記録日時が不明：already_invested は当月の買付総額のまま
   assert.ok(result.missing_data.includes('口座残高の記録日時が不明なため、投資済み額を判定できません'))
 })
 
-test('投資の控除は investmentDeducted を1回だけ引く（既定は alreadyInvested）', () => {
+test('投資の控除は investmentDeducted を1回だけ引く（alreadyInvested は表示用）', () => {
   const withDeducted = computeInvestmentCapacity(capacityInput({ alreadyInvested: 60000, investmentDeducted: 30000 }))
   assert.equal(withDeducted.investable_amount, 470000)
   assert.equal(withDeducted.already_invested, 60000)
   assert.equal(withDeducted.already_invested_deducted, 30000)
-  const legacy = computeInvestmentCapacity(capacityInput({ alreadyInvested: 60000 }))
-  assert.equal(legacy.investable_amount, 440000)
+})
+
+// M-2 investmentDeducted は必須（number | null）。残高が分かっていても控除が不明なら投資可能額は null
+test('M-2 口座残高があっても投資の控除が不明（null）なら投資可能額は null（0円で埋めない）', () => {
+  const result = computeInvestmentCapacity(capacityInput({ alreadyInvested: 60000, investmentDeducted: null }))
+  assert.equal(result.available_cash, 500000)
+  assert.equal(result.investable_amount, null)
+  assert.equal(result.allocatable_cash, null)
+  assert.equal(result.already_invested_deducted, null)
+  assert.deepEqual(result.allocation, { emergency_fund: null, savings: null, asset_building: null, unallocated_cash: null })
+  assert.ok(result.missing_data.includes('投資済み額を判定できないため、投資可能額を算出できません'))
+  assert.equal(result.emergency_fund_status, 'unknown')
 })
 
 // fix round 2：computeObligations → computeInvestmentOutflows を通しで確認する
