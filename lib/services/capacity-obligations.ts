@@ -10,6 +10,7 @@
 //   引落口座が分かるものはその口座の記録日、分からないものは最も古い記録日で判定する。
 import { parseISO } from 'date-fns'
 import { buildCardCycles, type CardCycle } from '@/lib/cashflow'
+import { toJstDateKey } from '@/lib/jst'
 import { isCardBillPayment, isInvestmentCategory } from './money-plan'
 import { summarizeVariableSpendingInRange } from './budget-engine'
 import { LIVING_BUFFER_WINDOW_DAYS } from './living-buffer'
@@ -185,6 +186,46 @@ export function computeObligations(input: ObligationsInput): Obligations {
   }
 
   return result
+}
+
+// ---------------------------------------------------------------- 投資済み額
+
+/** 買付の判定（売却・分配金は除く）。alreadyInvested と投資の二重計上判定で同じ定義を使う */
+const BUY_TRADE_TYPE = /買|buy|購入|積立|再投資/
+
+export function isBuyTradeType(tradeType: unknown): boolean {
+  return BUY_TRADE_TYPE.test(String(tradeType ?? '').toLowerCase())
+}
+
+/** 残高の記録時刻 → 日本時間の記録日 'YYYY-MM-DD' */
+export function balanceDateKey(recordedAt: string): string {
+  if (/^\d{4}-\d{2}-\d{2}$/.test(recordedAt)) return recordedAt
+  const time = Date.parse(recordedAt)
+  return Number.isFinite(time) ? toJstDateKey(new Date(time)) : recordedAt.slice(0, 10)
+}
+
+/**
+ * 今月すでに投資した額のうち、残高にまだ反映されていないもの。
+ * 記録日より前の買付は残高から引かれ済みなので数えない。記録日と同じ日は
+ * 反映済みか分からないので数える（安全側）。
+ * 記録日時が不明なら null（0円で埋めない）。
+ *
+ * 呼び出し側は今日より後の買付を渡さないこと。数えた買付は必ず
+ * 積立の二重計上判定の窓 [記録日, 今日] に入る。
+ */
+export function sumInvestedAfterBalance(
+  trades: { trade_date: string; trade_type: string; amount: number }[],
+  input: { month: string; balanceOldestRecordedAt: string | null }
+): number | null {
+  if (input.balanceOldestRecordedAt === null) return null
+  const balanceDate = balanceDateKey(input.balanceOldestRecordedAt)
+  return trades
+    .filter(trade => {
+      if (!isBuyTradeType(trade.trade_type)) return false
+      const date = day(String(trade.trade_date))
+      return date >= balanceDate && date.slice(0, 7) === input.month
+    })
+    .reduce((sum, trade) => sum + Math.abs(Number(trade.amount) || 0), 0)
 }
 
 // ---------------------------------------------------------------- 日付

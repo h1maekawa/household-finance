@@ -25,8 +25,11 @@ import { yen } from './money'
 import {
   bufferWindow,
   capacityCardCycles,
+  balanceDateKey,
   computeObligations,
+  isBuyTradeType,
   salaryIncome,
+  sumInvestedAfterBalance,
   summarizeBufferSpending,
   type Obligations,
 } from './capacity-obligations'
@@ -55,13 +58,6 @@ export type CapacityLoadContext = {
  * computeInvestmentCapacity へは context を外して渡す。
  */
 export type LoadedCapacityInput = CapacityInput & { context: CapacityLoadContext }
-
-/** 残高の記録時刻 → 日本時間の記録日 'YYYY-MM-DD' */
-function balanceDateKey(recordedAt: string): string {
-  if (/^\d{4}-\d{2}-\d{2}$/.test(recordedAt)) return recordedAt
-  const time = Date.parse(recordedAt)
-  return Number.isFinite(time) ? toJstDateKey(new Date(time)) : recordedAt.slice(0, 10)
-}
 
 export async function loadCapacityInput(
   userId: string,
@@ -159,8 +155,9 @@ export async function loadCapacityInput(
   missingData.push(...livingBuffer.missingData)
 
   // 買付のみ（売却・分配金は除く）
-  const buyTrades = (investmentRes.data ?? []).filter(tx =>
-    /買|buy|購入|積立|再投資/.test(String(tx.trade_type ?? '').toLowerCase())
+  // 今日より後の買付は除く（積立の二重計上判定の窓 [記録日, 今日] と合わせる）
+  const buyTrades = (investmentRes.data ?? []).filter(
+    tx => isBuyTradeType(tx.trade_type) && String(tx.trade_date).slice(0, 10) <= today
   )
 
   // 口座ごとの残高記録日。引落口座の記録日より前の支払いは残高に反映済み
@@ -204,13 +201,16 @@ export async function loadCapacityInput(
   if (availableCash === null) missingData.push('口座残高が未登録です')
   if (budget.income.planned === 0) missingData.push('月収の設定がありません')
 
-  // 今月すでに投資に回した額（当月の買付のみ）
-  const alreadyInvested = buyTrades
-    .filter(tx => {
-      const date = String(tx.trade_date).slice(0, 10)
-      return date >= monthStart(month) && date <= monthEnd(month)
-    })
-    .reduce((sum, tx) => sum + Math.abs(Number(tx.amount_jpy) || 0), 0)
+  // 今月すでに投資に回した額のうち、残高に未反映（記録日以降）の買付だけ。
+  // 記録日時が不明なら不明のまま扱い、0円で埋めない（投資可能額も null になる）
+  const investedAfterBalance = sumInvestedAfterBalance(
+    buyTrades.map(tx => ({ trade_date: String(tx.trade_date), trade_type: String(tx.trade_type ?? ''), amount: Number(tx.amount_jpy) })),
+    { month, balanceOldestRecordedAt: liquidCash.oldestRecordedAt }
+  )
+  if (investedAfterBalance === null) {
+    missingData.push('口座残高の記録日時が不明なため、投資済み額を判定できません')
+  }
+  const alreadyInvested = investedAfterBalance ?? 0
 
   // 防衛資金の必要額。積立投資は生活固定費に含めない
   const investmentFixed = resolvedPayments
