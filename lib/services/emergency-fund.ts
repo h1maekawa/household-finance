@@ -67,3 +67,28 @@ export function computeEmergencyFund(input: EmergencyFundInput): EmergencyFundRe
     status: reserveGap === 0 ? 'funded' : 'underfunded',
   }
 }
+
+/**
+ * 表示用: 防衛資金の「現在額・不足額・状態」を、支払い後の原資から確保できた額で出し直す。
+ *
+ * computeEmergencyFund は口座残高の総額を「現在額」とするため、支払い予定の多い月でも
+ * 「充足」と出てしまう。配分（investment-capacity の allocation）と同じ基準に揃える。
+ * 必要額は変えない。算出できない（unknown）ときは何も補わずそのまま返す。
+ */
+export function withHeldReserve(
+  base: EmergencyFundResult,
+  heldFromPool: number | null,
+  status: EmergencyFundStatus
+): EmergencyFundResult {
+  if (status === 'unknown' || heldFromPool === null || base.requiredReserve === null) {
+    return { ...base, currentReserve: null, reserveGap: null, fundedRatio: null, status: 'unknown' }
+  }
+  const held = Math.max(yen(heldFromPool), 0)
+  return {
+    ...base,
+    currentReserve: held,
+    reserveGap: Math.max(base.requiredReserve - held, 0),
+    fundedRatio: base.requiredReserve === 0 ? 1 : held / base.requiredReserve,
+    status,
+  }
+}

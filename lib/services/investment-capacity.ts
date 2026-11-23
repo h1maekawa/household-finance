@@ -36,8 +36,12 @@ export type CapacityInput = {
   buffer: number
   /** 今月すでに投資した額 */
   alreadyInvested: number
-  /** 防衛資金の不足額。最優先で確保する。不明なら0 */
-  reserveGap?: number
+  /**
+   * 必要な防衛資金（必須生活費 × 月数）。算出できないなら null（0円で埋めない）。
+   * 防衛資金は流動口座の現金そのものなので、原資とは別の「確保済み」として数えない。
+   * 原資から先に min(原資, requiredReserve) を確保する。
+   */
+  requiredReserve: number | null
   /** 毎月の貯蓄目標（budget.savings.target）。ここで再計算しない */
   savingsTarget?: number
   /** 毎月の投資目標（budget.investment.target）。ここで再計算しない */
@@ -77,6 +81,8 @@ export function judgeBalanceFreshness(input: {
   }
 }
 
+export type CapacityEmergencyFundStatus = 'funded' | 'underfunded' | 'unknown'
+
 export type CapacityResult = {
   target_month: string
   available_cash: number | null
@@ -95,6 +101,10 @@ export type CapacityResult = {
    * allocation の4つはこれを分け合う（別々の財布ではない）。
    */
   allocatable_cash: number | null
+  /** 必要な防衛資金。必須生活費が不明なら null */
+  required_reserve: number | null
+  /** 原資 ≥ required_reserve なら funded、未満なら underfunded、不明なら unknown */
+  emergency_fund_status: CapacityEmergencyFundStatus
   /**
    * 原資の配分。「上限いくらまで使える」という capacity ではなく、
    * 「今月いくらをどこへ充てるか」という allocation。
@@ -128,21 +138,22 @@ function yen(value: number): number {
 /**
  * 同じ原資を順に配分する。3つを別々の財布として扱わないための関数。
  *
- *   防衛資金の補充 → 貯蓄目標 → 投資目標 → 残り(自由)
+ *   防衛資金の確保 → 貯蓄目標 → 投資目標 → 残り(自由)
  *
  * 防衛資金が不足しているときに資産形成へ全額回らないのは、この順序による。
  * 合計は必ず配分原資と一致する（超えない）。
  */
 function allocate(
   pool: number,
-  reserveGap: number,
+  requiredReserve: number,
   savingsTarget: number,
   investmentTarget: number
 ): { emergencyFund: number; savings: number; assetBuilding: number; unallocated: number } {
   let rest = Math.max(pool, 0)
 
-  // 手元の現金の振り替え。毎月の積立とは意味が違うので通常貯金と分けて出す
-  const emergencyFund = Math.min(rest, Math.max(yen(reserveGap), 0))
+  // 防衛資金は原資と同じ流動口座の現金。原資から先に確保し、残りを分ける
+  // （総残高を「確保済み」と数えると同じ1円が防衛資金と投資の両方に使われる）
+  const emergencyFund = Math.min(rest, Math.max(yen(requiredReserve), 0))
   rest -= emergencyFund
 
   const savings = Math.min(rest, Math.max(yen(savingsTarget), 0))
@@ -173,16 +184,26 @@ export function computeInvestmentCapacity(input: CapacityInput): CapacityResult 
       ? null
       : yen(input.availableCash) + yen(input.expectedIncome) - deductions
 
-  // 口座残高が分からない間は配分も出さない。0円と「分からない」を混同しない
+  // 口座残高または必要な防衛資金が分からない間は配分も出さない。
+  // 0円と「分からない」を混同しない
+  const requiredReserve = input.requiredReserve === null ? null : Math.max(yen(input.requiredReserve), 0)
+  if (requiredReserve === null) missing.push('生活防衛資金の必要額を算出できません')
   const allocation =
-    investable === null
+    investable === null || requiredReserve === null
       ? null
       : allocate(
           investable,
-          input.reserveGap ?? 0,
+          requiredReserve,
           input.savingsTarget ?? 0,
           input.investmentTarget ?? 0
         )
+
+  const emergencyFundStatus: CapacityEmergencyFundStatus =
+    investable === null || requiredReserve === null
+      ? 'unknown'
+      : Math.max(investable, 0) >= requiredReserve
+        ? 'funded'
+        : 'underfunded'
 
   const freshness =
     input.availableCash === null
@@ -228,6 +249,8 @@ export function computeInvestmentCapacity(input: CapacityInput): CapacityResult 
     personal_cash_floor: personalCashFloor,
     investable_amount: investable,
     allocatable_cash: investable,
+    required_reserve: requiredReserve,
+    emergency_fund_status: emergencyFundStatus,
     allocation: {
       emergency_fund: allocation?.emergencyFund ?? null,
       savings: allocation?.savings ?? null,

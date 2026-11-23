@@ -53,7 +53,7 @@ function plan(over: { availableCash?: number | null } = {}) {
     expectedIncome: 0, confirmedIncome: 300000, confirmedExpenses: 40000,
     pendingCardAmount: 0, fixedExpenses: 0, scheduledExpenses: 0,
     livingReserve: budget.variable.remaining, buffer: budget.buffer, alreadyInvested: 0,
-    reserveGap: emergencyFund.reserveGap ?? 0,
+    requiredReserve: emergencyFund.requiredReserve,
     savingsTarget: budget.savings.target,
     investmentTarget: budget.investment.target,
     missingData: over.availableCash === null ? ['口座残高が未登録です'] : [],
@@ -123,4 +123,29 @@ test('Orchestrator は計算式を持たない（契約）', () => {
   // 配分は investment-capacity の結果をそのまま写す
   assert.match(src, /capacity\.allocation\.emergency_fund/)
   assert.match(src, /capacity\.allocation\.asset_building/)
+})
+
+test('防衛資金の表示は支払い後の原資基準（総残高で「充足」と出さない）', () => {
+  // 総残高は必要額(3×(120,000+100,000)=660,000)を超えるが、支払い後の原資は足りない
+  const emergencyFund = computeEmergencyFund({
+    monthlyEssentialExpenses: 220_000, currentLiquidCash: 1_000_000, targetMonths: 3,
+  })
+  assert.equal(emergencyFund.status, 'funded') // 総残高基準
+  const capacity = computeInvestmentCapacity({
+    month: '2026-09', availableCash: 1_000_000, expectedIncome: 0, confirmedIncome: 0,
+    confirmedExpenses: 0, pendingCardAmount: 0, fixedExpenses: 0, scheduledExpenses: 600_000,
+    livingReserve: 0, buffer: 0, alreadyInvested: 0,
+    requiredReserve: emergencyFund.requiredReserve,
+    missingData: [], balanceOldestRecordedAt: '2026-09-01T00:00:00Z',
+    now: new Date('2026-09-02T00:00:00Z'),
+  })
+  const p = buildAssetPlan({
+    month: '2026-09', budget, capacity, emergencyFund, goals,
+    moneyPlan: buildMoneyPlan({ month: '2026-09', budget, categoryBudgets: [], fixedPayments: [], goals }),
+    projection: projectAssets({ currentAssets: 1_000_000, monthlyContribution: 0, horizons: [1] }),
+  })
+  assert.equal(p.emergencyFund.status, 'underfunded')
+  assert.equal(p.emergencyFund.currentReserve, 400_000)
+  assert.equal(p.emergencyFund.reserveGap, 260_000)
+  assert.equal(p.allocation.emergencyFund, 400_000)
 })

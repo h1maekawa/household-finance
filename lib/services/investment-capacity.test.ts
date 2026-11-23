@@ -46,7 +46,7 @@ function input(over: Partial<CapacityInput> = {}): CapacityInput {
     month: '2026-11', availableCash: 500000, expectedIncome: 0,
     confirmedIncome: 300000, confirmedExpenses: 0, pendingCardAmount: 0,
     fixedExpenses: 0, scheduledExpenses: 0, livingReserve: 0, buffer: 0,
-    alreadyInvested: 0, missingData: [],
+    alreadyInvested: 0, requiredReserve: 0, missingData: [],
     balanceOldestRecordedAt: hoursAgo(1), now, ...over,
   }
 }
