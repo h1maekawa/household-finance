@@ -8,6 +8,7 @@
 //   口座残高の記録日より前に引き落とされた支払いは、残高に反映済みなので差し引かない。
 //   記録日と同じ日のものは反映済みか分からないので、支払いは差し引き、入金は足さない。
 //   引落口座が分かるものはその口座の記録日、分からないものは最も古い記録日で判定する。
+//   ただし入金で口座が分からないもの（給与など）は最も新しい記録日で判定する（入金の安全側）。
 import { parseISO } from 'date-fns'
 import { buildCardCycles, type CardCycle } from '@/lib/cashflow'
 import { toJstDateKey } from '@/lib/jst'
@@ -70,7 +71,7 @@ export type ObligationsInput = {
   /**
    * 毎月の固定収入（users_profile.monthly_income / 予算の income_planned）。
    * scheduled_payments には入っていないので別に渡す（salaryIncome で作る）。
-   * 給与の入金口座は分からないので、最も古い記録日で判定する
+   * 給与の入金口座は分からないので、最も新しい記録日で判定する（入金の安全側）
    */
   salary?: { amount: number; date: string } | null
   /** カードID → 引落口座ID。確定請求の基準日に使う */
@@ -91,6 +92,13 @@ export function computeObligations(input: ObligationsInput): Obligations {
   const monthEnd = day(input.monthEnd)
   const baseDateFor = (accountId: string | null | undefined): string | null =>
     (accountId ? input.balanceDateByAccount.get(accountId) : undefined) ?? input.oldestBalanceDate
+  // 入金で口座が分からないものは、最も新しい記録日で判定する。どの口座に入ったか
+  // 分からない入金は、いちばん新しい残高にすでに入っているかもしれない（足さない側）
+  const recordedDates = [...input.balanceDateByAccount.values()]
+  const newestBalanceDate =
+    recordedDates.length > 0 ? recordedDates.reduce((a, b) => (a > b ? a : b)) : input.oldestBalanceDate
+  const incomeBaseDateFor = (accountId: string | null | undefined): string | null =>
+    (accountId ? input.balanceDateByAccount.get(accountId) : undefined) ?? newestBalanceDate
 
   const result: Obligations = {
     cardUnpaid: 0,
@@ -137,10 +145,11 @@ export function computeObligations(input: ObligationsInput): Obligations {
     result.items.push({ label: `${payment.name}（${due}引落）`, amount, kind: 'card' })
   }
 
-  // 給与：基準日より後（同日を含まない）〜月末。入金口座が分からないので最も古い記録日
-  if (input.salary && input.salary.amount > 0 && input.oldestBalanceDate !== null) {
+  // 給与：基準日より後（同日を含まない）〜月末。入金口座が分からないので最も新しい記録日
+  const salaryBase = incomeBaseDateFor(null)
+  if (input.salary && input.salary.amount > 0 && salaryBase !== null) {
     const date = day(input.salary.date)
-    if (date > input.oldestBalanceDate && date <= monthEnd) {
+    if (date > salaryBase && date <= monthEnd) {
       const amount = yen(input.salary.amount)
       result.expectedIncome += amount
       result.items.push({ label: '毎月の固定収入', amount, kind: 'income' })
@@ -181,8 +190,10 @@ export function computeObligations(input: ObligationsInput): Obligations {
     if (amount === 0) continue
 
     if (payment.type === 'income') {
-      // F17：入金は支出ではない。記録日と同じ日は反映済みか分からないので足さない
-      if (due <= base) continue
+      // F17：入金は支出ではない。記録日と同じ日は反映済みか分からないので足さない。
+      // 入金口座が分からないものは最も新しい記録日で判定する
+      const incomeBase = incomeBaseDateFor(payment.debit_account_id)
+      if (incomeBase === null || due <= incomeBase) continue
       result.expectedIncome += amount
       result.items.push({ label: payment.name, amount, kind: 'income' })
       continue

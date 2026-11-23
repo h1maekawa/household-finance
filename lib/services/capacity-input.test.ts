@@ -768,3 +768,41 @@ test('カード払いの積立：対応のない買付は従来どおり数え�
   assert.equal(r?.scheduledDeduction, 0)
   assert.equal(r?.buyDeduction, 5000)
 })
+
+// ---------------------------------------------------------------- final fix wave（2026-11-24）
+
+// C-1 入金口座が分からない入金（給与・type:income）は最も新しい記録日で判定する
+test('C-1 給与：A 11/27・B 11/20・給料日11/25・実績0 → 給与は足さない（新しい口座の残高に反映済み）', () => {
+  const salary = salaryIncome({ month: '2026-11', planned: 300000, actual: 0, incomeDay: 25 })
+  const result = obligations({
+    today: '2026-11-28',
+    balanceDateByAccount: new Map([['A', '2026-11-27'], ['B', '2026-11-20']]),
+    oldestBalanceDate: '2026-11-20',
+    salary,
+  })
+  assert.equal(result.expectedIncome, 0)
+})
+
+test('C-1 給与：A 11/27・B 11/20・給料日11/28 → 30万を足す', () => {
+  const salary = salaryIncome({ month: '2026-11', planned: 300000, actual: 0, incomeDay: 28 })
+  const result = obligations({
+    today: '2026-11-28',
+    balanceDateByAccount: new Map([['A', '2026-11-27'], ['B', '2026-11-20']]),
+    oldestBalanceDate: '2026-11-20',
+    salary,
+  })
+  assert.equal(result.expectedIncome, 300000)
+})
+
+test('C-1 入金予定（type:income・口座不明）も最も新しい記録日で判定し、口座が分かればその口座の記録日', () => {
+  const income = (date: string, acct: string | null) =>
+    payment({ name: `入金${date}${acct}`, type: 'income', category: '副業', resolvedDueDate: date, resolvedAmountYen: 10000, debit_account_id: acct })
+  const result = obligations({
+    today: '2026-11-28',
+    balanceDateByAccount: new Map([['A', '2026-11-27'], ['B', '2026-11-20']]),
+    oldestBalanceDate: '2026-11-20',
+    scheduled: [income('2026-11-25', null), income('2026-11-25', 'B'), income('2026-11-28', null)],
+  })
+  // 11/25 口座不明 → 新しい 11/27 で判定（足さない）、11/25 口座B → 11/20 より後（足す）、11/28 口座不明 → 足す
+  assert.equal(result.expectedIncome, 20000)
+})
