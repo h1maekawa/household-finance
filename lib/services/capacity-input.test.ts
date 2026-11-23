@@ -13,6 +13,7 @@ import {
   isBuyTradeType,
   balanceDateKey,
   investmentFixedForMonth,
+  applyVariableAmounts,
 } from './capacity-obligations'
 import { computeInvestmentCapacity, type CapacityInput } from './investment-capacity'
 import type { CardCycle } from '@/lib/cashflow'
@@ -938,4 +939,47 @@ test('M-4 生活固定費から外す積立：円換算額で、対象月に発�
     payment({ name: '家賃', category: '住居費', amount: 80000, resolvedAmountYen: 80000 }),
   ])
   assert.equal(total, 46000)
+})
+
+// I-5 変動額の固定費（予定額0）を黙って0円にしない
+test('I-5 変動額の固定費で金額が決められないものは missing_data に名前を残す（差し引く対象のときだけ）', () => {
+  const result = obligations({
+    oldestBalanceDate: '2026-11-23',
+    scheduled: [
+      payment({ name: '電気代', category: '水道光熱費', amount_type: 'variable', amount: 0, resolvedAmountYen: 0, resolvedDueDate: '2026-11-27' }),
+      payment({ name: '水道代', category: '水道光熱費', amount_type: 'variable', amount: 0, resolvedAmountYen: 0, resolvedDueDate: '2026-11-10' }), // 反映済み
+    ],
+  })
+  assert.equal(result.fixedUnpaid, 0)
+  assert.deepEqual(result.missingData, ['変動額の固定費「電気代」の金額が不明です'])
+})
+
+test('I-5 カード払いの変動額の固定費も、金額不明なら missing_data に残す', () => {
+  const result = obligations({
+    oldestBalanceDate: '2026-11-23',
+    scheduled: [
+      payment({ id: 'gas', name: 'ガス代', category: '水道光熱費', payment_method: 'credit_card', credit_card_id: 'card-1', amount_type: 'variable', amount: 0, resolvedAmountYen: 0 }),
+    ],
+    cardPaidDebitById: new Map([['gas', { date: '2026-12-10', accountId: null }]]),
+  })
+  assert.equal(result.cardUnpaid, 0)
+  assert.deepEqual(result.missingData, ['変動額の固定費「ガス代」の金額が不明です'])
+})
+
+test('I-5 変動額の固定費：予定額0なら直近3か月の確定額の平均（resolveVariableAmount）で補う', () => {
+  const [resolved, unknown] = applyVariableAmounts(
+    [
+      payment({ id: 'elec', name: '電気代', amount_type: 'variable', amount: 0, resolvedAmountYen: 0 }),
+      payment({ id: 'none', name: '水道代', amount_type: 'variable', amount: 0, resolvedAmountYen: 0 }),
+    ],
+    '2026-11',
+    new Map([
+      ['elec|2026-08', 9000],
+      ['elec|2026-09', 7000],
+      ['elec|2026-10', 8000],
+      ['elec|2026-07', 99999], // 3か月より前は使わない
+    ])
+  )
+  assert.equal(resolved.resolvedAmountYen, 8000)
+  assert.equal(unknown.resolvedAmountYen, 0) // 決められないものは0のまま（computeObligations が missing_data に残す）
 })

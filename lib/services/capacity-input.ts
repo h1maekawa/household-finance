@@ -188,6 +188,8 @@ export async function loadCapacityInput(
   if (availableCash === null) missingData.push('口座残高が未登録です')
   if (budget.income.planned === 0) missingData.push('月収の設定がありません')
 
+  // 変動額の固定費で金額が決められなかったもの（0円として黙って流さない）
+  if (obligations) missingData.push(...obligations.missingData)
   // 投資の控除の記録日時が不明なら不明のまま扱い（0円で埋めない）、投資可能額も null になる
   if (outflows === null) {
     missingData.push('口座残高の記録日時が不明なため、投資済み額を判定できません')

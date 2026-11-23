@@ -15,8 +15,12 @@ import { toJstDateKey } from '@/lib/jst'
 import { isCardBillPayment, isInvestmentCategory } from './money-plan'
 import { summarizeVariableSpendingInRange } from './budget-engine'
 import { LIVING_BUFFER_WINDOW_DAYS } from './living-buffer'
-import { resolveMonthlyDebits } from './fixed-costs'
-import { suppressedByConfirmedCycles, type FixedCostMatch } from './fixed-cost-matching'
+import { resolveMonthlyDebits, resolveVariableAmount } from './fixed-costs'
+import {
+  confirmedAmountsByMonth,
+  suppressedByConfirmedCycles,
+  type FixedCostMatch,
+} from './fixed-cost-matching'
 import type { CreditCardSetting, ResolvedScheduledPayment } from '@/types/cashflow'
 import type { Transaction } from '@/types/transaction'
 import type { BudgetTransaction } from '@/types/budget'
@@ -38,6 +42,8 @@ export type Obligations = {
   items: ObligationItem[]
   /** 口座引落の積立（投資カテゴリ）。ここでは差し引かず computeInvestmentOutflows へ渡す */
   investmentPayments: InvestmentPaymentInput[]
+  /** 差し引く対象なのに金額が決められなかったもの（変動額の固定費）。0円として黙って流さない */
+  missingData: string[]
 }
 
 export type InvestmentPaymentInput = {
@@ -122,7 +128,11 @@ export function computeObligations(input: ObligationsInput): Obligations {
     expectedIncome: 0,
     items: [],
     investmentPayments: [],
+    missingData: [],
   }
+  const unknownAmount = (payment: ResolvedScheduledPayment) =>
+    result.missingData.push(`変動額の固定費「${payment.name}」の金額が不明です`)
+  const isVariable = (payment: ResolvedScheduledPayment) => payment.amount_type === 'variable'
 
   // カード：支払日が基準日以降（同日を含む）。月をまたいでも含める（すでに使ったお金）
   for (const cycle of input.cardCycles) {
@@ -182,7 +192,10 @@ export function computeObligations(input: ObligationsInput): Obligations {
       const base = baseDateFor(debit.accountId)
       if (base === null || day(debit.date) < base) return // 残高に反映済み
     }
-    if (amount === 0) return
+    if (amount === 0) {
+      if (isVariable(payment)) unknownAmount(payment)
+      return
+    }
     result.cardUnpaid += amount
     result.items.push({
       label: debit ? `${payment.name}（${day(debit.date)}引落）` : payment.name,
@@ -203,6 +216,10 @@ export function computeObligations(input: ObligationsInput): Obligations {
     // 記録日との比較は computeInvestmentOutflows が行う
     if (payment.type !== 'income' && !isCardBillPayment(payment) && isInvestmentCategory(payment.category)) {
       const investmentAmount = yen(payment.resolvedAmountYen)
+      if (investmentAmount === 0 && isVariable(payment) && payment.payment_method !== 'credit_card') {
+        const base = baseDateFor(payment.debit_account_id)
+        if (base !== null && due >= base) unknownAmount(payment)
+      }
       if (investmentAmount !== 0) {
         result.investmentPayments.push({
           id: payment.id,
@@ -225,7 +242,9 @@ export function computeObligations(input: ObligationsInput): Obligations {
     const base = baseDateFor(payment.debit_account_id)
     if (base === null) continue
     const amount = yen(payment.resolvedAmountYen)
-    if (amount === 0) continue
+    // 変動額の固定費で金額が決められないものは、差し引く対象かを日付で確かめてから
+    // missing_data に残す（それ以外の0円は従来どおり数えない）
+    if (amount === 0 && (payment.type === 'income' || !isVariable(payment))) continue
 
     if (payment.type === 'income') {
       // F17：入金は支出ではない。記録日と同じ日は反映済みか分からないので足さない。
@@ -246,6 +265,10 @@ export function computeObligations(input: ObligationsInput): Obligations {
     }
     if (input.matchedFixedCostIds.has(payment.id)) continue
     if (due < base) continue // 残高に反映済み
+    if (amount === 0) {
+      unknownAmount(payment)
+      continue
+    }
     const isFixed = input.fixedNames ? input.fixedNames.has(payment.category ?? '') : true
     if (isFixed) result.fixedUnpaid += amount
     else result.scheduledUnpaid += amount
@@ -460,6 +483,37 @@ export function investmentFixedForMonth(payments: ResolvedScheduledPayment[]): n
     .reduce((sum, payment) => sum + yen(payment.resolvedAmountYen), 0)
 }
 
+/**
+ * 変動額の固定費（amount_type 'variable'）で予定額が0のものを、resolveVariableAmount
+ * （今月の確定額 → 直近3か月の確定額の平均）で補う。
+ * 確定額は confirmedAmountsByMonth（カード利用との照合結果、'固定費ID|YYYY-MM' → 額）。
+ * 決められないものは0のまま返し、computeObligations が missing_data に名前を残す（0円として黙って流さない）。
+ */
+export function applyVariableAmounts(
+  payments: ResolvedScheduledPayment[],
+  month: string,
+  confirmedByMonth: Map<string, number>
+): ResolvedScheduledPayment[] {
+  return payments.map(payment => {
+    if (payment.amount_type !== 'variable' || yen(payment.resolvedAmountYen) !== 0) return payment
+    const history = new Map<string, number>()
+    for (const [key, amount] of confirmedByMonth) {
+      const [id, keyMonth] = key.split('|')
+      if (id === payment.id && keyMonth) history.set(keyMonth, amount)
+    }
+    const resolved = resolveVariableAmount(
+      { amount: 0, amount_type: 'variable' },
+      month,
+      confirmedByMonth.get(`${payment.id}|${month}`),
+      history
+    )
+    if (resolved.basis === 'unknown') return payment
+    // amount も補う：カードの引落日を出す resolveMonthlyDebits は金額0の行を飛ばすため
+    // （この写しは投資可能額の計算の中だけで使う）
+    return { ...payment, amount: resolved.amount, resolvedAmountYen: resolved.amount }
+  })
+}
+
 // ---------------------------------------------------------------- 組み立て
 
 /**
@@ -491,16 +545,18 @@ export function buildCapacityObligations(input: {
   const oldest = input.oldestBalanceDate
   if (oldest === null) return { obligations: null, outflows: null }
 
-  const confirmedStatements = indexConfirmedStatements(input.payments)
+  // 変動額の固定費（予定額0）は確定額の直近3か月平均で補う。決められなければ missing_data
+  const payments = applyVariableAmounts(input.payments, input.month, confirmedAmountsByMonth(input.fixedCostMatches))
+  const confirmedStatements = indexConfirmedStatements(payments)
   // カード払いの費用の引落日・引落口座（カードの締め日ルール。fixed-costs.ts が正）
   const cardPaidDebitById = new Map(
-    resolveMonthlyDebits(input.payments, input.creditCards, input.month)
+    resolveMonthlyDebits(payments, input.creditCards, input.month)
       .filter(debit => debit.viaCardName !== undefined)
       .map(debit => [debit.id, { date: debit.date, accountId: debit.accountId }] as const)
   )
   // 確定請求のあるサイクルに入るカード払いの費用（cashflow-loader と同じ取り下げ）
   const suppressedCardDebitKeys = suppressedByConfirmedCycles(
-    input.payments,
+    payments,
     input.creditCards,
     new Set(confirmedStatements.keys()),
     [input.month]
@@ -509,7 +565,7 @@ export function buildCapacityObligations(input: {
   const obligations = computeObligations({
     today: input.today,
     monthEnd: input.monthEnd,
-    scheduled: input.payments,
+    scheduled: payments,
     cardCycles: capacityCardCycles(input.transactions, input.creditCards, {
       today: input.today,
       since: oldest,

@@ -222,3 +222,49 @@ test('シナリオ：最終レビューの数字（入金0・カード208,590・
     unallocated_cash: 25410,
   })
 })
+
+// I-5 を同じ組み立て（buildCapacityObligations）で確認する
+test('I-5 組み立て：カード払いの変動額の固定費は直近3か月の照合額の平均で1回差し引き、決められないものは missing_data', () => {
+  const variable = [
+    payment({
+      id: 'gas',
+      name: 'ガス代',
+      category: '保険',
+      payment_method: 'credit_card',
+      credit_card_id: 'rakuten',
+      amount_type: 'variable',
+      due_day: 5,
+      amount: 0,
+      resolvedDueDate: '2026-11-05',
+      resolvedAmountYen: 0,
+    }),
+    payment({ id: 'water', name: '水道代', category: '保険', amount_type: 'variable', amount: 0, resolvedAmountYen: 0, debit_account_id: B }),
+  ]
+  const match = (month: string, amount: number) => ({
+    paymentId: 'gas',
+    paymentName: 'ガス代',
+    amount,
+    paymentDate: `${month}-27`,
+    month,
+    transactionIds: [`g-${month}`],
+  })
+  const { obligations } = buildCapacityObligations({
+    today: TODAY,
+    month: MONTH,
+    monthEnd: '2026-11-30',
+    payments: variable,
+    creditCards: cards,
+    transactions: [],
+    fixedCostMatches: [match('2026-08', 5000), match('2026-09', 4000), match('2026-10', 6000)],
+    buys: [],
+    balanceDateByAccount: new Map([[A, '2026-11-27'], [B, '2026-11-20']]),
+    oldestBalanceDate: '2026-11-20',
+    fixedNames: ['保険'],
+    salary: null,
+  })
+  assert.ok(obligations)
+  assert.equal(obligations.cardUnpaid, 5000) // (5,000 + 4,000 + 6,000) ÷ 3、楽天 12/28 引落
+  assert.ok(obligations.items.some(i => i.kind === 'card' && i.label === 'ガス代（2026-12-28引落）' && i.amount === 5000))
+  assert.equal(obligations.fixedUnpaid, 0)
+  assert.deepEqual(obligations.missingData, ['変動額の固定費「水道代」の金額が不明です'])
+})
