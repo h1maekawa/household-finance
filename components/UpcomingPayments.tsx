@@ -11,6 +11,7 @@ import { addMonths, endOfMonth, format, isAfter, isWithinInterval, parseISO, sta
 import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import Link from 'next/link'
 import { balanceEditMode } from '@/lib/services/balance-edit-mode'
+import { monthlyCashChartData } from '@/lib/services/monthly-cash-chart'
 import { CardCycle, CashflowResponse } from '@/types/cashflow'
 import { useToast } from '@/components/Toast'
 
@@ -105,25 +106,12 @@ export default function UpcomingPayments() {
       return isWithinInterval(date, { start: rangeStart, end: targetRangeEnd })
     })
     .sort((a, b) => String(a.scheduled_date ?? '').localeCompare(String(b.scheduled_date ?? '')))
-  const monthlyChartData = [targetMonthStart, targetNextMonthStart].map(monthStart => {
-    const monthEnd = endOfMonth(monthStart)
-    const days = focusedProjected.filter(day => {
-      const date = parseISO(day.date)
-      return isWithinInterval(date, { start: monthStart, end: monthEnd })
-    })
-    const endingCash = days.length > 0 ? days[days.length - 1].balance : (currentCash ?? 0)
-    const expense = days.reduce((sum, day) => {
-      return sum + day.payments
-        .filter(payment => payment.type !== 'income')
-        .reduce((daySum, payment) => daySum + payment.amount, 0)
-    }, 0)
-
-    return {
-      month: format(monthStart, 'M月'),
-      totalAssets: Math.max(Math.round(endingCash + investmentValue), 0),
-      cash: Math.max(Math.round(endingCash), 0),
-      expense,
-    }
+  // 開始残高が不明なら月別見通しを描かない（0円の棒にしない。理由は missing で出す）
+  const monthlyChartData = monthlyCashChartData({
+    months: [targetMonthStart, targetNextMonthStart],
+    projectedDays: focusedProjected,
+    startingBalance,
+    investmentValue,
   })
 
   async function handleBalanceSave() {
