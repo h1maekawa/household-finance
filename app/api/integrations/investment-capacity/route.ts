@@ -4,6 +4,7 @@ import { supabaseAdmin } from '@/lib/supabase'
 import { computeInvestmentCapacity } from '@/lib/services/investment-capacity'
 import { readFailed } from '@/lib/api-errors'
 import { loadCapacityInput } from '@/lib/services/capacity-input'
+import { withHeldReserve } from '@/lib/services/emergency-fund'
 import { resolveMonthParam } from '@/lib/jst'
 
 export const dynamic = 'force-dynamic'
@@ -35,7 +36,13 @@ export async function GET(request: NextRequest) {
       ...capacity,
       // 算出時刻は純関数の外（I/O境界）で付ける。既存レスポンスとの互換のため維持する
       calculated_at: now.toISOString(),
-      emergency_fund: context.emergencyFund,
+      // 防衛資金は配分と同じ「支払い後の原資」基準で返す（総残高で「充足」と出さない）。
+      // フィールドは同じ、値の基準だけ資産計画（buildAssetPlan）と揃える
+      emergency_fund: withHeldReserve(
+        context.emergencyFund,
+        capacity.allocation.emergency_fund,
+        capacity.emergency_fund_status
+      ),
       // 家計側の「今月あといくら使えるか」もそのまま渡す
       living: {
         variable_budget: budget.variable.budget,

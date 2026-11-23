@@ -76,3 +76,12 @@ test('M-3 本番で使わない sumInvestedAfterBalance を残さない（投資
   assert.doesNotMatch(capacityObligations, /sumInvestedAfterBalance/)
   assert.match(capacityObligations, /export function computeInvestmentOutflows\(/)
 })
+
+test('I-4 route の emergency_fund は支払い後の原資基準（資産計画と同じ withHeldReserve）', () => {
+  assert.match(
+    route,
+    /emergency_fund: withHeldReserve\(\s*context\.emergencyFund,\s*capacity\.allocation\.emergency_fund,\s*capacity\.emergency_fund_status\s*\)/
+  )
+  // 総残高基準の値をそのまま返さない
+  assert.doesNotMatch(route, /emergency_fund: context\.emergencyFund,/)
+})
