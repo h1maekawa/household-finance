@@ -74,7 +74,7 @@ GET /api/integrations/finance-summary?month=YYYY-MM
 
 資金繰りの予測（`negative_balance_risk` の元になる30日予測）は、今日を起点に、各口座の最新残高を合計した額から始めます。口座ごとの記録日から今日までの引き落としは、予測には反映していません（Phase 3 で対応予定）。
 
-`investment-capacity` の `emergency_fund` は、`allocation.emergency_fund`（支払い後の原資から確保できた額）を `current` とする値です。口座残高の総額ではありません。フィールドは変わらず、値の基準だけ資産計画の表示と揃えています。原資が分からないときは `current`・`gap` は `null`、`status` は `unknown` です。
+`investment-capacity` の `emergency_fund` は、`allocation.emergency_fund`（支払い後の原資から確保できた額）を `currentReserve` とする値です。口座残高の総額ではありません。フィールドは変わらず、値の基準だけ資産計画の表示と揃えています。原資が分からないときは `currentReserve`・`reserveGap`・`fundedRatio` は `null`、`status` は `unknown` です。
 
 金額はすべて円の整数です。`confidence` は入力の欠損度から決まり、
 AIの判断ではありません（`investment-capacity` の `missing_data` と同じ考え方）。
