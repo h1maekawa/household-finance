@@ -33,6 +33,15 @@ export type Obligations = {
   scheduledUnpaid: number
   expectedIncome: number
   items: ObligationItem[]
+  /** 口座引落の積立（投資カテゴリ）。ここでは差し引かず computeInvestmentOutflows へ渡す */
+  investmentPayments: InvestmentPaymentInput[]
+}
+
+export type InvestmentPaymentInput = {
+  id: string
+  due: string
+  amount: number
+  debitAccountId: string | null
 }
 
 export type ObligationsInput = {
@@ -64,11 +73,6 @@ export type ObligationsInput = {
   salary?: { amount: number; date: string } | null
   /** カードID → 引落口座ID。確定請求の基準日に使う */
   cardDebitAccountById?: Map<string, string | null>
-  /**
-   * 投資の買付日（investment_transactions、'YYYY-MM-DD'）。
-   * 実行済みの積立を「今月すでに投資した額」と二重に差し引かないために使う
-   */
-  investmentBuyDates?: string[]
 }
 
 function yen(value: unknown): number {
@@ -92,6 +96,7 @@ export function computeObligations(input: ObligationsInput): Obligations {
     scheduledUnpaid: 0,
     expectedIncome: 0,
     items: [],
+    investmentPayments: [],
   }
 
   // カード：支払日が基準日以降（同日を含む）。月をまたいでも含める（すでに使ったお金）
@@ -140,9 +145,6 @@ export function computeObligations(input: ObligationsInput): Obligations {
     }
   }
 
-  const buyDates = (input.investmentBuyDates ?? []).map(day)
-  const today = day(input.today)
-
   // 予定支払い：基準日以降（同日を含む）〜月末。入金は基準日より後〜月末
   for (const payment of input.scheduled) {
     if (!payment.is_active) continue
@@ -169,13 +171,14 @@ export function computeObligations(input: ObligationsInput): Obligations {
     if (payment.payment_method === 'credit_card') continue
     if (input.matchedFixedCostIds.has(payment.id)) continue
     if (due < base) continue // 残高に反映済み
-    // 口座引落の積立投資：今日までに引き落とされ、基準日〜今日に買付が記録されていれば
-    // その買付が今回の実行。「今月すでに投資した額」で差し引かれるので、ここでは数えない
-    if (
-      isInvestmentCategory(payment.category) &&
-      due <= today &&
-      buyDates.some(date => date >= base && date <= today)
-    ) {
+    // 口座引落の積立投資は、買付との対応づけが要るので computeInvestmentOutflows で数える
+    if (isInvestmentCategory(payment.category)) {
+      result.investmentPayments.push({
+        id: payment.id,
+        due,
+        amount,
+        debitAccountId: payment.debit_account_id ?? null,
+      })
       continue
     }
 
@@ -226,6 +229,72 @@ export function sumInvestedAfterBalance(
       return date >= balanceDate && date.slice(0, 7) === input.month
     })
     .reduce((sum, trade) => sum + Math.abs(Number(trade.amount) || 0), 0)
+}
+
+/**
+ * 積立の予定支払いと買付を1対1で対応づけ、投資に関する控除を決める。
+ * investment_transactions には引落口座が無いので、日付の近さで対応づける。
+ *
+ *   ・対応した予定＋買付は「その口座からの1回の出金」。予定額を、引落日が
+ *     その口座の記録日以降のときだけ1回差し引く（買付は数えない）
+ *   ・対応のない予定：その口座の記録日以降なら差し引く（実行前でも現金は出ていく）
+ *   ・対応のない買付：最も古い記録日以降の当月分なら差し引く（口座不明なので安全側）
+ * 記録日が不明なら null。
+ */
+export function computeInvestmentOutflows(input: {
+  today: string
+  month: string
+  payments: InvestmentPaymentInput[]
+  buys: { trade_date: string; amount: number }[]
+  balanceDateByAccount: Map<string, string>
+  oldestBalanceDate: string | null
+}): {
+  scheduledDeduction: number
+  buyDeduction: number
+  pairs: { paymentId: string; buyDate: string | null }[]
+} | null {
+  const oldest = input.oldestBalanceDate
+  if (oldest === null) return null
+  const today = day(input.today)
+  const dayNumber = (date: string) => Date.parse(`${day(date)}T00:00:00Z`) / 86_400_000
+
+  const buys = input.buys
+    .map(buy => ({ date: day(String(buy.trade_date)), amount: Math.abs(yen(buy.amount)), used: false }))
+    .filter(buy => buy.date <= today)
+    .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0))
+  const payments = input.payments
+    .filter(payment => day(payment.due).slice(0, 7) === input.month)
+    .sort((a, b) => (a.due < b.due ? -1 : a.due > b.due ? 1 : a.id < b.id ? -1 : 1))
+
+  let scheduledDeduction = 0
+  let buyDeduction = 0
+  const pairs: { paymentId: string; buyDate: string | null }[] = []
+
+  for (const payment of payments) {
+    const due = day(payment.due)
+    let best: (typeof buys)[number] | null = null
+    let bestGap = Infinity
+    for (const buy of buys) {
+      if (buy.used) continue
+      const gap = Math.abs(dayNumber(buy.date) - dayNumber(due))
+      // buys は日付の昇順。同じ距離なら先に見つけた（早い）買付を残す
+      if (gap <= 3 && gap < bestGap) {
+        best = buy
+        bestGap = gap
+      }
+    }
+    if (best) best.used = true
+    pairs.push({ paymentId: payment.id, buyDate: best ? best.date : null })
+    const base =
+      (payment.debitAccountId ? input.balanceDateByAccount.get(payment.debitAccountId) : undefined) ?? oldest
+    if (due >= base) scheduledDeduction += yen(payment.amount)
+  }
+
+  for (const buy of buys) {
+    if (buy.used) continue
+    if (buy.date >= oldest && buy.date.slice(0, 7) === input.month) buyDeduction += buy.amount
+  }
+  return { scheduledDeduction, buyDeduction, pairs }
 }
 
 // ---------------------------------------------------------------- 日付

@@ -10,6 +10,7 @@ import {
   bufferWindow,
   salaryIncome,
   sumInvestedAfterBalance,
+  computeInvestmentOutflows,
   isBuyTradeType,
 } from './capacity-obligations'
 import { computeInvestmentCapacity, type CapacityInput } from './investment-capacity'
@@ -474,6 +475,7 @@ test('確定請求はカードの引落口座の記録日で判定する', () =>
 // I-3 口座引落の積立投資と、今月すでに投資した額の二重計上
 function investment(due: string) {
   return payment({
+    id: 'pay-1',
     name: '積立NISA',
     category: '投資',
     resolvedDueDate: due,
@@ -482,44 +484,16 @@ function investment(due: string) {
   })
 }
 
-test('積立：引落11/10・記録日11/09・今日11/14・11/10の買付あり → 予定は差し引かない', () => {
+test('積立：投資カテゴリの予定支払いは computeObligations では数えず、投資の控除へ回す', () => {
   const result = obligations({
     today: '2026-11-14',
     oldestBalanceDate: '2026-11-09',
     scheduled: [investment('2026-11-10')],
-    investmentBuyDates: ['2026-11-10'],
   })
   assert.equal(result.fixedUnpaid + result.scheduledUnpaid, 0)
-})
-
-test('積立：同じ条件で買付が未取込なら差し引く', () => {
-  const result = obligations({
-    today: '2026-11-14',
-    oldestBalanceDate: '2026-11-09',
-    scheduled: [investment('2026-11-10')],
-    investmentBuyDates: [],
-  })
-  assert.equal(result.fixedUnpaid + result.scheduledUnpaid, 33000)
-})
-
-test('積立：引落が今日より後（11/28）なら買付があっても差し引く', () => {
-  const result = obligations({
-    today: '2026-11-14',
-    oldestBalanceDate: '2026-11-09',
-    scheduled: [investment('2026-11-28')],
-    investmentBuyDates: ['2026-11-10'],
-  })
-  assert.equal(result.fixedUnpaid + result.scheduledUnpaid, 33000)
-})
-
-test('積立：記録日より前の買付は今回の実行とみなさない', () => {
-  const result = obligations({
-    today: '2026-11-14',
-    oldestBalanceDate: '2026-11-09',
-    scheduled: [investment('2026-11-10')],
-    investmentBuyDates: ['2026-11-05'],
-  })
-  assert.equal(result.fixedUnpaid + result.scheduledUnpaid, 33000)
+  assert.deepEqual(result.investmentPayments, [
+    { id: 'pay-1', due: '2026-11-10', amount: 33000, debitAccountId: null },
+  ])
 })
 
 // F11 残高に反映済みの買付を「今月すでに投資した額」として二重に差し引かない
@@ -567,28 +541,86 @@ test('投資済み額：記録日時が不明なら null（0円で埋めない�
   )
 })
 
-// 積立の予定支払いと実行済みの買付は、どちらか一方だけが差し引かれる
-function investmentDeduction(balanceDate: string, dueDate: string, trades: ReturnType<typeof buy>[]) {
-  const today = '2026-11-14'
-  const ob = obligations({
-    today,
-    oldestBalanceDate: balanceDate,
-    scheduled: [investment(dueDate)],
-    investmentBuyDates: trades.map(t => t.trade_date),
+// I-1 積立の予定支払いと買付の明示的な対応づけ
+const A = 'acct-a'
+const B = 'acct-b'
+function outflows(
+  balances: Record<string, string>,
+  payments: { id?: string; due: string; amount?: number; acct?: string | null }[],
+  buys: { trade_date: string; amount: number }[],
+  oldest = '2026-11-05'
+) {
+  return computeInvestmentOutflows({
+    today: '2026-11-14',
+    month: '2026-11',
+    payments: payments.map((p, i) => ({
+      id: p.id ?? `p${i}`,
+      due: p.due,
+      amount: p.amount ?? 30000,
+      debitAccountId: p.acct === undefined ? A : p.acct,
+    })),
+    buys,
+    balanceDateByAccount: new Map(Object.entries(balances)),
+    oldestBalanceDate: oldest,
   })
-  const invested = sumInvestedAfterBalance(
-    trades.filter(t => t.trade_date <= today),
-    { month: '2026-11', balanceOldestRecordedAt: balanceDate }
-  )
-  return ob.fixedUnpaid + ob.scheduledUnpaid + (invested ?? 0)
 }
+const total = (r: ReturnType<typeof outflows>) => (r ? r.scheduledDeduction + r.buyDeduction : null)
 
-test('積立と買付：記録11/09・引落11/10・買付11/10(3万)・今日11/14 → 控除は3万ちょうど', () => {
-  assert.equal(investmentDeduction('2026-11-09', '2026-11-10', [buy('2026-11-10', 30000)]), 30000)
+test('積立(a)：口座A 11/12・B 11/05・引落11/10(A)・買付11/10 → 反映済みなので0', () => {
+  const r = outflows({ [A]: '2026-11-12', [B]: '2026-11-05' }, [{ due: '2026-11-10' }], [{ trade_date: '2026-11-10', amount: 30000 }])
+  assert.equal(total(r), 0)
+  assert.deepEqual(r?.pairs, [{ paymentId: 'p0', buyDate: '2026-11-10' }])
 })
 
-test('積立と買付：記録より前（11/05）の買付と引落 → どちらも0', () => {
-  assert.equal(investmentDeduction('2026-11-09', '2026-11-05', [buy('2026-11-05', 30000)]), 0)
+test('積立(b)：口座Aが11/09なら30,000を1回だけ', () => {
+  const r = outflows({ [A]: '2026-11-09', [B]: '2026-11-05' }, [{ due: '2026-11-10' }], [{ trade_date: '2026-11-10', amount: 30000 }])
+  assert.equal(total(r), 30000)
+})
+
+test('積立(c)：買付11/11・引落11/13(A 11/12)は対応づけて30,000を1回だけ（60,000にしない）', () => {
+  const r = outflows({ [A]: '2026-11-12', [B]: '2026-11-05' }, [{ due: '2026-11-13' }], [{ trade_date: '2026-11-11', amount: 30000 }])
+  assert.equal(total(r), 30000)
+})
+
+test('積立(d)：対応のない買付は最も古い記録日以降なら差し引き、前なら差し引かない', () => {
+  const buys = (d: string) => [{ trade_date: d, amount: 12000 }]
+  assert.equal(total(outflows({ [A]: '2026-11-05' }, [], buys('2026-11-06'))), 12000)
+  assert.equal(total(outflows({ [A]: '2026-11-05' }, [], buys('2026-11-04'))), 0)
+})
+
+test('積立(e)：今日より後（11/20）の未実行の予定支払いも差し引く', () => {
+  const r = outflows({ [A]: '2026-11-09' }, [{ due: '2026-11-20' }], [])
+  assert.equal(r?.scheduledDeduction, 30000)
+  assert.deepEqual(r?.pairs, [{ paymentId: 'p0', buyDate: null }])
+})
+
+test('積立(f)：最も古い記録日が不明なら null', () => {
+  assert.equal(outflows({}, [{ due: '2026-11-10' }], [], null as unknown as string), null)
+})
+
+test('積立(g)：2件の予定と2件の買付は日付の近い順に1対1で対応づける', () => {
+  const r = outflows(
+    { [A]: '2026-11-01' },
+    [{ id: 'x', due: '2026-11-10', amount: 10000 }, { id: 'y', due: '2026-11-12', amount: 20000 }],
+    [{ trade_date: '2026-11-11', amount: 20000 }, { trade_date: '2026-11-10', amount: 10000 }],
+    '2026-11-01'
+  )
+  assert.deepEqual(r?.pairs, [
+    { paymentId: 'x', buyDate: '2026-11-10' },
+    { paymentId: 'y', buyDate: '2026-11-11' },
+  ])
+  assert.equal(total(r), 30000)
+})
+
+test('積立：4日以上離れた買付とは対応づけない（予定も買付も別々に差し引く）', () => {
+  const r = outflows({ [A]: '2026-11-01' }, [{ due: '2026-11-05' }], [{ trade_date: '2026-11-09', amount: 8000 }], '2026-11-01')
+  assert.equal(r?.scheduledDeduction, 30000)
+  assert.equal(r?.buyDeduction, 8000)
+})
+
+test('積立：引落口座が不明な予定は最も古い記録日で判定する', () => {
+  assert.equal(total(outflows({ [A]: '2026-11-12' }, [{ due: '2026-11-08', acct: null }], [], '2026-11-05')), 30000)
+  assert.equal(total(outflows({ [A]: '2026-11-12' }, [{ due: '2026-11-04', acct: null }], [], '2026-11-05')), 0)
 })
 
 function capacityInput(overrides: Partial<CapacityInput>): CapacityInput {
@@ -626,4 +658,29 @@ test('記録日時が不明なら投資可能額は null で、信頼度は low�
   assert.equal(result.investable_amount, null)
   assert.equal(result.confidence, 'low')
   assert.ok(result.missing_data.includes('口座残高の記録日時が不明なため、投資済み額を判定できません'))
+})
+
+test('記録日時が不明：already_invested は当月の買付総額のまま、already_invested_deducted は null', () => {
+  const result = computeInvestmentCapacity(
+    capacityInput({
+      availableCash: null,
+      balanceOldestRecordedAt: null,
+      alreadyInvested: 45000,
+      investmentDeducted: null,
+      missingData: ['口座残高の記録日時が不明なため、投資済み額を判定できません'],
+    })
+  )
+  assert.equal(result.already_invested, 45000)
+  assert.equal(result.already_invested_deducted, null)
+  assert.equal(result.investable_amount, null)
+  assert.ok(result.missing_data.includes('口座残高の記録日時が不明なため、投資済み額を判定できません'))
+})
+
+test('投資の控除は investmentDeducted を1回だけ引く（既定は alreadyInvested）', () => {
+  const withDeducted = computeInvestmentCapacity(capacityInput({ alreadyInvested: 60000, investmentDeducted: 30000 }))
+  assert.equal(withDeducted.investable_amount, 470000)
+  assert.equal(withDeducted.already_invested, 60000)
+  assert.equal(withDeducted.already_invested_deducted, 30000)
+  const legacy = computeInvestmentCapacity(capacityInput({ alreadyInvested: 60000 }))
+  assert.equal(legacy.investable_amount, 440000)
 })

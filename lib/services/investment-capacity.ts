@@ -34,8 +34,13 @@ export type CapacityInput = {
   livingReserve: number
   /** 予備費として確保する額 */
   buffer: number
-  /** 今月すでに投資した額 */
+  /** 今月の買付の合計（記録日に関係なく分かる実績。表示用） */
   alreadyInvested: number
+  /**
+   * 投資に関して実際に差し引く額（残高未反映の買付＋積立の引落を1回ずつ）。
+   * 不明なら null。未指定なら alreadyInvested を差し引く
+   */
+  investmentDeducted?: number | null
   /**
    * 必要な防衛資金（必須生活費 × 月数）。算出できないなら null（0円で埋めない）。
    * 防衛資金は流動口座の現金そのものなので、原資とは別の「確保済み」として数えない。
@@ -93,6 +98,8 @@ export type CapacityResult = {
   fixed_expenses: number
   scheduled_expenses: number
   already_invested: number
+  /** 投資に関して実際に差し引いた額。残高の記録日が不明なら null */
+  already_invested_deducted: number | null
   personal_cash_floor: number
   /** 投資に回せる額。算出不能なら null。後方互換のため名前を変えない */
   investable_amount: number | null
@@ -171,12 +178,16 @@ export function computeInvestmentCapacity(input: CapacityInput): CapacityResult 
   // 生活のために残す額。ここを削ってまで投資はしない
   const personalCashFloor = yen(input.livingReserve + input.buffer)
 
+  const investmentDeducted =
+    input.investmentDeducted === undefined ? input.alreadyInvested : input.investmentDeducted
+  const investmentDeduction = investmentDeducted === null ? 0 : yen(investmentDeducted)
+
   const deductions =
     yen(input.pendingCardAmount) +
     yen(input.fixedExpenses) +
     yen(input.scheduledExpenses) +
     personalCashFloor +
-    yen(input.alreadyInvested)
+    investmentDeduction
 
   // 口座残高が分からないと投資余力は出せない（推定で埋めない）
   const investable =
@@ -233,7 +244,7 @@ export function computeInvestmentCapacity(input: CapacityInput): CapacityResult 
     { label: 'その他の引落予定', amount: yen(input.scheduledExpenses), sign: '-' },
     { label: '今月の残り生活費', amount: yen(input.livingReserve), sign: '-' },
     { label: '予備費', amount: yen(input.buffer), sign: '-' },
-    { label: '今月すでに投資した額', amount: yen(input.alreadyInvested), sign: '-' },
+    { label: '今月すでに投資した額', amount: investmentDeduction, sign: '-' },
   ] as CapacityResult['breakdown']).filter(row => row.amount !== 0)
 
   return {
@@ -246,6 +257,7 @@ export function computeInvestmentCapacity(input: CapacityInput): CapacityResult 
     fixed_expenses: yen(input.fixedExpenses),
     scheduled_expenses: yen(input.scheduledExpenses),
     already_invested: yen(input.alreadyInvested),
+    already_invested_deducted: investmentDeducted === null ? null : investmentDeduction,
     personal_cash_floor: personalCashFloor,
     investable_amount: investable,
     allocatable_cash: investable,
