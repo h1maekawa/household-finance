@@ -9,9 +9,9 @@ import {
   capacityCardCycles,
   bufferWindow,
   salaryIncome,
-  sumInvestedAfterBalance,
   computeInvestmentOutflows,
   isBuyTradeType,
+  balanceDateKey,
 } from './capacity-obligations'
 import { computeInvestmentCapacity, type CapacityInput } from './investment-capacity'
 import type { CardCycle } from '@/lib/cashflow'
@@ -500,49 +500,20 @@ test('積立：投資カテゴリの予定支払いは computeObligations では
   ])
 })
 
-// F11 残高に反映済みの買付を「今月すでに投資した額」として二重に差し引かない
-const buy = (trade_date: string, amount: number, trade_type = '買付') => ({ trade_date, trade_type, amount })
-
-test('投資済み額：記録11/20・買付11/15(5万)と11/22(3万) → 3万だけ', () => {
-  const result = sumInvestedAfterBalance([buy('2026-11-15', 50000), buy('2026-11-22', 30000)], {
-    month: '2026-11',
-    balanceOldestRecordedAt: '2026-11-20',
-  })
-  assert.equal(result, 30000)
-})
-
-test('投資済み額：記録と同じ日の買付は差し引く（安全側）', () => {
-  const result = sumInvestedAfterBalance([buy('2026-11-20', 50000)], {
-    month: '2026-11',
-    balanceOldestRecordedAt: '2026-11-20',
-  })
-  assert.equal(result, 50000)
-})
-
-test('投資済み額：売却・分配金は対象外、当月外の買付も対象外', () => {
-  const result = sumInvestedAfterBalance(
-    [buy('2026-11-22', 9000, 'sell'), buy('2026-11-22', 100, '分配金'), buy('2026-12-01', 7000), buy('2026-11-22', 30000, 'buy')],
-    { month: '2026-11', balanceOldestRecordedAt: '2026-11-20' }
-  )
-  assert.equal(result, 30000)
-  assert.equal(isBuyTradeType('売却'), false)
+// 買付の判定（売却・分配金は除く）
+test('買付の判定：買付・積立は買付、売却・分配金は買付ではない', () => {
+  assert.equal(isBuyTradeType('買付'), true)
+  assert.equal(isBuyTradeType('buy'), true)
   assert.equal(isBuyTradeType('積立'), true)
+  assert.equal(isBuyTradeType('売却'), false)
+  assert.equal(isBuyTradeType('sell'), false)
+  assert.equal(isBuyTradeType('分配金'), false)
 })
 
-test('投資済み額：記録時刻はUTCで前日でも日本時間の日付で比べる', () => {
-  // 2026-11-19T16:00:00Z = 日本時間 11/20 01:00。11/20の買付は同日なので差し引く
-  const result = sumInvestedAfterBalance([buy('2026-11-20', 4000), buy('2026-11-19', 1000)], {
-    month: '2026-11',
-    balanceOldestRecordedAt: '2026-11-19T16:00:00Z',
-  })
-  assert.equal(result, 4000)
-})
-
-test('投資済み額：記録日時が不明なら null（0円で埋めない）', () => {
-  assert.equal(
-    sumInvestedAfterBalance([buy('2026-11-22', 30000)], { month: '2026-11', balanceOldestRecordedAt: null }),
-    null
-  )
+test('記録日：記録時刻はUTCで前日でも日本時間の日付にする', () => {
+  // 2026-11-19T16:00:00Z = 日本時間 11/20 01:00
+  assert.equal(balanceDateKey('2026-11-19T16:00:00Z'), '2026-11-20')
+  assert.equal(balanceDateKey('2026-11-20'), '2026-11-20')
 })
 
 // I-1 積立の予定支払いと買付の明示的な対応づけ

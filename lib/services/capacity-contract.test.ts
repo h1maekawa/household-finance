@@ -71,3 +71,8 @@ test('算出時刻はI/O境界で付ける（後方互換）', () => {
   assert.match(route, /calculated_at: now\.toISOString\(\)/)
   assert.match(route, /loadCapacityInput\(userId, month, now, supabaseAdmin\)/)
 })
+
+test('M-3 本番で使わない sumInvestedAfterBalance を残さない（投資の控除は computeInvestmentOutflows だけ）', () => {
+  assert.doesNotMatch(capacityObligations, /sumInvestedAfterBalance/)
+  assert.match(capacityObligations, /export function computeInvestmentOutflows\(/)
+})
