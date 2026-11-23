@@ -42,6 +42,8 @@ export type InvestmentPaymentInput = {
   due: string
   amount: number
   debitAccountId: string | null
+  /** 'card'：カード払い。カードのサイクル／請求で差し引くので、ここでは予定額を差し引かない */
+  funding?: 'account' | 'card'
 }
 
 export type ObligationsInput = {
@@ -149,9 +151,30 @@ export function computeObligations(input: ObligationsInput): Obligations {
   for (const payment of input.scheduled) {
     if (!payment.is_active) continue
     if (!payment.resolvedDueDate) continue // この月は対象外（年払い・契約期間外など）
-    if (payment.last_paid_month === month) continue
     const due = day(payment.resolvedDueDate)
     if (due > monthEnd) continue
+
+    // 投資カテゴリの積立は、買付との対応づけ（computeInvestmentOutflows）に全件渡す。
+    // 記録日より前・今月支払い済みでも、買付が単独で数えられないよう対応づけには必要。
+    // 記録日との比較は computeInvestmentOutflows が行う
+    if (payment.type !== 'income' && !isCardBillPayment(payment) && isInvestmentCategory(payment.category)) {
+      const investmentAmount = yen(payment.resolvedAmountYen)
+      if (investmentAmount !== 0) {
+        result.investmentPayments.push({
+          id: payment.id,
+          due,
+          amount: investmentAmount,
+          debitAccountId: payment.debit_account_id ?? null,
+          funding:
+            payment.payment_method === 'credit_card' || input.matchedFixedCostIds.has(payment.id)
+              ? 'card'
+              : 'account',
+        })
+      }
+      continue
+    }
+
+    if (payment.last_paid_month === month) continue
     const base = baseDateFor(payment.debit_account_id)
     if (base === null) continue
     const amount = yen(payment.resolvedAmountYen)
@@ -171,17 +194,6 @@ export function computeObligations(input: ObligationsInput): Obligations {
     if (payment.payment_method === 'credit_card') continue
     if (input.matchedFixedCostIds.has(payment.id)) continue
     if (due < base) continue // 残高に反映済み
-    // 口座引落の積立投資は、買付との対応づけが要るので computeInvestmentOutflows で数える
-    if (isInvestmentCategory(payment.category)) {
-      result.investmentPayments.push({
-        id: payment.id,
-        due,
-        amount,
-        debitAccountId: payment.debit_account_id ?? null,
-      })
-      continue
-    }
-
     const isFixed = input.fixedNames ? input.fixedNames.has(payment.category ?? '') : true
     if (isFixed) result.fixedUnpaid += amount
     else result.scheduledUnpaid += amount
@@ -238,6 +250,7 @@ export function sumInvestedAfterBalance(
  *   ・対応した予定＋買付は「その口座からの1回の出金」。予定額を、引落日が
  *     その口座の記録日以降のときだけ1回差し引く（買付は数えない）
  *   ・対応のない予定：その口座の記録日以降なら差し引く（実行前でも現金は出ていく）
+ *   ・カード払いの積立：対応した買付も予定額も差し引かない（カード請求で差し引く）
  *   ・対応のない買付：最も古い記録日以降の当月分なら差し引く（口座不明なので安全側）
  * 記録日が不明なら null。
  */
@@ -285,6 +298,8 @@ export function computeInvestmentOutflows(input: {
     }
     if (best) best.used = true
     pairs.push({ paymentId: payment.id, buyDate: best ? best.date : null })
+    // カード払いは、対応した買付も予定額も差し引かない（カード側で差し引く）
+    if (payment.funding === 'card') continue
     const base =
       (payment.debitAccountId ? input.balanceDateByAccount.get(payment.debitAccountId) : undefined) ?? oldest
     if (due >= base) scheduledDeduction += yen(payment.amount)

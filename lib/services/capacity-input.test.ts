@@ -492,7 +492,7 @@ test('積立：投資カテゴリの予定支払いは computeObligations では
   })
   assert.equal(result.fixedUnpaid + result.scheduledUnpaid, 0)
   assert.deepEqual(result.investmentPayments, [
-    { id: 'pay-1', due: '2026-11-10', amount: 33000, debitAccountId: null },
+    { id: 'pay-1', due: '2026-11-10', amount: 33000, debitAccountId: null, funding: 'account' },
   ])
 })
 
@@ -683,4 +683,88 @@ test('投資の控除は investmentDeducted を1回だけ引く（既定は alre
   assert.equal(withDeducted.already_invested_deducted, 30000)
   const legacy = computeInvestmentCapacity(capacityInput({ alreadyInvested: 60000 }))
   assert.equal(legacy.investable_amount, 440000)
+})
+
+// fix round 2：computeObligations → computeInvestmentOutflows を通しで確認する
+function endToEnd(args: {
+  balances: Record<string, string>
+  payment: Partial<ResolvedScheduledPayment>
+  buys: { trade_date: string; amount: number }[]
+  today: string
+  oldest?: string
+}) {
+  const oldest = args.oldest ?? '2026-11-05'
+  const balanceDateByAccount = new Map(Object.entries(args.balances))
+  const ob = obligations({
+    today: args.today,
+    oldestBalanceDate: oldest,
+    balanceDateByAccount,
+    scheduled: [{ ...investment('2026-11-10'), debit_account_id: A, ...args.payment }],
+  })
+  const out = computeInvestmentOutflows({
+    today: args.today,
+    month: '2026-11',
+    payments: ob.investmentPayments,
+    buys: args.buys,
+    balanceDateByAccount,
+    oldestBalanceDate: oldest,
+  })
+  return { ob, total: out ? out.scheduledDeduction + out.buyDeduction : null }
+}
+
+test('通し(a)：A 11/12・B 11/05・積立11/10(A)・買付11/10 → 投資の控除は0', () => {
+  const { ob, total } = endToEnd({
+    balances: { [A]: '2026-11-12', [B]: '2026-11-05' },
+    payment: {},
+    buys: [{ trade_date: '2026-11-10', amount: 30000 }],
+    today: '2026-11-14',
+  })
+  assert.equal(total, 0)
+  assert.equal(ob.fixedUnpaid + ob.scheduledUnpaid, 0)
+})
+
+test('通し：今月支払い済み（last_paid_month=当月）でも買付は単独で数えない', () => {
+  const { total } = endToEnd({
+    balances: { [A]: '2026-11-12', [B]: '2026-11-05' },
+    payment: { last_paid_month: '2026-11' },
+    buys: [{ trade_date: '2026-11-10', amount: 30000 }],
+    today: '2026-11-14',
+  })
+  assert.equal(total, 0)
+})
+
+test('通し：カード払いの積立11/27と買付11/27 → 投資の控除は0（カード側で差し引く）', () => {
+  const { ob, total } = endToEnd({
+    balances: { [A]: '2026-11-09' },
+    payment: { payment_method: 'credit_card', resolvedDueDate: '2026-11-27', debit_account_id: null },
+    buys: [{ trade_date: '2026-11-27', amount: 30000 }],
+    today: '2026-11-28',
+    oldest: '2026-11-09',
+  })
+  assert.equal(total, 0)
+  assert.equal(ob.cardUnpaid, 0) // カードのサイクルは変えない
+})
+
+test('通し：カード払いの積立で買付が無ければ投資の控除は0', () => {
+  const { total } = endToEnd({
+    balances: { [A]: '2026-11-09' },
+    payment: { payment_method: 'credit_card', resolvedDueDate: '2026-11-27', debit_account_id: null },
+    buys: [],
+    today: '2026-11-28',
+    oldest: '2026-11-09',
+  })
+  assert.equal(total, 0)
+})
+
+test('カード払いの積立：対応のない買付は従来どおり数える', () => {
+  const r = computeInvestmentOutflows({
+    today: '2026-11-28',
+    month: '2026-11',
+    payments: [{ id: 'c', due: '2026-11-27', amount: 30000, debitAccountId: null, funding: 'card' }],
+    buys: [{ trade_date: '2026-11-12', amount: 5000 }],
+    balanceDateByAccount: new Map(),
+    oldestBalanceDate: '2026-11-09',
+  })
+  assert.equal(r?.scheduledDeduction, 0)
+  assert.equal(r?.buyDeduction, 5000)
 })
