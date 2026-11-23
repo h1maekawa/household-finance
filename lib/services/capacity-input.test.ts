@@ -12,6 +12,7 @@ import {
   computeInvestmentOutflows,
   isBuyTradeType,
   balanceDateKey,
+  investmentFixedForMonth,
 } from './capacity-obligations'
 import { computeInvestmentCapacity, type CapacityInput } from './investment-capacity'
 import type { CardCycle } from '@/lib/cashflow'
@@ -925,4 +926,16 @@ test('I-1 楽天カード積立がカード利用と照合済み → 追加で�
   })
   assert.equal(ob.cardUnpaid, 0)
   assert.equal(ob.investmentPayments[0]?.funding, 'card')
+})
+
+// M-4 防衛資金の必要額から外す積立は、円換算額（resolvedAmountYen）で、その月に発生するものだけ
+test('M-4 生活固定費から外す積立：円換算額で、対象月に発生するもの（resolvedDueDate あり）だけ合計する', () => {
+  const total = investmentFixedForMonth([
+    payment({ name: '積立', category: '投資', amount: 30000, resolvedAmountYen: 30000 }),
+    payment({ name: 'USD積立', category: '投資', currency: 'USD', foreign_amount: 105, amount: 105, resolvedAmountYen: 16000 }),
+    payment({ name: '年1回の積立（11月は対象外）', category: '投資', recurrence: 'yearly', amount: 120000, resolvedAmountYen: 120000, resolvedDueDate: null }),
+    payment({ name: '停止中', category: '投資', is_active: false, amount: 9000, resolvedAmountYen: 9000 }),
+    payment({ name: '家賃', category: '住居費', amount: 80000, resolvedAmountYen: 80000 }),
+  ])
+  assert.equal(total, 46000)
 })

@@ -19,12 +19,12 @@ import { computeLivingBuffer, type LivingBufferResult } from './living-buffer'
 import { computeEmergencyFund, type EmergencyFundResult } from './emergency-fund'
 import { essentialMonthlyExpenses } from './asset-planning'
 import { matchFixedCostsToCardUsage } from './fixed-cost-matching'
-import { isCardBillPayment, isInvestmentCategory } from './money-plan'
 import { yen } from './money'
 import {
   bufferWindow,
   balanceDateKey,
   buildCapacityObligations,
+  investmentFixedForMonth,
   isBuyTradeType,
   salaryIncome,
   summarizeBufferSpending,
@@ -198,9 +198,7 @@ export async function loadCapacityInput(
     .reduce((sum, tx) => sum + Math.abs(Number(tx.amount_jpy) || 0), 0)
 
   // 防衛資金の必要額。積立投資は生活固定費に含めない
-  const investmentFixed = resolvedPayments
-    .filter(p => p.is_active && !isCardBillPayment(p) && isInvestmentCategory(p.category))
-    .reduce((sum, p) => sum + (Number(p.amount) || 0), 0)
+  const investmentFixed = investmentFixedForMonth(resolvedPayments)
   const emergencyFund = computeEmergencyFund({
     monthlyEssentialExpenses: essentialMonthlyExpenses({
       livingFixed: Math.max(budget.fixed.effective - investmentFixed, 0),

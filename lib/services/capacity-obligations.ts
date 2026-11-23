@@ -442,6 +442,24 @@ export function salaryIncome(input: {
   return { amount: Math.max(0, planned - yen(input.actual)), date }
 }
 
+/**
+ * 防衛資金の必要額を出すとき、予算の固定費（budget.fixed.effective）から外す積立投資の額。
+ * 予算と同じ対象（有効・type 'fixed'）のうち投資カテゴリを、円換算額（外貨は換算済み）で、
+ * 対象月に発生するもの（resolvedDueDate がある＝年払い・契約期間外を除く）だけ合計する。
+ */
+export function investmentFixedForMonth(payments: ResolvedScheduledPayment[]): number {
+  return payments
+    .filter(
+      payment =>
+        payment.is_active &&
+        payment.type === 'fixed' &&
+        !isCardBillPayment(payment) &&
+        isInvestmentCategory(payment.category) &&
+        payment.resolvedDueDate !== null
+    )
+    .reduce((sum, payment) => sum + yen(payment.resolvedAmountYen), 0)
+}
+
 // ---------------------------------------------------------------- 組み立て
 
 /**
