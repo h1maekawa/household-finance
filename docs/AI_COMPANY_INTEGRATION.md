@@ -70,6 +70,8 @@ GET /api/integrations/finance-summary?month=YYYY-MM
 }
 ```
 
+`negative_balance_risk` は後方互換のため boolean のままです。口座残高が未登録で資金繰りを予測できないときは `false` になりますが「リスクなし」ではないため、`negative_balance_risk_known` が `false` のときは、利用側でリスクを不明として扱ってください。
+
 金額はすべて円の整数です。`confidence` は入力の欠損度から決まり、
 AIの判断ではありません（`investment-capacity` の `missing_data` と同じ考え方）。
 

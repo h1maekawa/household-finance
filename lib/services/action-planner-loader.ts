@@ -72,6 +72,7 @@ export async function loadMonthlyActions(
             total: cashflow.unassignedCardUsage.total,
           }
         : null,
+      cashflowUnknown: cashflow.startingBalance === null,
       firstNegativeDay: negativeDay
         ? { date: negativeDay.date, balance: negativeDay.balance }
         : null,
