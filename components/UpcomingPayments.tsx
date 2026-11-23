@@ -10,6 +10,7 @@ import useSWR from 'swr'
 import { addMonths, endOfMonth, format, isAfter, isWithinInterval, parseISO, startOfDay, startOfMonth } from 'date-fns'
 import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import Link from 'next/link'
+import { balanceEditMode } from '@/lib/services/balance-edit-mode'
 import { CardCycle, CashflowResponse } from '@/types/cashflow'
 import { useToast } from '@/components/Toast'
 
@@ -36,6 +37,7 @@ export default function UpcomingPayments() {
   // 予測の開始残高（複数口座の合計）。未登録なら null。旧テーブルの1行は表示に使わない
   const startingBalance = data?.startingBalance ?? null
   const balanceKnown = startingBalance !== null
+  const editMode = balanceEditMode(data?.startingBalanceSource)
   const projected = data?.projectedDays ?? []
   const payments  = data?.scheduledPayments ?? []
   const generatedPayments = data?.generatedPayments ?? []
@@ -178,10 +180,18 @@ export default function UpcomingPayments() {
                 {balanceKnown ? startingBalance.toLocaleString() : '—'}
                 <span className="text-base font-normal ml-1">円</span>
               </p>
-              <button onClick={() => setEditingBalance(true)}
-                className="px-3 py-1.5 rounded-xl bg-white/20 text-white text-xs font-medium">
-                更新
-              </button>
+              {editMode === 'link' && (
+                <Link href="/investments?tab=accounts"
+                  className="px-3 py-1.5 rounded-xl bg-white/20 text-white text-xs font-medium">
+                  {balanceKnown ? '口座残高を編集' : '口座残高を登録'}
+                </Link>
+              )}
+              {editMode === 'inline-edit' && (
+                <button onClick={() => setEditingBalance(true)}
+                  className="px-3 py-1.5 rounded-xl bg-white/20 text-white text-xs font-medium">
+                  更新
+                </button>
+              )}
             </div>
           )}
         <p className="mt-2 text-[11px] leading-relaxed text-white/60">
