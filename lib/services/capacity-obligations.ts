@@ -10,11 +10,13 @@
 //   引落口座が分かるものはその口座の記録日、分からないものは最も古い記録日で判定する。
 //   ただし入金で口座が分からないもの（給与など）は最も新しい記録日で判定する（入金の安全側）。
 import { parseISO } from 'date-fns'
-import { buildCardCycles, type CardCycle } from '@/lib/cashflow'
+import { buildCardCycles, indexConfirmedStatements, type CardCycle } from '@/lib/cashflow'
 import { toJstDateKey } from '@/lib/jst'
 import { isCardBillPayment, isInvestmentCategory } from './money-plan'
 import { summarizeVariableSpendingInRange } from './budget-engine'
 import { LIVING_BUFFER_WINDOW_DAYS } from './living-buffer'
+import { resolveMonthlyDebits } from './fixed-costs'
+import { suppressedByConfirmedCycles, type FixedCostMatch } from './fixed-cost-matching'
 import type { CreditCardSetting, ResolvedScheduledPayment } from '@/types/cashflow'
 import type { Transaction } from '@/types/transaction'
 import type { BudgetTransaction } from '@/types/budget'
@@ -43,7 +45,10 @@ export type InvestmentPaymentInput = {
   due: string
   amount: number
   debitAccountId: string | null
-  /** 'card'：カード払い。カードのサイクル／請求で差し引くので、ここでは予定額を差し引かない */
+  /**
+   * 'card'：カード払い。予定額は computeObligations がカードの引落として（照合・確定請求で
+   * 除かれない限り）1回だけ差し引くので、ここでは予定額も対応した買付も差し引かない
+   */
   funding?: 'account' | 'card'
 }
 
@@ -76,6 +81,17 @@ export type ObligationsInput = {
   salary?: { amount: number; date: string } | null
   /** カードID → 引落口座ID。確定請求の基準日に使う */
   cardDebitAccountById?: Map<string, string | null>
+  /**
+   * カード払いの費用（積立を含む）の、カードの引落日と引落口座（固定費ID → 値）。
+   * resolveMonthlyDebits（fixed-costs.ts）で作る。無いものは引落日が分からないので
+   * 安全側として差し引く
+   */
+  cardPaidDebitById?: Map<string, { date: string; accountId: string | null }>
+  /**
+   * 確定請求のあるサイクルに入るカード払いの費用 '固定費ID|引落日'。
+   * suppressedByConfirmedCycles（fixed-cost-matching.ts）で作る。確定額に含まれているので差し引かない
+   */
+  suppressedCardDebitKeys?: ReadonlySet<string>
 }
 
 function yen(value: unknown): number {
@@ -155,6 +171,26 @@ export function computeObligations(input: ObligationsInput): Obligations {
     }
   }
 
+  // カード払いの費用（積立を含む）。取り込み済みのカード利用と照合できたもの、
+  // 確定請求のあるサイクルに入るものはカード側で数えている。それ以外は、カード利用が
+  // まだ取り込まれていないだけなので、カードの引落日・引落口座の記録日で1回だけ差し引く
+  const chargeCardPaid = (payment: ResolvedScheduledPayment, amount: number) => {
+    if (input.matchedFixedCostIds.has(payment.id)) return
+    const debit = input.cardPaidDebitById?.get(payment.id)
+    if (debit && input.suppressedCardDebitKeys?.has(`${payment.id}|${day(debit.date)}`)) return
+    if (debit) {
+      const base = baseDateFor(debit.accountId)
+      if (base === null || day(debit.date) < base) return // 残高に反映済み
+    }
+    if (amount === 0) return
+    result.cardUnpaid += amount
+    result.items.push({
+      label: debit ? `${payment.name}（${day(debit.date)}引落）` : payment.name,
+      amount,
+      kind: 'card',
+    })
+  }
+
   // 予定支払い：基準日以降（同日を含む）〜月末。入金は基準日より後〜月末
   for (const payment of input.scheduled) {
     if (!payment.is_active) continue
@@ -179,6 +215,8 @@ export function computeObligations(input: ObligationsInput): Obligations {
               : 'account',
         })
       }
+      // カード払いの積立は、カードの引落として1回だけ差し引く（買付は数えない）
+      if (payment.payment_method === 'credit_card') chargeCardPaid(payment, investmentAmount)
       continue
     }
 
@@ -201,8 +239,11 @@ export function computeObligations(input: ObligationsInput): Obligations {
 
     // カード請求はカードのサイクルで計上済み
     if (isCardBillPayment(payment)) continue
-    // カード払いの固定費はカードの利用として計上される
-    if (payment.payment_method === 'credit_card') continue
+    // カード払いの固定費は、カードの引落として扱う（照合・確定請求で除かれない限り1回）
+    if (payment.payment_method === 'credit_card') {
+      chargeCardPaid(payment, amount)
+      continue
+    }
     if (input.matchedFixedCostIds.has(payment.id)) continue
     if (due < base) continue // 残高に反映済み
     const isFixed = input.fixedNames ? input.fixedNames.has(payment.category ?? '') : true
@@ -261,7 +302,8 @@ export function sumInvestedAfterBalance(
  *   ・対応した予定＋買付は「その口座からの1回の出金」。予定額を、引落日が
  *     その口座の記録日以降のときだけ1回差し引く（買付は数えない）
  *   ・対応のない予定：その口座の記録日以降なら差し引く（実行前でも現金は出ていく）
- *   ・カード払いの積立：対応した買付も予定額も差し引かない（カード請求で差し引く）
+ *   ・カード払いの積立：対応した買付も予定額も差し引かない（予定額は computeObligations が
+ *     カードの引落として、照合・確定請求で除かれない限り1回だけ差し引く）
  *   ・対応のない買付：最も古い記録日以降の当月分なら差し引く（口座不明なので安全側）
  * 記録日が不明なら null。
  */
@@ -309,7 +351,7 @@ export function computeInvestmentOutflows(input: {
     }
     if (best) best.used = true
     pairs.push({ paymentId: payment.id, buyDate: best ? best.date : null })
-    // カード払いは、対応した買付も予定額も差し引かない（カード側で差し引く）
+    // カード払いは、対応した買付も予定額も差し引かない（予定額はカードの引落として差し引き済み）
     if (payment.funding === 'card') continue
     const base =
       (payment.debitAccountId ? input.balanceDateByAccount.get(payment.debitAccountId) : undefined) ?? oldest
@@ -422,4 +464,83 @@ export function salaryIncome(input: {
   const incomeDay = Math.min(Math.max(Number.isFinite(rawDay) ? rawDay : 25, 1), 31)
   const date = `${input.month}-${String(Math.min(incomeDay, lastDay)).padStart(2, '0')}`
   return { amount: Math.max(0, planned - yen(input.actual)), date }
+}
+
+// ---------------------------------------------------------------- 組み立て
+
+/**
+ * loadCapacityInput が読んだ値から、未払い（computeObligations）と投資の控除
+ * （computeInvestmentOutflows）を組み立てる。I/O を持たないので、ローダーと
+ * 通しのテストが同じ組み立てを通る。新しい金融式はここに書かない（既存の関数を呼ぶ順序だけ）。
+ *
+ * 最も古い記録日が不明（残高不明）なら両方 null。
+ */
+export function buildCapacityObligations(input: {
+  today: string
+  month: string
+  monthEnd: string
+  payments: ResolvedScheduledPayment[]
+  creditCards: CreditCardSetting[]
+  transactions: Transaction[]
+  /** matchFixedCostsToCardUsage の結果（90日バッファの除外と同じもの） */
+  fixedCostMatches: FixedCostMatch[]
+  /** 買付のみ（売却・分配金は除く） */
+  buys: { trade_date: string; amount: number }[]
+  balanceDateByAccount: Map<string, string>
+  oldestBalanceDate: string | null
+  fixedNames: string[]
+  salary: { amount: number; date: string } | null
+}): {
+  obligations: Obligations | null
+  outflows: ReturnType<typeof computeInvestmentOutflows>
+} {
+  const oldest = input.oldestBalanceDate
+  if (oldest === null) return { obligations: null, outflows: null }
+
+  const confirmedStatements = indexConfirmedStatements(input.payments)
+  // カード払いの費用の引落日・引落口座（カードの締め日ルール。fixed-costs.ts が正）
+  const cardPaidDebitById = new Map(
+    resolveMonthlyDebits(input.payments, input.creditCards, input.month)
+      .filter(debit => debit.viaCardName !== undefined)
+      .map(debit => [debit.id, { date: debit.date, accountId: debit.accountId }] as const)
+  )
+  // 確定請求のあるサイクルに入るカード払いの費用（cashflow-loader と同じ取り下げ）
+  const suppressedCardDebitKeys = suppressedByConfirmedCycles(
+    input.payments,
+    input.creditCards,
+    new Set(confirmedStatements.keys()),
+    [input.month]
+  )
+
+  const obligations = computeObligations({
+    today: input.today,
+    monthEnd: input.monthEnd,
+    scheduled: input.payments,
+    cardCycles: capacityCardCycles(input.transactions, input.creditCards, {
+      today: input.today,
+      since: oldest,
+      confirmedStatements,
+    }),
+    matchedFixedCostIds: new Set(
+      input.fixedCostMatches.filter(match => match.month === input.month).map(match => match.paymentId)
+    ),
+    balanceDateByAccount: input.balanceDateByAccount,
+    oldestBalanceDate: oldest,
+    fixedNames: new Set(input.fixedNames),
+    salary: input.salary,
+    cardDebitAccountById: new Map(input.creditCards.map(card => [card.id, card.debit_account_id ?? null])),
+    cardPaidDebitById,
+    suppressedCardDebitKeys,
+  })
+
+  // 投資の控除：積立の予定支払いと買付を対応づけ、同じ出金を2回数えない
+  const outflows = computeInvestmentOutflows({
+    today: input.today,
+    month: input.month,
+    payments: obligations.investmentPayments,
+    buys: input.buys,
+    balanceDateByAccount: input.balanceDateByAccount,
+    oldestBalanceDate: oldest,
+  })
+  return { obligations, outflows }
 }

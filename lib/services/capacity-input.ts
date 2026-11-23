@@ -11,7 +11,6 @@
 // 純関数に置く。**新しい金融式をここに書かない。**
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { getMergedCategories } from '@/lib/categories'
-import { indexConfirmedStatements } from '@/lib/cashflow'
 import { toJstDateKey } from '@/lib/jst'
 import { loadBudget, monthEnd, monthStart, type BudgetLoad } from './budget-loader'
 import { loadLiquidCash } from './liquid-cash-loader'
@@ -24,10 +23,8 @@ import { isCardBillPayment, isInvestmentCategory } from './money-plan'
 import { yen } from './money'
 import {
   bufferWindow,
-  capacityCardCycles,
   balanceDateKey,
-  computeInvestmentOutflows,
-  computeObligations,
+  buildCapacityObligations,
   isBuyTradeType,
   salaryIncome,
   summarizeBufferSpending,
@@ -164,52 +161,34 @@ export async function loadCapacityInput(
   }
   const oldestBalanceDate = liquidCash.oldestRecordedAt ? balanceDateKey(liquidCash.oldestRecordedAt) : null
 
-  // 残高が分からないときは未払いを計算しない。投資可能額は null（不明）になる
-  const obligations =
-    oldestBalanceDate === null
-      ? null
-      : computeObligations({
-          today,
-          monthEnd: monthEnd(month),
-          scheduled: resolvedPayments,
-          cardCycles: capacityCardCycles(transactions, creditCards, {
-            today,
-            since: oldestBalanceDate,
-            confirmedStatements: indexConfirmedStatements(resolvedPayments),
-          }),
-          matchedFixedCostIds: new Set(
-            fixedCostMatches.filter(match => match.month === month).map(match => match.paymentId)
-          ),
-          balanceDateByAccount,
-          oldestBalanceDate,
-          fixedNames: new Set(categories.fixedNames),
-          // 給与は scheduled_payments に無い（users_profile.monthly_income / 予算の income_planned）
-          salary: salaryIncome({
-            month,
-            planned: budget.income.planned,
-            actual: budget.income.actual,
-            incomeDay: profileRes.data?.income_day ?? null,
-          }),
-          cardDebitAccountById: new Map(creditCards.map(card => [card.id, card.debit_account_id ?? null])),
-        })
+  // 残高が分からないときは未払いを計算しない（obligations / outflows は null）。
+  // 投資可能額は null（不明）になる。組み立ては純関数 buildCapacityObligations に置く
+  const { obligations, outflows } = buildCapacityObligations({
+    today,
+    month,
+    monthEnd: monthEnd(month),
+    payments: resolvedPayments,
+    creditCards,
+    transactions,
+    fixedCostMatches,
+    buys: buyTrades.map(tx => ({ trade_date: String(tx.trade_date), amount: Number(tx.amount_jpy) })),
+    balanceDateByAccount,
+    oldestBalanceDate,
+    fixedNames: categories.fixedNames,
+    // 給与は scheduled_payments に無い（users_profile.monthly_income / 予算の income_planned）
+    salary: salaryIncome({
+      month,
+      planned: budget.income.planned,
+      actual: budget.income.actual,
+      incomeDay: profileRes.data?.income_day ?? null,
+    }),
+  })
 
   const availableCash = oldestBalanceDate === null ? null : liquidCash.amount
   if (availableCash === null) missingData.push('口座残高が未登録です')
   if (budget.income.planned === 0) missingData.push('月収の設定がありません')
 
-  // 投資の控除：積立の予定支払いと買付を対応づけ、同じ出金を2回数えない。
-  // 記録日時が不明なら不明のまま扱い（0円で埋めない）、投資可能額も null になる
-  const outflows =
-    obligations === null
-      ? null
-      : computeInvestmentOutflows({
-          today,
-          month,
-          payments: obligations.investmentPayments,
-          buys: buyTrades.map(tx => ({ trade_date: String(tx.trade_date), amount: Number(tx.amount_jpy) })),
-          balanceDateByAccount,
-          oldestBalanceDate,
-        })
+  // 投資の控除の記録日時が不明なら不明のまま扱い（0円で埋めない）、投資可能額も null になる
   if (outflows === null) {
     missingData.push('口座残高の記録日時が不明なため、投資済み額を判定できません')
   }

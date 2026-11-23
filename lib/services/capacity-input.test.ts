@@ -696,6 +696,7 @@ function endToEnd(args: {
   buys: { trade_date: string; amount: number }[]
   today: string
   oldest?: string
+  extra?: Partial<Parameters<typeof computeObligations>[0]>
 }) {
   const oldest = args.oldest ?? '2026-11-05'
   const balanceDateByAccount = new Map(Object.entries(args.balances))
@@ -704,6 +705,7 @@ function endToEnd(args: {
     oldestBalanceDate: oldest,
     balanceDateByAccount,
     scheduled: [{ ...investment('2026-11-10'), debit_account_id: A, ...args.payment }],
+    ...args.extra,
   })
   const out = computeInvestmentOutflows({
     today: args.today,
@@ -737,27 +739,36 @@ test('通し：今月支払い済み（last_paid_month=当月）でも買付は�
   assert.equal(total, 0)
 })
 
-test('通し：カード払いの積立11/27と買付11/27 → 投資の控除は0（カード側で差し引く）', () => {
+// カード払いの積立：カードの引落日 12/28・引落口座A（記録日 11/09）
+const CARD_FUNDED = {
+  payment: { payment_method: 'credit_card' as const, credit_card_id: 'card-1', resolvedDueDate: '2026-11-27', debit_account_id: null },
+  extra: { cardPaidDebitById: new Map([['pay-1', { date: '2026-12-28', accountId: A }]]) },
+}
+
+test('通し：カード払いの積立11/27と買付11/27 → 買付は数えず、予定額をカードの引落として1回だけ差し引く', () => {
   const { ob, total } = endToEnd({
     balances: { [A]: '2026-11-09' },
-    payment: { payment_method: 'credit_card', resolvedDueDate: '2026-11-27', debit_account_id: null },
-    buys: [{ trade_date: '2026-11-27', amount: 30000 }],
+    ...CARD_FUNDED,
+    buys: [{ trade_date: '2026-11-27', amount: 33000 }],
     today: '2026-11-28',
     oldest: '2026-11-09',
   })
-  assert.equal(total, 0)
-  assert.equal(ob.cardUnpaid, 0) // カードのサイクルは変えない
+  assert.equal(total, 0) // 対応した買付は差し引かない
+  assert.equal(ob.cardUnpaid, 33000) // カードの引落（12/28）として1回
+  assert.equal(ob.fixedUnpaid + ob.scheduledUnpaid, 0)
 })
 
-test('通し：カード払いの積立で買付が無ければ投資の控除は0', () => {
-  const { total } = endToEnd({
+test('通し：カード払いの積立で買付が無くても、カード利用が取り込まれていなければ予定額を1回差し引く（I-1）', () => {
+  const { ob, total } = endToEnd({
     balances: { [A]: '2026-11-09' },
-    payment: { payment_method: 'credit_card', resolvedDueDate: '2026-11-27', debit_account_id: null },
+    ...CARD_FUNDED,
     buys: [],
     today: '2026-11-28',
     oldest: '2026-11-09',
   })
   assert.equal(total, 0)
+  assert.equal(ob.cardUnpaid, 33000)
+  assert.ok(ob.items.some(i => i.kind === 'card' && i.amount === 33000))
 })
 
 test('カード払いの積立：対応のない買付は従来どおり数える', () => {
@@ -838,4 +849,98 @@ test('I-2 確定請求も last_paid_month だけでは除かない（記録日�
     scheduled: [statement({ last_paid_month: '2026-11' })], // 11/27 ≥ 11/23
   })
   assert.equal(result.cardUnpaid, 80000)
+})
+
+// I-1 カード払いの費用：取り込み済みのカード利用と照合できたもの・確定請求のあるサイクルに入るものだけ除く。
+// それ以外はカードの引落日・引落口座の記録日で1回だけ差し引く
+const NETFLIX = payment({
+  id: 'netflix',
+  name: 'Netflix',
+  category: '通信費',
+  payment_method: 'credit_card',
+  credit_card_id: 'card-1',
+  resolvedDueDate: '2026-11-29',
+  amount: 1590,
+  resolvedAmountYen: 1590,
+})
+const cardPaidCase = (overrides: Partial<Parameters<typeof computeObligations>[0]>) =>
+  obligations({
+    today: '2026-11-28',
+    balanceDateByAccount: new Map([['A', '2026-11-27']]),
+    oldestBalanceDate: '2026-11-27',
+    scheduled: [NETFLIX],
+    cardPaidDebitById: new Map([['netflix', { date: '2027-01-12', accountId: 'A' }]]),
+    ...overrides,
+  })
+
+test('I-1 Netflix ¥1,590（カード払い・11/29・未請求）→ カードの引落として1回差し引く', () => {
+  const result = cardPaidCase({})
+  assert.equal(result.cardUnpaid, 1590)
+  assert.equal(result.fixedUnpaid + result.scheduledUnpaid, 0)
+  assert.equal(result.items.filter(i => i.kind === 'card').length, 1)
+})
+
+test('I-1 Netflix がカード利用と照合済み → サイクルに入っているので追加では差し引かない', () => {
+  const result = cardPaidCase({
+    matchedFixedCostIds: new Set(['netflix']),
+    cardCycles: [cycle({ cardId: 'card-1', paymentDate: '2027-01-12', open: true, amount: 1590, debitAccountId: 'A' })],
+  })
+  assert.equal(result.cardUnpaid, 1590) // サイクルの1回だけ（3,180にしない）
+})
+
+test('I-1 確定請求のあるサイクルに入るカード払いの費用は追加で差し引かない', () => {
+  const result = cardPaidCase({ suppressedCardDebitKeys: new Set(['netflix|2027-01-12']) })
+  assert.equal(result.cardUnpaid, 0)
+})
+
+test('I-1 カードの引落日が引落口座の記録日より前なら残高に反映済み', () => {
+  const result = cardPaidCase({ cardPaidDebitById: new Map([['netflix', { date: '2026-11-26', accountId: 'A' }]]) })
+  assert.equal(result.cardUnpaid, 0)
+})
+
+const RAKUTEN_FUNDED = payment({
+  id: 'rakuten-tsumitate',
+  name: '楽天カード積立',
+  category: '投資',
+  payment_method: 'credit_card',
+  credit_card_id: 'rakuten',
+  resolvedDueDate: '2026-11-01',
+  amount: 50000,
+  resolvedAmountYen: 50000,
+})
+
+test('I-1 楽天カード積立 ¥50,000（カード利用は未取込）→ 1回差し引く。対応した買付は差し引かない', () => {
+  const balanceDateByAccount = new Map([['B', '2026-11-20']])
+  const ob = obligations({
+    today: '2026-11-28',
+    balanceDateByAccount,
+    oldestBalanceDate: '2026-11-20',
+    scheduled: [RAKUTEN_FUNDED],
+    cardPaidDebitById: new Map([['rakuten-tsumitate', { date: '2026-12-28', accountId: 'B' }]]),
+  })
+  const out = computeInvestmentOutflows({
+    today: '2026-11-28',
+    month: '2026-11',
+    payments: ob.investmentPayments,
+    buys: [{ trade_date: '2026-11-01', amount: 50000 }],
+    balanceDateByAccount,
+    oldestBalanceDate: '2026-11-20',
+  })
+  assert.equal(ob.cardUnpaid, 50000)
+  assert.equal(out?.scheduledDeduction, 0)
+  assert.equal(out?.buyDeduction, 0)
+  assert.deepEqual(out?.pairs, [{ paymentId: 'rakuten-tsumitate', buyDate: '2026-11-01' }])
+})
+
+test('I-1 楽天カード積立がカード利用と照合済み → 追加では差し引かない', () => {
+  const ob = obligations({
+    today: '2026-11-28',
+    balanceDateByAccount: new Map([['B', '2026-11-20']]),
+    oldestBalanceDate: '2026-11-20',
+    scheduled: [RAKUTEN_FUNDED],
+    matchedFixedCostIds: new Set(['rakuten-tsumitate']),
+    cardPaidDebitById: new Map([['rakuten-tsumitate', { date: '2026-12-28', accountId: 'B' }]]),
+  })
+  assert.equal(ob.cardUnpaid, 0)
+  assert.equal(ob.investmentPayments[0]?.funding, 'card')
 })
