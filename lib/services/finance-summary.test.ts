@@ -96,3 +96,36 @@ test('negative_balance_risk_caveat：記録日が過去なら注意書き、残�
   })
   assert.equal(unknown.review.negative_balance_risk_caveat, null)
 })
+
+// negative_balance_risk_known：開始残高が既知 かつ 最も古い口座の記録が7日（168時間）以内
+function summaryWith(cashflow: object) {
+  return buildFinanceSummary({
+    planning: {
+      plan: { month: '2026-11', confidence: 'low', cashflow: { freeToSpend: null, dailyAllowance: null }, allocation: {} },
+      budget: { income: {}, fixed: { effective: 0 }, variable: { spent: 0 } },
+      assets: { liquidCash: null, stockValue: 0, fundValue: 0, otherAssets: 0, totalAssets: 0, recordedAt: null },
+    } as never,
+    cashflow: { projectedDays: [{ isNegative: false }], ...cashflow } as never,
+    unreviewedTransactions: 0,
+    generatedAt: '2026-11-28T01:00:00.000Z',
+  })
+}
+
+test('negative_balance_risk_known：記録8日前 → false（判定不可）', () => {
+  const r = summaryWith({ startingBalance: 500_000, startingBalanceOldestRecordedAt: '2026-11-20T01:00:00.000Z' })
+  assert.equal(r.review.negative_balance_risk_known, false)
+})
+
+test('negative_balance_risk_known：記録6日前 → true＋注意書き', () => {
+  const r = summaryWith({ startingBalance: 500_000, startingBalanceOldestRecordedAt: '2026-11-22T01:00:00.000Z' })
+  assert.equal(r.review.negative_balance_risk_known, true)
+  assert.equal(
+    r.review.negative_balance_risk_caveat,
+    '不足見込みは検出されていません（残高記録日 11/22 以降の引落は予測に未反映のため、不足なしとは断定できません）',
+  )
+})
+
+test('negative_balance_risk_known：残高未登録 → false', () => {
+  const r = summaryWith({ startingBalance: null, startingBalanceOldestRecordedAt: null, projectedDays: [] })
+  assert.equal(r.review.negative_balance_risk_known, false)
+})

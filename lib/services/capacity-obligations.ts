@@ -15,6 +15,7 @@ import { toJstDateKey } from '@/lib/jst'
 import { isCardBillPayment, isInvestmentCategory } from './money-plan'
 import { summarizeVariableSpendingInRange } from './budget-engine'
 import { LIVING_BUFFER_WINDOW_DAYS } from './living-buffer'
+import { detectSalaryDuplicate, SALARY_DUPLICATE_ITEM_LABEL } from './salary-duplicate'
 import { resolveMonthlyDebits, resolveVariableAmount } from './fixed-costs'
 import {
   confirmedAmountsByMonth,
@@ -85,6 +86,11 @@ export type ObligationsInput = {
    * 給与の入金口座は分からないので、最も新しい記録日で判定する（入金の安全側）
    */
   salary?: { amount: number; date: string } | null
+  /**
+   * 毎月の固定収入の予定額（実績を引く前）。給与の重複判定（detectSalaryDuplicate）の
+   * 金額比較に使う。未指定なら salary.amount
+   */
+  salaryPlanned?: number
   /** カードID → 引落口座ID。確定請求の基準日に使う */
   cardDebitAccountById?: Map<string, string | null>
   /**
@@ -170,9 +176,28 @@ export function computeObligations(input: ObligationsInput): Obligations {
     result.items.push({ label: `${payment.name}（${due}引落）`, amount, kind: 'card' })
   }
 
+  // 給与の二重加算：同じ給与が予定入金にもあれば、予定入金の行だけを使う（30日予測と同じ判定）
+  const month = monthEnd.slice(0, 7)
+  const salaryDuplicate = detectSalaryDuplicate({
+    planned: input.salaryPlanned ?? input.salary?.amount ?? 0,
+    salaryDate: input.salary ? day(input.salary.date) : null,
+    incomes: input.scheduled
+      .filter(p => p.is_active && p.type === 'income' && p.resolvedDueDate && day(p.resolvedDueDate).slice(0, 7) === month)
+      .map(p => ({
+        id: p.id,
+        name: p.name,
+        category: p.category,
+        date: day(p.resolvedDueDate as string),
+        amount: yen(p.resolvedAmountYen),
+      })),
+  })
+  const salaryDuplicateIds = new Set(salaryDuplicate.duplicateIds)
+  result.missingData.push(...salaryDuplicate.missingData)
+
   // 給与：基準日より後（同日を含まない）〜月末。入金口座が分からないので最も新しい記録日
   const salaryBase = incomeBaseDateFor(null)
-  if (input.salary && input.salary.amount > 0 && salaryBase !== null) {
+  const includeSalary = salaryDuplicate.kind === 'none'
+  if (includeSalary && input.salary && input.salary.amount > 0 && salaryBase !== null) {
     const date = day(input.salary.date)
     if (date > salaryBase && date <= monthEnd) {
       const amount = yen(input.salary.amount)
@@ -252,7 +277,11 @@ export function computeObligations(input: ObligationsInput): Obligations {
       const incomeBase = incomeBaseDateFor(payment.debit_account_id)
       if (incomeBase === null || due <= incomeBase) continue
       result.expectedIncome += amount
-      result.items.push({ label: payment.name, amount, kind: 'income' })
+      result.items.push({
+        label: salaryDuplicateIds.has(payment.id) ? SALARY_DUPLICATE_ITEM_LABEL : payment.name,
+        amount,
+        kind: 'income',
+      })
       continue
     }
 
@@ -538,6 +567,8 @@ export function buildCapacityObligations(input: {
   oldestBalanceDate: string | null
   fixedNames: string[]
   salary: { amount: number; date: string } | null
+  /** 給与の予定額（実績を引く前）。給与の重複判定に使う */
+  salaryPlanned?: number
 }): {
   obligations: Obligations | null
   outflows: ReturnType<typeof computeInvestmentOutflows>
@@ -578,6 +609,7 @@ export function buildCapacityObligations(input: {
     oldestBalanceDate: oldest,
     fixedNames: new Set(input.fixedNames),
     salary: input.salary,
+    salaryPlanned: input.salaryPlanned,
     cardDebitAccountById: new Map(input.creditCards.map(card => [card.id, card.debit_account_id ?? null])),
     cardPaidDebitById,
     suppressedCardDebitKeys,

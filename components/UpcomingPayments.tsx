@@ -11,7 +11,7 @@ import { addMonths, endOfMonth, format, isAfter, isWithinInterval, parseISO, sta
 import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import Link from 'next/link'
 import { balanceEditMode } from '@/lib/services/balance-edit-mode'
-import { noShortfallMessage } from '@/lib/services/cashflow-caveat'
+import { noShortfallMessage, shortfallJudgeable, SHORTFALL_STALE_MESSAGE } from '@/lib/services/cashflow-caveat'
 import { toJstDateKey } from '@/lib/jst'
 import { monthlyCashChartData } from '@/lib/services/monthly-cash-chart'
 import { CardCycle, CashflowResponse } from '@/types/cashflow'
@@ -40,6 +40,12 @@ export default function UpcomingPayments() {
   // 予測の開始残高（複数口座の合計）。未登録なら null。旧テーブルの1行は表示に使わない
   const startingBalance = data?.startingBalance ?? null
   const balanceKnown = startingBalance !== null
+  // 最も古い口座の記録が7日（168時間）を超えたら、不足見込みを判定しない（「不足なし」と言わない）
+  const shortfallKnown = shortfallJudgeable({
+    balanceKnown,
+    oldestRecordedAt: data?.startingBalanceOldestRecordedAt ?? null,
+    now: new Date(),
+  })
   const editMode = balanceEditMode(data?.startingBalanceSource)
   const projected = data?.projectedDays ?? []
   const payments  = data?.scheduledPayments ?? []
@@ -200,14 +206,16 @@ export default function UpcomingPayments() {
               </p>
             </div>
             <div className="grid grid-cols-2 gap-3">
-              <div className={`rounded-xl p-3 ${!balanceKnown ? 'bg-surface' : additionalCashNeeded > 0 ? 'bg-danger/10' : 'bg-success/10'}`}>
+              <div className={`rounded-xl p-3 ${!shortfallKnown ? 'bg-surface' : additionalCashNeeded > 0 ? 'bg-danger/10' : 'bg-success/10'}`}>
                 <p className="text-[11px] text-muted">追加で必要な預貯金</p>
-                <p className={`mt-1 text-lg font-bold ${!balanceKnown ? 'text-foreground' : additionalCashNeeded > 0 ? 'text-danger' : 'text-success'}`}>
-                  {balanceKnown ? `${additionalCashNeeded.toLocaleString()}円` : '—（口座残高が未登録）'}
+                <p className={`mt-1 text-lg font-bold ${!shortfallKnown ? 'text-foreground' : additionalCashNeeded > 0 ? 'text-danger' : 'text-success'}`}>
+                  {!balanceKnown ? '—（口座残高が未登録）' : !shortfallKnown ? '—（判定不可）' : `${additionalCashNeeded.toLocaleString()}円`}
                 </p>
                 {balanceKnown && (
                   <p className="mt-0.5 text-[11px] text-muted">
-                    {additionalCashNeeded > 0
+                    {!shortfallKnown
+                      ? SHORTFALL_STALE_MESSAGE
+                      : additionalCashNeeded > 0
                       ? 'この金額を補えば不足を回避'
                       : noShortfallMessage({
                           oldestRecordedAt: data?.startingBalanceOldestRecordedAt ?? null,

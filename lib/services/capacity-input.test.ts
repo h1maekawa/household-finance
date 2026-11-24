@@ -417,13 +417,14 @@ test('給与：予定が未設定（0）なら給与を作らない', () => {
   assert.equal(salaryIncome({ month: '2026-11', planned: 0, actual: 0, incomeDay: 25 }), null)
 })
 
+// 給料日（25日）から4日以上離れた、名前が給与でない入金は別の収入（P1：±3日以内は重複判定の対象）
 test('給与：type:income の予定行とは別に数える', () => {
   const salary = salaryIncome({ month: '2026-11', planned: 300000, actual: 0, incomeDay: 25 })
   const result = obligations({
     oldestBalanceDate: '2026-11-23',
     salary,
     scheduled: [
-      payment({ name: '副業', type: 'income', category: '副業', resolvedDueDate: '2026-11-28', resolvedAmountYen: 50000 }),
+      payment({ name: '副業', type: 'income', category: '副業', resolvedDueDate: '2026-11-29', resolvedAmountYen: 50000 }),
     ],
   })
   assert.equal(result.expectedIncome, 350000)

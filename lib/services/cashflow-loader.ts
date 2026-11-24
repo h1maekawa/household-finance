@@ -17,6 +17,7 @@ import {
   getCashflowFetchEnd,
   getCashflowFetchStart,
   projectCashflow,
+  salaryDuplicateMissing,
 } from '@/lib/cashflow'
 import { loadLiquidCash } from '@/lib/services/liquid-cash-loader'
 import { loadFxRates } from '@/lib/repositories/fx-rates'
@@ -138,20 +139,24 @@ export async function loadCashflow(userId: string, supabase: SupabaseClient) {
     ),
   ])
 
+  const projectionOptions = {
+    monthlyIncome: profile.monthly_income ?? 0,
+    incomeDay: profile.income_day ?? 25,
+    // カード払いの固定費をカードの支払日・引落口座へ付け替えるために渡す
+    creditCards,
+    fxRates,
+    suppressedDebits,
+  }
   // 開始残高が不明なら 0 円から予測せず、空にする
   const projectedDays = startingBalance === null ? [] : projectCashflow(
     startingBalance,
     [...scheduledPayments, ...generatedPayments],
     projectionDays,
-    {
-      monthlyIncome: profile.monthly_income ?? 0,
-      incomeDay: profile.income_day ?? 25,
-      // カード払いの固定費をカードの支払日・引落口座へ付け替えるために渡す
-      creditCards,
-      fxRates,
-      suppressedDebits,
-    }
+    projectionOptions
   )
+  // 給与が予定入金とプロフィールの月収の両方にあるかもしれない（あいまい）とき。
+  // 予測は予定入金だけを使うが（少ない側）、どちらか一方にするよう理由を残す
+  missing.push(...salaryDuplicateMissing(scheduledPayments, projectionDays, projectionOptions))
 
   return {
     // 旧テーブルの行。画面の後方互換のため残す（予測の開始残高ではない）

@@ -73,11 +73,21 @@ GET /api/integrations/finance-summary?month=YYYY-MM
 
 `negative_balance_risk` は後方互換のため boolean のままです。口座残高が未登録で資金繰りを予測できないときは `false` になりますが「リスクなし」ではないため、`negative_balance_risk_known` が `false` のときは、利用側でリスクを不明として扱ってください。
 
+`negative_balance_risk_known` が `true` になるのは、**開始残高が既知 かつ 最も古い口座の残高記録が7日（168時間）以内**のときだけです（鮮度は `investment-capacity` の `balance_freshness` と同じ `judgeBalanceFreshness` で判定）。記録が7日を超えているとき、記録日時が不明なとき、残高が未登録のときは `false` です。`false` のとき AI Company は「判定不可」と表示し、`negative_balance_risk: false` を「不足なし」と読まないでください。Flow+ の画面も同じ条件で「口座残高が7日以上更新されていないため、資金繰りの不足を判定できません」と表示し、不足見込みを判定しません。
+
 資金繰りの予測（`negative_balance_risk` の元になる30日予測）は、今日を起点に、各口座の最新残高を合計した額から始めます。口座ごとの記録日から今日までの引き落としは、予測には反映していません（Phase 3 で対応予定）。
 
 `negative_balance_risk_caveat`（追加項目）は、予測に赤字日が無くても「不足なし」と断定できないときの注意書きです。最も古い口座の残高記録日（JST）が今日より前なら「不足見込みは検出されていません（残高記録日 M/D 以降の引落は予測に未反映のため、不足なしとは断定できません）」を返し、記録日が今日のとき、または残高が未登録のときは `null` です。`negative_balance_risk: false` を「不足なし」と読む前にこの項目を確認してください。
 
 `investment-capacity` の `emergency_fund` は、`allocation.emergency_fund`（支払い後の原資から確保できた額）を `currentReserve` とする値です。口座残高の総額ではありません。フィールドは変わらず、値の基準だけ資産計画の表示と揃えています。原資が分からないときは `currentReserve`・`reserveGap`・`fundedRatio` は `null`、`status` は `unknown` です。
+
+### 給与の二重加算の扱い（投資可能額・30日予測）
+
+給与はプロフィール（`users_profile.monthly_income` / `income_day`、予算の `income_planned`）から合成します。同じ給与が予定入金（`scheduled_payments` の `type:'income'`）にも登録されているときは、投資可能額（`expected_income`）と30日予測（`negative_balance_risk`）の両方で、同じ1つの判定（`lib/services/salary-duplicate.ts` の `detectSalaryDuplicate`）により二重に足さないようにします。判定は月ごとに、その月に入金日が解決される有効な予定入金とプロフィール給与（予定額 > 0）の両方があるときだけ行います。
+
+- **一致**：予定入金の名前またはカテゴリに「給与」「給料」「役員報酬」「salary」を含む、または（入金日が給料日の±3日以内 **かつ** 金額が予定額の±10%以内）→ 予定入金の行だけを使い、合成した給与は足しません。投資可能額の内訳には「給与（予定入金を使用・プロフィール月収と重複のため合成分は除外）」と表示します。
+- **あいまい**：一致しないが、入金日が給料日の±3日以内の予定入金がある → 予定入金の行だけを使い（少ない側）、`missing_data`（30日予測は画面の `missing`）に「給与が予定入金とプロフィールの月収の両方に登録されている可能性があります。どちらか一方にしてください」を追加します。AI Company はこの項目がある間、新規購入の提案を停止してください。
+- **それ以外**（給料日から離れ、名前も給与でない入金）→ 別の収入として、給与と予定入金の両方を数えます（従来どおり）。
 
 金額はすべて円の整数です。`confidence` は入力の欠損度から決まり、
 AIの判断ではありません（`investment-capacity` の `missing_data` と同じ考え方）。

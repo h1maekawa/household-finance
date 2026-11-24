@@ -182,6 +182,7 @@ export async function loadCapacityInput(
       actual: budget.income.actual,
       incomeDay: profileRes.data?.income_day ?? null,
     }),
+    salaryPlanned: budget.income.planned,
   })
 
   const availableCash = oldestBalanceDate === null ? null : liquidCash.amount
