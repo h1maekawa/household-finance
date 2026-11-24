@@ -4,7 +4,7 @@ import { supabaseAdmin } from '@/lib/supabase'
 import { computeInvestmentCapacity } from '@/lib/services/investment-capacity'
 import { readFailed } from '@/lib/api-errors'
 import { loadCapacityInput } from '@/lib/services/capacity-input'
-import { withHeldReserve } from '@/lib/services/emergency-fund'
+import { toCapacityResponse } from '@/lib/integrations/capacity-response'
 import { resolveMonthParam } from '@/lib/jst'
 
 export const dynamic = 'force-dynamic'
@@ -32,30 +32,16 @@ export async function GET(request: NextRequest) {
     const capacity = computeInvestmentCapacity(input)
     const budget = context.budgetLoad.summary
 
-    return Response.json({
-      ...capacity,
-      // 算出時刻は純関数の外（I/O境界）で付ける。既存レスポンスとの互換のため維持する
-      calculated_at: now.toISOString(),
-      // 防衛資金は配分と同じ「支払い後の原資」基準で返す（総残高で「充足」と出さない）。
-      // フィールドは同じ、値の基準だけ資産計画（buildAssetPlan）と揃える
-      emergency_fund: withHeldReserve(
-        context.emergencyFund,
-        capacity.allocation.emergency_fund,
-        capacity.emergency_fund_status
-      ),
-      // 家計側の「今月あといくら使えるか」もそのまま渡す
-      living: {
-        variable_budget: budget.variable.budget,
-        spent: budget.variable.spent,
-        remaining: budget.variable.remaining,
-        days_left: budget.variable.daysLeft,
-        daily_allowance: budget.variable.dailyAllowance,
-        pace: budget.variable.pace,
-      },
-      balance_recorded_at: context.liquidCash.recordedAt,
-      liquid_cash_source: context.liquidCash.source,
-      source: context.budgetLoad.source,
-    })
+    return Response.json(
+      toCapacityResponse({
+        capacity,
+        emergencyFund: context.emergencyFund,
+        budgetSummary: budget,
+        liquidCash: context.liquidCash,
+        source: context.budgetLoad.source,
+        now,
+      })
+    )
   } catch (error) {
     // DBやライブラリの詳細をクライアントへ返さない（詳細はサーバーログへ）
     return readFailed('api/integrations/investment-capacity', error)

@@ -13,6 +13,7 @@ function read(file: string) {
 }
 
 const route = read('app/api/integrations/investment-capacity/route.ts')
+const capacityResponse = read('lib/integrations/capacity-response.ts')
 const assetPlanningLoader = read('lib/services/asset-planning-loader.ts')
 const capacityInput = read('lib/services/capacity-input.ts')
 const capacityObligations = read('lib/services/capacity-obligations.ts')
@@ -68,7 +69,9 @@ test('月末日を31日で固定しない', () => {
 test('算出時刻はI/O境界で付ける（後方互換）', () => {
   // 1リクエストで1つの now を使う。鮮度判定と calculated_at を同じ時刻にする
   assert.match(route, /const now = new Date\(\)/)
-  assert.match(route, /calculated_at: now\.toISOString\(\)/)
+  assert.match(route, /toCapacityResponse\(/)
+  assert.match(route, /\bnow,/)
+  assert.match(capacityResponse, /calculated_at: now\.toISOString\(\)/)
   assert.match(route, /loadCapacityInput\(userId, month, now, supabaseAdmin\)/)
 })
 
@@ -79,9 +82,10 @@ test('M-3 本番で使わない sumInvestedAfterBalance を残さない（投資
 
 test('I-4 route の emergency_fund は支払い後の原資基準（資産計画と同じ withHeldReserve）', () => {
   assert.match(
-    route,
-    /emergency_fund: withHeldReserve\(\s*context\.emergencyFund,\s*capacity\.allocation\.emergency_fund,\s*capacity\.emergency_fund_status\s*\)/
+    capacityResponse,
+    /emergency_fund: withHeldReserve\(\s*emergencyFund,\s*capacity\.allocation\.emergency_fund,\s*capacity\.emergency_fund_status\s*\)/
   )
   // 総残高基準の値をそのまま返さない
+  assert.doesNotMatch(capacityResponse, /emergency_fund: emergencyFund,/)
   assert.doesNotMatch(route, /emergency_fund: context\.emergencyFund,/)
 })
