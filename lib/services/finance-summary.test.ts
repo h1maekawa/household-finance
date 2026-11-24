@@ -27,6 +27,7 @@ test('finance summary は既存loaderの確定値を契約へ写す', () => {
     } as never,
     cashflow: {
       startingBalance: 500_000,
+      startingBalanceOldestRecordedAt: '2026-09-30T00:00:00.000Z',
       projectedDays: [{ isNegative: false }],
       unassignedCardUsage: { count: 2 },
     } as never,
@@ -50,6 +51,7 @@ test('finance summary は既存loaderの確定値を契約へ写す', () => {
     unassigned_card_usage: 2,
     negative_balance_risk: false,
     negative_balance_risk_known: true,
+    negative_balance_risk_caveat: null,
   })
   assert.equal(result.confidence, 'high')
 })
@@ -68,4 +70,29 @@ test('開始残高が未登録なら negative_balance_risk は判定不能とし
   const r = buildFinanceSummary(base)
   assert.equal(r.review.negative_balance_risk, false)
   assert.equal(r.review.negative_balance_risk_known, false)
+})
+
+test('negative_balance_risk_caveat：記録日が過去なら注意書き、残高不明なら null', () => {
+  const planning = {
+    plan: { month: '2026-11', confidence: 'low', cashflow: { freeToSpend: null, dailyAllowance: null }, allocation: {} },
+    budget: { income: {}, fixed: { effective: 0 }, variable: { spent: 0 } },
+    assets: { liquidCash: null, stockValue: 0, fundValue: 0, otherAssets: 0, totalAssets: 0, recordedAt: null },
+  } as never
+  const known = buildFinanceSummary({
+    planning,
+    cashflow: { startingBalance: 1, startingBalanceOldestRecordedAt: '2026-11-20T09:00:00+09:00', projectedDays: [] } as never,
+    unreviewedTransactions: 0,
+    generatedAt: '2026-11-28T01:00:00.000Z',
+  })
+  assert.equal(
+    known.review.negative_balance_risk_caveat,
+    '不足見込みは検出されていません（残高記録日 11/20 以降の引落は予測に未反映のため、不足なしとは断定できません）',
+  )
+  const unknown = buildFinanceSummary({
+    planning,
+    cashflow: { startingBalance: null, startingBalanceOldestRecordedAt: null, projectedDays: [] } as never,
+    unreviewedTransactions: 0,
+    generatedAt: '2026-11-28T01:00:00.000Z',
+  })
+  assert.equal(unknown.review.negative_balance_risk_caveat, null)
 })

@@ -158,6 +158,7 @@ export async function loadCashflow(userId: string, supabase: SupabaseClient) {
     currentBalance: balanceRes.data,
     startingBalance,
     startingBalanceRecordedAt: liquidCash.oldestRecordedAt,
+    startingBalanceOldestRecordedAt: liquidCash.oldestRecordedAt,
     startingBalanceSource: liquidCash.source,
     missing,
     projectedDays,

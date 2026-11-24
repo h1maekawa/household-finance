@@ -11,6 +11,8 @@ import { addMonths, endOfMonth, format, isAfter, isWithinInterval, parseISO, sta
 import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import Link from 'next/link'
 import { balanceEditMode } from '@/lib/services/balance-edit-mode'
+import { noShortfallMessage } from '@/lib/services/cashflow-caveat'
+import { toJstDateKey } from '@/lib/jst'
 import { monthlyCashChartData } from '@/lib/services/monthly-cash-chart'
 import { CardCycle, CashflowResponse } from '@/types/cashflow'
 import { useToast } from '@/components/Toast'
@@ -205,7 +207,12 @@ export default function UpcomingPayments() {
                 </p>
                 {balanceKnown && (
                   <p className="mt-0.5 text-[11px] text-muted">
-                    {additionalCashNeeded > 0 ? 'この金額を補えば不足を回避' : '現時点では不足見込みなし'}
+                    {additionalCashNeeded > 0
+                      ? 'この金額を補えば不足を回避'
+                      : noShortfallMessage({
+                          oldestRecordedAt: data?.startingBalanceOldestRecordedAt ?? null,
+                          today: toJstDateKey(new Date()),
+                        })}
                   </p>
                 )}
               </div>

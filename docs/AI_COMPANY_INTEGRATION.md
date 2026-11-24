@@ -63,7 +63,8 @@ GET /api/integrations/finance-summary?month=YYYY-MM
     "unreviewed_transactions": 2,
     "unassigned_card_usage": 1,
     "negative_balance_risk": false,
-    "negative_balance_risk_known": true
+    "negative_balance_risk_known": true,
+    "negative_balance_risk_caveat": null
   },
 
   "confidence": "high"
@@ -73,6 +74,8 @@ GET /api/integrations/finance-summary?month=YYYY-MM
 `negative_balance_risk` は後方互換のため boolean のままです。口座残高が未登録で資金繰りを予測できないときは `false` になりますが「リスクなし」ではないため、`negative_balance_risk_known` が `false` のときは、利用側でリスクを不明として扱ってください。
 
 資金繰りの予測（`negative_balance_risk` の元になる30日予測）は、今日を起点に、各口座の最新残高を合計した額から始めます。口座ごとの記録日から今日までの引き落としは、予測には反映していません（Phase 3 で対応予定）。
+
+`negative_balance_risk_caveat`（追加項目）は、予測に赤字日が無くても「不足なし」と断定できないときの注意書きです。最も古い口座の残高記録日（JST）が今日より前なら「不足見込みは検出されていません（残高記録日 M/D 以降の引落は予測に未反映のため、不足なしとは断定できません）」を返し、記録日が今日のとき、または残高が未登録のときは `null` です。`negative_balance_risk: false` を「不足なし」と読む前にこの項目を確認してください。
 
 `investment-capacity` の `emergency_fund` は、`allocation.emergency_fund`（支払い後の原資から確保できた額）を `currentReserve` とする値です。口座残高の総額ではありません。フィールドは変わらず、値の基準だけ資産計画の表示と揃えています。原資が分からないときは `currentReserve`・`reserveGap`・`fundedRatio` は `null`、`status` は `unknown` です。
 
