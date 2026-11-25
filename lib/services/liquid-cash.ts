@@ -7,7 +7,8 @@
 //
 // 優先順位:
 //   1. accounts + 各口座の最新 account_balances（複数口座を合計）
-//   2. 無ければ legacy の account_balance の最新1件
+//   2. 流動口座が0件のときだけ legacy の account_balance の最新1件
+//      （口座があって未記録のものがある場合は legacy へ落とさず null）
 //   3. どちらも無ければ null（0円と未登録を混同しない）
 import { yen } from './money'
 
@@ -20,6 +21,10 @@ export type LiquidCash = {
   source: 'accounts' | 'legacy_balance' | 'none'
   /** 最新の記録時刻。鮮度の判定に使う */
   recordedAt: string | null
+  /** 最も古い口座の記録時刻。1口座でも古ければ鮮度が落ちるので、こちらで判定する */
+  oldestRecordedAt: string | null
+  /** 流動口座ごとの最新記録時刻。未記録の口座は null */
+  accounts: { accountId: string; recordedAt: string | null }[]
   accountCount: number
 }
 
@@ -34,35 +39,93 @@ export type AccountRow = { id: string; type: string }
 /**
  * 口座と残高スナップショットから流動現金を合計する純関数。
  *
- * 残高が一度も記録されていない口座は 0円として数えない。数えると
- * 「残高データがある」と誤判定して、実態より少ない現金で計算してしまう。
+ * 残高が一度も記録されていない口座が1つでもあれば合計しない（amount = null）。
+ * 0円として数えると、また一部の口座だけで合計すると、実態より少ない現金で
+ * 「残高データがある」と誤判定してしまう。
  */
 export function sumLiquidCash(
   accounts: AccountRow[],
   balances: AccountBalanceRow[]
-): { amount: number | null; recordedAt: string | null; accountCount: number } {
-  const liquidIds = new Set(
-    accounts
-      .filter(a => (LIQUID_ACCOUNT_TYPES as readonly string[]).includes(a.type))
-      .map(a => a.id)
-  )
-  if (liquidIds.size === 0) return { amount: null, recordedAt: null, accountCount: 0 }
+): Pick<LiquidCash, 'amount' | 'recordedAt' | 'oldestRecordedAt' | 'accounts' | 'accountCount'> {
+  const liquidIds = accounts
+    .filter(a => (LIQUID_ACCOUNT_TYPES as readonly string[]).includes(a.type))
+    .map(a => a.id)
+  if (liquidIds.length === 0) {
+    return { amount: null, recordedAt: null, oldestRecordedAt: null, accounts: [], accountCount: 0 }
+  }
+  const liquidSet = new Set(liquidIds)
 
   // 口座ごとに最新の1件だけ採用する
   const latest = new Map<string, AccountBalanceRow>()
   for (const row of [...balances].sort((a, b) => b.recorded_at.localeCompare(a.recorded_at))) {
-    if (!liquidIds.has(row.account_id)) continue
+    if (!liquidSet.has(row.account_id)) continue
     if (latest.has(row.account_id)) continue
     if (row.balance === null || row.balance === undefined) continue
     latest.set(row.account_id, row)
   }
-  if (latest.size === 0) return { amount: null, recordedAt: null, accountCount: liquidIds.size }
+
+  const perAccount = liquidIds.map(id => ({
+    accountId: id,
+    recordedAt: latest.get(id)?.recorded_at ?? null,
+  }))
+
+  if (latest.size < liquidIds.length) {
+    return {
+      amount: null,
+      recordedAt: null,
+      oldestRecordedAt: null,
+      accounts: perAccount,
+      accountCount: liquidIds.length,
+    }
+  }
 
   let total = 0
-  let recordedAt: string | null = null
+  let newest: string | null = null
+  let oldest: string | null = null
   for (const row of latest.values()) {
     total += yen(row.balance ?? 0)
-    if (!recordedAt || row.recorded_at > recordedAt) recordedAt = row.recorded_at
+    if (!newest || row.recorded_at > newest) newest = row.recorded_at
+    if (!oldest || row.recorded_at < oldest) oldest = row.recorded_at
   }
-  return { amount: total, recordedAt, accountCount: latest.size }
+  return {
+    amount: total,
+    recordedAt: newest,
+    oldestRecordedAt: oldest,
+    accounts: perAccount,
+    accountCount: latest.size,
+  }
+}
+
+export type LegacyBalanceRow = { balance: number | null; recorded_at: string | null }
+
+/** 流動口座（bank/cash/emoney）の件数。旧テーブルへ落とすか判定するのに使う */
+export function countLiquidAccounts(accounts: AccountRow[]): number {
+  return accounts.filter(a => (LIQUID_ACCOUNT_TYPES as readonly string[]).includes(a.type)).length
+}
+
+/**
+ * 流動現金の決定。旧 account_balance へのフォールバックは「流動口座が0件」の
+ * ユーザーに限る。口座があるのに未記録の口座がある場合は、古い単一の数字で
+ * 実際の口座を無視せず、amount = null（未登録）を返す。
+ */
+export function resolveLiquidCash(
+  accounts: AccountRow[],
+  balances: AccountBalanceRow[],
+  legacy: LegacyBalanceRow | null
+): LiquidCash {
+  const fromAccounts = sumLiquidCash(accounts, balances)
+  if (countLiquidAccounts(accounts) > 0) {
+    return { ...fromAccounts, source: 'accounts' }
+  }
+  if (legacy && legacy.balance !== null && legacy.balance !== undefined) {
+    return {
+      amount: yen(legacy.balance),
+      source: 'legacy_balance',
+      recordedAt: legacy.recorded_at ?? null,
+      oldestRecordedAt: legacy.recorded_at ?? null,
+      accounts: [{ accountId: 'legacy', recordedAt: legacy.recorded_at ?? null }],
+      accountCount: 1,
+    }
+  }
+  return { amount: null, source: 'none', recordedAt: null, oldestRecordedAt: null, accounts: [], accountCount: 0 }
 }

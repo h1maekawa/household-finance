@@ -17,7 +17,7 @@ import type { BudgetSummary } from '@/types/budget'
 import type { GoalProgress, GoalTrackStatus } from '@/types/goal'
 import type { CapacityResult } from './investment-capacity'
 import type { MoneyPlan } from './money-plan'
-import type { EmergencyFundResult } from './emergency-fund'
+import { withHeldReserve, type EmergencyFundResult } from './emergency-fund'
 import type { ProjectionPoint } from './projection'
 import { yen } from './money'
 
@@ -121,7 +121,13 @@ export function buildAssetPlan(input: {
   projection: ProjectionPoint[]
   moneyPlan: MoneyPlan
 }): AssetPlanningResult {
-  const { month, budget, capacity, emergencyFund, goals, projection } = input
+  const { month, budget, capacity, goals, projection } = input
+  // 防衛資金の表示は、配分と同じ「支払い後の原資」基準に揃える（総残高で充足と出さない）
+  const emergencyFund = withHeldReserve(
+    input.emergencyFund,
+    capacity.allocation.emergency_fund,
+    capacity.emergency_fund_status
+  )
 
   // 各エンジンが報告した欠損をまとめるだけ。ここで独自の判定を足さない
   const missingData = [...capacity.missing_data]

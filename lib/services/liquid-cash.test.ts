@@ -25,7 +25,7 @@ test('複数口座の最新残高を合計する', () => {
 })
 
 test('証券口座は流動現金に含めない', () => {
-  const r = sumLiquidCash(accounts, [
+  const r = sumLiquidCash([accounts[0], accounts[3]], [
     { account_id: 'a1', balance: 100000, recorded_at: '2026-09-01T00:00:00Z' },
     { account_id: 'a4', balance: 900000, recorded_at: '2026-09-01T00:00:00Z' },
   ])
@@ -67,4 +67,112 @@ test('残高0円は「未登録」ではなく0円として扱う', () => {
     { account_id: 'a1', balance: 0, recorded_at: '2026-09-01T00:00:00Z' },
   ])
   assert.equal(r.amount, 0)
+})
+
+// 変更前は a1 だけの記録でも 100000 を返していた（一部の口座だけで合計）。
+// Task 2 で「一部の口座に記録が無ければ合計しない」へ変更した。
+test('[変更点] 記録の無い流動口座があれば、記録のある口座だけでは合計しない', () => {
+  const r = sumLiquidCash(accounts, [
+    { account_id: 'a1', balance: 100000, recorded_at: '2026-09-01T00:00:00Z' },
+  ])
+  assert.equal(r.amount, null)
+})
+
+// --- Task 2: 口座ごとの鮮度 ---
+test('最も古い口座の記録時刻を返す（recordedAt は最新のまま）', () => {
+  const r = sumLiquidCash(
+    [{ id: 'a', type: 'bank' }, { id: 'b', type: 'bank' }],
+    [
+      { account_id: 'a', balance: 100000, recorded_at: '2026-11-23T00:00:00Z' },
+      { account_id: 'b', balance: 50000, recorded_at: '2026-11-10T00:00:00Z' },
+    ]
+  )
+  assert.equal(r.amount, 150000)
+  assert.equal(r.recordedAt, '2026-11-23T00:00:00Z')
+  assert.equal(r.oldestRecordedAt, '2026-11-10T00:00:00Z')
+  assert.deepEqual(r.accounts, [
+    { accountId: 'a', recordedAt: '2026-11-23T00:00:00Z' },
+    { accountId: 'b', recordedAt: '2026-11-10T00:00:00Z' },
+  ])
+})
+
+test('一部の口座に残高の記録が無ければ合計しない（null）', () => {
+  const r = sumLiquidCash(
+    [{ id: 'a', type: 'bank' }, { id: 'b', type: 'bank' }],
+    [{ account_id: 'a', balance: 100000, recorded_at: '2026-11-23T00:00:00Z' }]
+  )
+  assert.equal(r.amount, null)
+  assert.equal(r.oldestRecordedAt, null)
+  assert.deepEqual(r.accounts, [
+    { accountId: 'a', recordedAt: '2026-11-23T00:00:00Z' },
+    { accountId: 'b', recordedAt: null },
+  ])
+})
+
+// ---- resolveLiquidCash: 旧テーブルへのフォールバック判定 ----
+import { resolveLiquidCash } from './liquid-cash'
+
+test('流動口座が0件なら旧テーブルの残高を使う', () => {
+  const r = resolveLiquidCash(
+    [{ id: 'a4', type: 'securities' }],
+    [],
+    { balance: 123456, recorded_at: '2026-09-01T00:00:00Z' }
+  )
+  assert.equal(r.amount, 123456)
+  assert.equal(r.source, 'legacy_balance')
+  assert.equal(r.oldestRecordedAt, '2026-09-01T00:00:00Z')
+})
+
+test('流動口座が0件で旧テーブルも無ければ none', () => {
+  const r = resolveLiquidCash([], [], null)
+  assert.equal(r.amount, null)
+  assert.equal(r.source, 'none')
+})
+
+test('流動口座がすべて記録済みなら合計し、旧テーブルは無視する', () => {
+  const r = resolveLiquidCash(
+    [{ id: 'a1', type: 'bank' }, { id: 'a2', type: 'cash' }],
+    [
+      { account_id: 'a1', balance: 800000, recorded_at: '2026-09-01T00:00:00Z' },
+      { account_id: 'a2', balance: 400000, recorded_at: '2026-09-02T00:00:00Z' },
+    ],
+    { balance: 1, recorded_at: '2026-01-01T00:00:00Z' }
+  )
+  assert.equal(r.amount, 1200000)
+  assert.equal(r.source, 'accounts')
+})
+
+test('流動口座に未記録があれば null。旧テーブルへ落とさず、口座一覧を残す', () => {
+  const r = resolveLiquidCash(
+    [{ id: 'a1', type: 'bank' }, { id: 'a2', type: 'bank' }],
+    [{ account_id: 'a1', balance: 800000, recorded_at: '2026-09-01T00:00:00Z' }],
+    { balance: 999999, recorded_at: '2026-01-01T00:00:00Z' }
+  )
+  assert.equal(r.amount, null)
+  assert.equal(r.source, 'accounts')
+  assert.equal(r.accounts.length, 2)
+  assert.equal(r.accounts.find(a => a.accountId === 'a2')?.recordedAt, null)
+})
+
+// M-5 account_balances は PostgREST の上限（既定1000行）で切られる。新しい順に読まないと
+// 口座の最新行が読み込みから落ち、古い残高や「未記録」になる
+test('M-5 ローダーは account_balances を記録の新しい順に読む', async () => {
+  const { readFileSync } = await import('node:fs')
+  const loader = readFileSync('lib/services/liquid-cash-loader.ts', 'utf8')
+  assert.match(
+    loader,
+    /from\('account_balances'\)\s*\.select\('account_id, balance, recorded_at'\)\s*\.eq\('user_id', userId\)\s*\.order\('recorded_at', \{ ascending: false \}\)/
+  )
+})
+
+test('M-5 新しい順に並んだ行から、口座ごとに先頭（最新）の1件を採用する', () => {
+  const result = sumLiquidCash(
+    [{ id: 'a', type: 'bank' }],
+    [
+      { account_id: 'a', balance: 300, recorded_at: '2026-11-27T00:00:00Z' },
+      { account_id: 'a', balance: 100, recorded_at: '2026-11-01T00:00:00Z' },
+    ]
+  )
+  assert.equal(result.amount, 300)
+  assert.equal(result.recordedAt, '2026-11-27T00:00:00Z')
 })

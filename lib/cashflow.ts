@@ -17,6 +17,7 @@ import {
   resolveMonthlyDebits,
   type FxRates,
 } from './services/fixed-costs'
+import { detectSalaryDuplicate, type SalaryDuplicateDecision } from './services/salary-duplicate'
 
 type CashflowOptions = {
   monthlyIncome?: number
@@ -424,6 +425,62 @@ function buildPaymentIndex(
   return index
 }
 
+/**
+ * 予測期間にかかる各月について、プロフィールの月収と予定入金（type:'income'）が
+ * 同じ給与かを判定する（detectSalaryDuplicate。投資可能額と同じ判定）。
+ * 'YYYY-MM' → 判定。月収が0なら空。
+ */
+function salaryDecisionsByMonth(
+  scheduledPayments: ScheduledPayment[],
+  days: number,
+  options: CashflowOptions
+): Map<string, SalaryDuplicateDecision> {
+  const decisions = new Map<string, SalaryDuplicateDecision>()
+  const monthlyIncome = Math.max(Math.round(Number(options.monthlyIncome ?? 0)), 0)
+  if (monthlyIncome <= 0) return decisions
+  const today = options.today ?? new Date()
+  const incomeDay = Math.min(Math.max(Number(options.incomeDay ?? 25), 1), 31)
+  const fx = options.fxRates ?? {}
+  const incomes = scheduledPayments.filter(p => p.is_active && p.type === 'income')
+
+  for (let i = 0; i < days; i++) {
+    const date = addDays(today, i)
+    const month = format(date, 'yyyy-MM')
+    if (decisions.has(month)) continue
+    const salaryDate = format(dateForDay(date.getFullYear(), date.getMonth(), incomeDay), 'yyyy-MM-dd')
+    decisions.set(
+      month,
+      detectSalaryDuplicate({
+        planned: monthlyIncome,
+        salaryDate,
+        incomes: incomes.flatMap(payment => {
+          const due = resolveDueDate(payment, month)
+          return due
+            ? [{ id: payment.id, name: payment.name, category: payment.category, date: due, amount: resolveAmountYen(payment, fx) }]
+            : []
+        }),
+      })
+    )
+  }
+  return decisions
+}
+
+/**
+ * 予測期間で、給与が予定入金とプロフィールの月収の両方にあるかもしれない（あいまい）
+ * ときの missing の文言（重複は除く）。cashflow-loader が missing に足す
+ */
+export function salaryDuplicateMissing(
+  scheduledPayments: ScheduledPayment[],
+  days: number = 30,
+  options: CashflowOptions = {}
+): string[] {
+  const messages = new Set<string>()
+  for (const decision of salaryDecisionsByMonth(scheduledPayments, days, options).values()) {
+    for (const message of decision.missingData) messages.add(message)
+  }
+  return [...messages]
+}
+
 export function projectCashflow(
   currentBalance: number,
   scheduledPayments: ScheduledPayment[],
@@ -447,6 +504,8 @@ export function projectCashflow(
     fx,
     options.suppressedDebits ?? new Set()
   )
+  // 給与が予定入金にもある月（一致・あいまい）は、合成給与を作らない（予定入金だけを使う）
+  const salaryDecisions = salaryDecisionsByMonth(activePayments, days, options)
 
   for (let i = 0; i < days; i++) {
     const date = addDays(today, i)
@@ -461,7 +520,8 @@ export function projectCashflow(
     )
 
     const effectiveIncomeDay = Math.min(incomeDay, daysInMonth)
-    if (monthlyIncome > 0 && dayOfMonth === effectiveIncomeDay) {
+    const salaryDecision = salaryDecisions.get(format(date, 'yyyy-MM'))
+    if (monthlyIncome > 0 && dayOfMonth === effectiveIncomeDay && salaryDecision?.includeSynthesizedSalary !== false) {
       paymentsForDay.push({
         id: `generated-income-${dateStr}`,
         name: '毎月の固定収入',

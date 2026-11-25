@@ -16,12 +16,17 @@ export function currentMonthJst(): string {
 
 /** 日本時間の今日 'YYYY-MM-DD' */
 export function todayJst(): string {
+  return toJstDateKey(new Date())
+}
+
+/** 指定時刻の日本時間の日付 'YYYY-MM-DD' */
+export function toJstDateKey(date: Date): string {
   return new Intl.DateTimeFormat('en-CA', {
     timeZone: 'Asia/Tokyo',
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
-  }).format(new Date())
+  }).format(date)
 }
 
 /** ?month= の値。形式が違えば当月にフォールバックする */

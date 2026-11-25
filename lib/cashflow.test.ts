@@ -307,3 +307,10 @@ test('確定額でない予定は突合インデックスに入らない', () =>
   ])
   assert.equal(index.size, 0)
 })
+
+test('開始残高は口座合計（口座A 800,000円＋口座B 400,000円）から予測する', () => {
+  const total = 800_000 + 400_000
+  const days = projectCashflow(total, [payment()], 40, { today: new Date(2026, 8, 1) })
+  assert.equal(dayOf(days, '2026-09-01')?.balance, total)
+  assert.equal(dayOf(days, '2026-09-26')?.balance, total - 58330)
+})

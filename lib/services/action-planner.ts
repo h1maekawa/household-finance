@@ -67,6 +67,8 @@ export type ActionPlannerInput = {
   unassignedCardUsage: { count: number; total: number } | null
   /** 残高がマイナスになる最初の日。無ければ null */
   firstNegativeDay: { date: string; balance: number } | null
+  /** 開始残高が未登録で資金繰りを予測できない。無いと「不足なし」と区別できない */
+  cashflowUnknown?: boolean
 }
 
 function formatDay(date: string): string {
@@ -83,6 +85,19 @@ function formatDay(date: string): string {
  */
 function paymentActions(input: ActionPlannerInput): MonthlyAction[] {
   const actions: MonthlyAction[] = []
+
+  if (input.cashflowUnknown) {
+    actions.push({
+      id: 'payment:balance-unknown',
+      kind: 'payment',
+      title: '口座残高を登録すると資金繰りの不足を確認できます',
+      detail: '口座残高が未登録のため、引き落としで足りなくなるかを判定できていません',
+      amount: null,
+      severity: 'warning',
+      priority: 95,
+      href: '/investments?tab=accounts',
+    })
+  }
 
   if (input.firstNegativeDay) {
     const shortfall = Math.abs(yen(input.firstNegativeDay.balance))

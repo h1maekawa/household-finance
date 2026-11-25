@@ -1,0 +1,78 @@
+{
+  "target_month": "2026-11",
+  "available_cash": null,
+  "confirmed_income": 0,
+  "expected_income": 0,
+  "confirmed_expenses": 0,
+  "pending_card_amount": 208590,
+  "fixed_expenses": 156000,
+  "scheduled_expenses": 0,
+  "already_invested": 80000,
+  "already_invested_deducted": 30000,
+  "personal_cash_floor": 130000,
+  "investable_amount": null,
+  "allocatable_cash": null,
+  "required_reserve": 600000,
+  "emergency_fund_status": "unknown",
+  "allocation": {
+    "emergency_fund": null,
+    "savings": null,
+    "asset_building": null,
+    "unallocated_cash": null
+  },
+  "data_freshness": "unknown",
+  "balance_oldest_recorded_at": null,
+  "stale_account_count": 0,
+  "confidence": "low",
+  "missing_data": [
+    "口座残高が未登録です"
+  ],
+  "breakdown": [
+    {
+      "label": "未引落のカード請求",
+      "amount": 208590,
+      "sign": "-"
+    },
+    {
+      "label": "未払いの固定費",
+      "amount": 156000,
+      "sign": "-"
+    },
+    {
+      "label": "今月の残り生活費",
+      "amount": 30000,
+      "sign": "-"
+    },
+    {
+      "label": "予備費",
+      "amount": 100000,
+      "sign": "-"
+    },
+    {
+      "label": "今月すでに投資した額",
+      "amount": 30000,
+      "sign": "-"
+    }
+  ],
+  "calculated_at": "2026-11-28T03:00:00.000Z",
+  "emergency_fund": {
+    "targetMonths": 3,
+    "monthlyEssentialExpenses": 200000,
+    "requiredReserve": null,
+    "currentReserve": null,
+    "reserveGap": null,
+    "fundedRatio": null,
+    "status": "unknown"
+  },
+  "living": {
+    "variable_budget": 120000,
+    "spent": 90000,
+    "remaining": 30000,
+    "days_left": 2,
+    "daily_allowance": 15000,
+    "pace": 0.8
+  },
+  "balance_recorded_at": null,
+  "liquid_cash_source": "none",
+  "source": "transactions"
+}

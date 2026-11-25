@@ -323,3 +323,15 @@ test('id はすべて一意', () => {
   )
   assert.equal(new Set(result.map(a => a.id)).size, result.length)
 })
+
+test('資金繰りの予測ができない（開始残高が未登録）ときは、残高登録を促す行動を出す', () => {
+  const result = buildMonthlyActions(input({ cashflowUnknown: true }))
+  const action = result.find(a => a.id === 'payment:balance-unknown')
+  assert.ok(action, '残高未登録の通知が出る')
+  assert.equal(action?.title, '口座残高を登録すると資金繰りの不足を確認できます')
+})
+
+test('予測できているときは残高登録の通知を出さない', () => {
+  const result = buildMonthlyActions(input({ cashflowUnknown: false }))
+  assert.equal(result.find(a => a.id === 'payment:balance-unknown'), undefined)
+})

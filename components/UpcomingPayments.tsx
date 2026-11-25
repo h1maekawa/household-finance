@@ -10,6 +10,10 @@ import useSWR from 'swr'
 import { addMonths, endOfMonth, format, isAfter, isWithinInterval, parseISO, startOfDay, startOfMonth } from 'date-fns'
 import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import Link from 'next/link'
+import { balanceEditMode } from '@/lib/services/balance-edit-mode'
+import { noShortfallMessage, shortfallJudgeable, SHORTFALL_STALE_MESSAGE } from '@/lib/services/cashflow-caveat'
+import { toJstDateKey } from '@/lib/jst'
+import { monthlyCashChartData } from '@/lib/services/monthly-cash-chart'
 import { CardCycle, CashflowResponse } from '@/types/cashflow'
 import { useToast } from '@/components/Toast'
 
@@ -33,7 +37,16 @@ export default function UpcomingPayments() {
   const [newBalance, setNewBalance] = useState('')
   const [saving, setSaving] = useState(false)
 
-  const current = data?.currentBalance
+  // 予測の開始残高（複数口座の合計）。未登録なら null。旧テーブルの1行は表示に使わない
+  const startingBalance = data?.startingBalance ?? null
+  const balanceKnown = startingBalance !== null
+  // 最も古い口座の記録が7日（168時間）を超えたら、不足見込みを判定しない（「不足なし」と言わない）
+  const shortfallKnown = shortfallJudgeable({
+    balanceKnown,
+    oldestRecordedAt: data?.startingBalanceOldestRecordedAt ?? null,
+    now: new Date(),
+  })
+  const editMode = balanceEditMode(data?.startingBalanceSource)
   const projected = data?.projectedDays ?? []
   const payments  = data?.scheduledPayments ?? []
   const generatedPayments = data?.generatedPayments ?? []
@@ -73,7 +86,7 @@ export default function UpcomingPayments() {
     return isWithinInterval(date, { start: rangeStart, end: targetRangeEnd })
   })
   const investmentValue = Number(investments?.summary?.investmentValue ?? 0)
-  const currentCash = Number(current?.balance ?? 0)
+  const currentCash = startingBalance
   const minBalance = focusedProjected.length > 0 ? Math.min(...focusedProjected.map(d => d.balance)) : 0
   const negDays    = focusedProjected.filter(d => d.isNegative).length
   const totalOutflow = focusedProjected.reduce((sum, day) => {
@@ -87,7 +100,9 @@ export default function UpcomingPayments() {
       .reduce((daySum, payment) => daySum + payment.amount, 0)
   }, 0)
   const additionalCashNeeded = Math.max(0, -minBalance)
-  const usableCashAfterProjection = focusedProjected.length > 0 ? focusedProjected[focusedProjected.length - 1].balance : currentCash
+  const usableCashAfterProjection: number | null = !balanceKnown
+    ? null
+    : focusedProjected.length > 0 ? focusedProjected[focusedProjected.length - 1].balance : currentCash
   // 見込みは「カードの締めと引き落とし」パネルが締めサイクル単位で出すので、
   // ここは Gmail から取り込んだ確定請求だけに絞る。両方出すと同じ請求が
   // 2箇所に違う金額で並び、「どっちが本当か分からない」状態になる。
@@ -99,25 +114,12 @@ export default function UpcomingPayments() {
       return isWithinInterval(date, { start: rangeStart, end: targetRangeEnd })
     })
     .sort((a, b) => String(a.scheduled_date ?? '').localeCompare(String(b.scheduled_date ?? '')))
-  const monthlyChartData = [targetMonthStart, targetNextMonthStart].map(monthStart => {
-    const monthEnd = endOfMonth(monthStart)
-    const days = focusedProjected.filter(day => {
-      const date = parseISO(day.date)
-      return isWithinInterval(date, { start: monthStart, end: monthEnd })
-    })
-    const endingCash = days.length > 0 ? days[days.length - 1].balance : currentCash
-    const expense = days.reduce((sum, day) => {
-      return sum + day.payments
-        .filter(payment => payment.type !== 'income')
-        .reduce((daySum, payment) => daySum + payment.amount, 0)
-    }, 0)
-
-    return {
-      month: format(monthStart, 'M月'),
-      totalAssets: Math.max(Math.round(endingCash + investmentValue), 0),
-      cash: Math.max(Math.round(endingCash), 0),
-      expense,
-    }
+  // 開始残高が不明なら月別見通しを描かない（0円の棒にしない。理由は missing で出す）
+  const monthlyChartData = monthlyCashChartData({
+    months: [targetMonthStart, targetNextMonthStart],
+    projectedDays: focusedProjected,
+    startingBalance,
+    investmentValue,
   })
 
   async function handleBalanceSave() {
@@ -171,13 +173,21 @@ export default function UpcomingPayments() {
           ) : (
             <div className="flex items-end justify-between">
               <p className="text-3xl font-bold">
-                {current ? current.balance.toLocaleString() : '-'}
+                {balanceKnown ? startingBalance.toLocaleString() : '—'}
                 <span className="text-base font-normal ml-1">円</span>
               </p>
-              <button onClick={() => setEditingBalance(true)}
-                className="px-3 py-1.5 rounded-xl bg-white/20 text-white text-xs font-medium">
-                更新
-              </button>
+              {editMode === 'link' && (
+                <Link href="/investments?tab=accounts"
+                  className="px-3 py-1.5 rounded-xl bg-white/20 text-white text-xs font-medium">
+                  {balanceKnown ? '口座残高を編集' : '口座残高を登録'}
+                </Link>
+              )}
+              {editMode === 'inline-edit' && (
+                <button onClick={() => setEditingBalance(true)}
+                  className="px-3 py-1.5 rounded-xl bg-white/20 text-white text-xs font-medium">
+                  更新
+                </button>
+              )}
             </div>
           )}
         <p className="mt-2 text-[11px] leading-relaxed text-white/60">
@@ -196,19 +206,28 @@ export default function UpcomingPayments() {
               </p>
             </div>
             <div className="grid grid-cols-2 gap-3">
-              <div className={`rounded-xl p-3 ${additionalCashNeeded > 0 ? 'bg-danger/10' : 'bg-success/10'}`}>
+              <div className={`rounded-xl p-3 ${!shortfallKnown ? 'bg-surface' : additionalCashNeeded > 0 ? 'bg-danger/10' : 'bg-success/10'}`}>
                 <p className="text-[11px] text-muted">追加で必要な預貯金</p>
-                <p className={`mt-1 text-lg font-bold ${additionalCashNeeded > 0 ? 'text-danger' : 'text-success'}`}>
-                  {additionalCashNeeded.toLocaleString()}円
+                <p className={`mt-1 text-lg font-bold ${!shortfallKnown ? 'text-foreground' : additionalCashNeeded > 0 ? 'text-danger' : 'text-success'}`}>
+                  {!balanceKnown ? '—（口座残高が未登録）' : !shortfallKnown ? '—（判定不可）' : `${additionalCashNeeded.toLocaleString()}円`}
                 </p>
-                <p className="mt-0.5 text-[11px] text-muted">
-                  {additionalCashNeeded > 0 ? 'この金額を補えば不足を回避' : '現時点では不足見込みなし'}
-                </p>
+                {balanceKnown && (
+                  <p className="mt-0.5 text-[11px] text-muted">
+                    {!shortfallKnown
+                      ? SHORTFALL_STALE_MESSAGE
+                      : additionalCashNeeded > 0
+                      ? 'この金額を補えば不足を回避'
+                      : noShortfallMessage({
+                          oldestRecordedAt: data?.startingBalanceOldestRecordedAt ?? null,
+                          today: toJstDateKey(new Date()),
+                        })}
+                  </p>
+                )}
               </div>
               <div className="rounded-xl bg-surface p-3">
                 <p className="text-[11px] text-muted">予測後の預貯金</p>
-                <p className={`mt-1 text-lg font-bold ${usableCashAfterProjection < 0 ? 'text-danger' : 'text-foreground'}`}>
-                  {usableCashAfterProjection.toLocaleString()}円
+                <p className={`mt-1 text-lg font-bold ${usableCashAfterProjection !== null && usableCashAfterProjection < 0 ? 'text-danger' : 'text-foreground'}`}>
+                  {usableCashAfterProjection === null ? '—（口座残高が未登録）' : `${usableCashAfterProjection.toLocaleString()}円`}
                 </p>
                 <p className="mt-0.5 text-[11px] text-muted">投資評価額は含みません</p>
               </div>
@@ -281,8 +300,15 @@ export default function UpcomingPayments() {
           </div>
         )}
 
+        {/* 開始残高が未登録のときは 0 円から予測せず、理由を出す */}
+        {(data?.missing ?? []).length > 0 && (
+          <div className="px-4 py-3 rounded-xl bg-warning/10 text-sm font-medium border border-warning/20">
+            {(data?.missing ?? []).map(message => <p key={message}>{message}</p>)}
+          </div>
+        )}
+
         {/* Alerts */}
-        {negDays > 0 && (
+        {balanceKnown && negDays > 0 && (
           <div className="flex items-start gap-3 px-4 py-3 rounded-xl bg-danger/10 text-danger border border-danger/20 text-sm font-medium">
             <span className="text-base mt-0.5">⚠</span>
             <p>{format(targetMonthStart, 'M月')}〜{format(targetNextMonthStart, 'M月')}で預貯金がマイナスになる日が <strong>{negDays}日</strong> あります（最小: {minBalance.toLocaleString()}円）</p>
